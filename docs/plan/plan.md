@@ -47,7 +47,8 @@ a retransmission request, because there is no back-channel to request on.
 | D12 | **Render dark-on-light, not dual-polarity** | Dual-polarity decoding costs ~50% throughput. OLED ABL also means a mostly-white sender loses ~4× brightness — so "light" must mean a *moderate* background, not full white. | `pwa-platform` |
 | D13 | **Add to Home Screen is mandatory on iOS, not a nicety** | Safari deletes service-worker caches after 7 days of non-use; Home Screen web apps are exempt. An offline-first tool that silently evaporates is worse than one that never claimed to work offline. | `pwa-platform` |
 | D15 | **Fragment length `L` is fixed at session start and never varies — not per profile, not ever** | A fountain packet is defined over K fragments of length L. Change L and K changes, invalidating **every packet already collected**. Profiles may vary tile version, module size, tile count and fps; never L. Easy to violate by accident ("just use bigger fragments for the dense profile"), and the symptom would be baffling. | `link-adaptation-design` |
-| D16 | **Sender emits a simulcast ladder of 2–3 robustness profiles; no negotiation in v1** | Because packets are fungible under a rateless code, the sender never has to *choose* a profile — it emits a mix and lets the channel decide which survive. No back-channel, no measurement, no decision, no oscillation risk. Converts the catastrophic case (mis-guessed fixed profile → **zero** throughput, since 4 px/module is a cliff not a slope) into a merely-slow case. | `link-adaptation-design` |
+| D16 | **Sender mixes a ladder of 2–4 robustness profiles *within every frame*; no negotiation in v1** | Packets are fungible under a rateless code, so the sender never has to *choose* — it emits a mix and lets the channel decide which survive. **On a fountain-coded erasure channel, probing is free**: a probe tile that succeeds delivers real payload, unlike WiFi's ~10% probe tax. The ladder is transport and channel sounder at once. Mixed *within* a frame, not across frames, so every profile is measured every frame and the rotation cannot alias against camera fps. Converts the catastrophic case (mis-guessed fixed profile → **zero** throughput, since 4 px/module is a cliff not a slope) into a merely-slow one. | `link-adaptation`, `link-adaptation-design` |
+| D18 | **Damp with LTE OLLA structure: 1:9 up/down asymmetry, ~1 s window, 2 s dwell, immediate hard step-down. Target 20–30% residual erasure — not zero.** | Closed-loop density control oscillates notoriously; COBRA's optical-physics-derived rule (fast-down/slow-up, 1 s dwell) converges with WiFi's hard-won practice. Profile selection stays a **stateless lookup** on an integrated px/module bias, so there is no state machine to get stuck in. Targeting *zero* erasure is the classic error — it means the ladder is too conservative and capacity is being left unused; the fountain code exists precisely to absorb that loss. | `link-adaptation` |
 | D17 | **Session opens at a conservative beacon profile, re-emitted periodically mid-transfer** | Analogous to WiFi's lowest basic rate. Lets a receiver join late or re-acquire after losing lock without restarting the sender — generalising the late-join recovery already demonstrated in testing. Also the bootstrap any future closed-loop mode would need. | `link-adaptation-design` |
 
 ---
@@ -374,16 +375,25 @@ Only after Stages 1–2 are solid, and only after the licensing decision below.
    is uniquely exposed to being *filmed*. Worth revisiting once the transport is real.
 6. **Should the sender ever stop?** Currently it loops forever. A "probably done by
    now" heuristic risks stopping early; never stopping risks the user leaving it on.
-7. **Closed-loop negotiation — deliberately deferred, not forgotten.** A back-channel
-   is physically available in face-to-face geometry (screen and front camera share a
-   face on every device), and would need only ~10–30 bytes in a single static QR the
-   receiver holds on screen. Deferred because: it works only with the *worse* front
-   cameras, cannot work at all in the natural rear-camera scanning posture, needs a
-   conservative bootstrap anyway (so D16/D17 are prerequisites regardless), and
-   closed-loop rate adaptation is famously prone to oscillation against a wobbling
-   hand. D16's ladder captures most of the benefit at zero protocol cost.
-   **Reassess after Phase 3**, with a measurement of how much capacity the ladder
-   actually wastes. See [`../notes/link-adaptation-design.md`](../notes/link-adaptation-design.md).
+7. **Closed-loop negotiation — deferred on evidence, not forgotten.** Bidirectional
+   screen-camera links are precedented four times over (CamTalk 2013; MAMBA 2020 ran
+   two phones screen-to-screen at 20 cm, 11–28 kbps *each way simultaneously*), so
+   feasibility is settled. It is deferred because **MAMBA's measured gain from
+   closing the loop is only 5–20%**, while changing the coding paradigm buys
+   multiples (SoftLight: 2.2× with entirely *fixed* parameters). It also works only
+   with the *worse* front cameras — fixed-focus until ~2022, iPhone 14 was Apple's
+   first with front AF — cannot work at all in the natural rear-camera posture, needs
+   the D17 bootstrap regardless, and every published experiment propped both devices
+   on stands. **Reassess after Phase 3.** See
+   [`../notes/link-adaptation-design.md`](../notes/link-adaptation-design.md).
+8. **SoftLight-style soft hints — the highest-ceiling idea we are not doing yet.**
+   SoftLight (INFOCOM'16) replaces adaptation with *per-bit confidence values*
+   against an in-band reference, plus a false-positive-tolerant rateless code, and
+   reports **2.2× over RDCode with fixed parameters**. This is a coding-paradigm
+   change, which is where the multiples live. Blocked on the decoder: zxing returns
+   hard bytes, not per-bit confidence, so it cannot be bolted onto Stage 1. Natural
+   fit for Stage 3's custom codec, where we control the demodulator. Worth a spike
+   before committing Phase 6's design.
 
 ---
 
@@ -398,4 +408,6 @@ Only after Stages 1–2 are solid, and only after the licensing decision below.
 | [`beyond-qr-optical-channels.md`](../research/beyond-qr-optical-channels.md) | Tiling, colour tripling, screen-camera SOTA, JAB Code rejection |
 | [`custom-codec-engineering.md`](../research/custom-codec-engineering.md) | libcimbar geometry, GPU pipeline, calibration, camera ISP effects |
 | [`pwa-platform-and-ux.md`](../research/pwa-platform-and-ux.md) | iOS blockers, file I/O, PWA, testing tiers |
+| [`link-adaptation.md`](../research/link-adaptation.md) | Rate-adaptation prior art, Strata/SoftLight/COBRA/MAMBA, bidirectional precedent, OLLA damping |
+| [`../notes/link-adaptation-design.md`](../notes/link-adaptation-design.md) | The three tiers, why probing is free, why negotiation is deferred |
 | [`../notes/prior-art-libcimbar.md`](../notes/prior-art-libcimbar.md) | Verification of the 106 KB/s claim + licensing |

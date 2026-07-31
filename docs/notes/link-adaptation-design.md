@@ -94,11 +94,29 @@ No protocol, no back-channel, no sender involvement. The receiver configures
 **This tier is not optimisation — it is the difference between working and not.**
 It needs no negotiation whatsoever, and it is where effort should go first.
 
-### Tier 2 — Sender simulcast ladder. **Cheap, do it in v1.**
+### Tier 2 — Sender profile ladder. **Cheap, do it in v1.**
 
-The sender interleaves frames at 2–3 robustness profiles — say 60% aggressive,
-30% moderate, 10% conservative. The receiver harvests whatever decodes. All
+> **Corrected after prior-art research** (`../research/link-adaptation.md`): mix
+> profiles **within each frame**, not across frames. Every frame carries a mix of
+> robust and dense tiles. This gives simultaneous measurement at every profile on
+> every frame, and avoids aliasing the profile rotation against the camera's frame
+> rate. FOCUS (MobiSys'16) already does the temporal version harvested by a Raptor
+> code; the within-frame version is strictly better for our purposes.
+
+The sender emits a mix of 2–4 robustness profiles (beacon / conservative /
+nominal / aggressive) in every frame. The receiver harvests whatever decodes. All
 packets feed one decoder.
+
+**Why this beats conventional rate adaptation: on a fountain-coded erasure channel,
+probing is free.** WiFi rate control pays a real tax to probe — roughly 10% of
+transmissions are spent testing rates that may fail, and a failed probe is pure
+waste. Here, **a probe tile that succeeds delivers real payload**, and one that
+fails costs only the area it occupied. There is no separate measurement phase and
+no probe tax. The ladder is simultaneously the transport *and* the channel
+sounder.
+
+This is the strongest single argument for the design, and it exists only because
+the code is rateless.
 
 - **No back-channel. No measurement. No decision. No oscillation risk.**
 - A receiver in good conditions harvests nearly everything; a receiver in bad
@@ -139,10 +157,28 @@ second — no animation, no fountain code, trivially robust.
   textbook setup for flapping, and would need hysteresis and damping designed and
   tuned.
 
-**Verdict: yes, this is the overoptimising half.** It buys the delta between "a
-reasonable mix of profiles" and "the single optimal profile" — and tier 2 already
-captures most of that, at zero protocol cost. Revisit only if measurement after
-Phase 3 shows the ladder's waste is actually significant.
+**Verdict: yes, this is the overoptimising half — and prior art now puts a number
+on it.** MAMBA (2020) is one of only two screen-camera systems that actually close
+the loop, and its **honest measured gain from adaptation is 5–20%**. Meanwhile
+changing the *coding paradigm* buys multiples: SoftLight reports **2.2× over
+RDCode with entirely fixed parameters**.
+
+> Changing the coding paradigm buys multiples. Closing the loop on density buys
+> tens of percent.
+
+That is the whole argument in one line, and it says spend effort on the code, not
+the control loop. Tier 2 captures most of the 5–20% anyway at zero protocol cost.
+Revisit only if measurement after Phase 3 shows the ladder's waste is significant.
+
+**Prior art also settles the feasibility question:** bidirectional screen-camera
+links are precedented at least four times — CamTalk (2013), Montoya & Di Francesco
+(2016), **MAMBA (2020: two phones screen-to-screen at 20 cm, 11–28 kbps
+simultaneously each way)**, and the open-source browser tool QRFileTransfer. So it
+works. The blockers are narrower than assumed but real: front cameras were
+**fixed-focus until ~2022** (the iPhone 14 was Apple's first with front autofocus),
+they run lower fps and resolution, and *every* published experiment propped both
+devices on stands. Rear-camera geometry genuinely has no back-channel — SoftLight
+states this explicitly.
 
 ---
 
