@@ -1,8 +1,8 @@
-# qrbeam
+# screenferry
 
 **Move a file between two devices using nothing but a screen and a camera.**
 
-qrbeam is a static web app — no server, no backend, no network between the two
+screenferry is a static web app — no server, no backend, no network between the two
 devices. The sending device reads a local file and flashes it out as an animated
 sequence of optical codes. The receiving device runs the *same* web app, points
 its camera at the sender's screen, decodes the frames, and reassembles the
@@ -20,7 +20,7 @@ original file byte-for-byte.
 
 Animated QR codes are the obvious way to do this, and the likely starting point —
 but the goal is the *channel*, not the format. QR spends most of its capacity on
-robustness qrbeam doesn't need (arbitrary angles, print damage, one bit per
+robustness screenferry doesn't need (arbitrary angles, print damage, one bit per
 module). Denser modulation — colored cells, stacked RGB codes, a purpose-built
 grid codec — is on the table wherever it survives a real phone camera. The
 architecture keeps that layer swappable.
@@ -47,7 +47,7 @@ looking away.
 
 A naive "loop through chunks 1..N forever" transfer degrades badly under loss
 (the coupon-collector problem — the last few chunks take agonizingly long).
-qrbeam's design centers on **rateless erasure coding**: the sender emits an
+screenferry's design centers on **rateless erasure coding**: the sender emits an
 endless stream of encoded frames, and the receiver reconstructs the file once it
 has collected *any* sufficient subset. Miss a frame and it simply doesn't
 matter — the next one is just as useful.
@@ -57,7 +57,7 @@ matter — the next one is just as useful.
 **Research phase.** Nothing is implemented yet.
 
 - [`docs/plan/plan.md`](docs/plan/plan.md) — the complete application plan
-- [`docs/notes/`](docs/notes/) — design decisions and constraints specific to qrbeam
+- [`docs/notes/`](docs/notes/) — design decisions and constraints specific to screenferry
 - [`docs/research/`](docs/research/) — findings:
   - `qr-encoding-capacity.md` — QR versions, EC levels, bytes per frame, JS encoders
   - `browser-qr-scanning.md` — camera capture, decoder libraries, binary safety

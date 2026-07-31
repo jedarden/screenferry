@@ -1,6 +1,6 @@
-# Fountain Codes and Wire Protocol for qrbeam
+# Fountain Codes and Wire Protocol for screenferry
 
-Research notes for the erasure-coding and framing layer of **qrbeam** — a static web app
+Research notes for the erasure-coding and framing layer of **screenferry** — a static web app
 that moves a file device-to-device over a strictly one-way optical channel (sender shows
 animated QR codes, receiver's camera decodes them).
 
@@ -117,7 +117,7 @@ progress bar moves smoothly and monotonically instead of hanging at 99 %.
 
 The single most important finding of this research is that **the choice of decoder matters
 more than the choice of degree distribution**, and that the decoder everybody's LT
-implementation ships (peeling) is the wrong one for qrbeam's small `K`.
+implementation ships (peeling) is the wrong one for screenferry's small `K`.
 
 ### 2.1 LT codes (Luby, 2002) with robust soliton
 
@@ -143,13 +143,13 @@ Measured (peeling decoder, 400 trials/cell, `c = 0.03`, `δ = 0.5`):
 | 1000 | **+53 %** | +272 % | **+11 %** | +21 % |
 
 **This is the "LT codes are poor for small N" result, quantified.** At K = 50 — a 63 KB file
-at 1.26 KB/frame, an utterly typical qrbeam transfer — robust-soliton LT with a peeling
+at 1.26 KB/frame, an utterly typical screenferry transfer — robust-soliton LT with a peeling
 decoder needs **44 % more symbols than the file contains, on average**, and one run in a
 hundred needs **nearly 3×**. Robust soliton only becomes respectable around K ≥ 1000, which
-for qrbeam means a 1.3 MB file — the *upper* end of what anyone will sit through.
+for screenferry means a 1.3 MB file — the *upper* end of what anyone will sit through.
 
 The `p99` column is the damning one. A 4× tail means "sometimes the transfer just doesn't
-finish and the user gives up". qrbeam cannot afford that.
+finish and the user gives up". screenferry cannot afford that.
 
 **Verdict on textbook LT: do not ship it as specified.** Keep the *encoder* (it is trivial),
 throw away the *decoder*.
@@ -195,7 +195,7 @@ with inactivation decoding.
   general-audience open-source project awkward to explain.
 - **Bundle cost:** see §3 — 240 KB of WASM (134 KB gzipped).
 
-**Verdict: technically the best code, wrong cost/benefit for qrbeam.** We are paying 134 KB
+**Verdict: technically the best code, wrong cost/benefit for screenferry.** We are paying 134 KB
 of gzipped WASM plus a patent footnote to buy back ~2–3 % of overhead versus the scheme
 recommended in §7. On a 500-frame transfer that is ~15 frames — under two seconds.
 
@@ -209,7 +209,7 @@ parameters `q = 3`, `ε = 0.01`, the message decodes from `(1 + 3ε)n` check blo
 failure probability `(ε/2)^(q+1)`
 ([Wikipedia: Online codes](https://en.wikipedia.org/wiki/Online_codes)).
 
-**Assessment for qrbeam:** Online codes are *nicer to implement than Raptor and no harder
+**Assessment for screenferry:** Online codes are *nicer to implement than Raptor and no harder
 than LT*, and they are unencumbered (Maymounkov published academically; no assignee ever
 pursued the classic Raptor claims against them). But:
 
@@ -244,7 +244,7 @@ It is nonetheless **the wrong tool here, for one decisive reason: it is not rate
   runs out of repair symbols and the receiver stalls forever. Guess `p = 0.6` and hit
   `p = 0.1` and you waste 50 % of the airtime. There is no recovery from a wrong guess except
   restarting the whole transfer with different parameters, which is exactly the failure mode
-  qrbeam exists to eliminate.
+  screenferry exists to eliminate.
 - Simple **XOR interleaving** (parity every k-th frame, RAID-5 style) is worse still: it
   survives one loss per group and nothing more. Bursty camera loss routinely kills two
   adjacent frames.
@@ -256,7 +256,7 @@ always wrong.
 ### 2.5 The finding that changes the answer: swap the decoder
 
 Everything in §2.1 assumed a **peeling** decoder, because that is what LT means in practice
-and what every LT library ships. But at qrbeam's block sizes we can afford to just *solve the
+and what every LT library ships. But at screenferry's block sizes we can afford to just *solve the
 linear system* — the received symbols are rows over GF(2), and Gaussian elimination decodes
 the instant the matrix reaches rank K, which is the information-theoretic optimum for that
 matrix.
@@ -374,7 +374,7 @@ decoder.decode(packet: Uint8Array): Uint8Array | undefined
 EncodingPacket.deserialize(data) → .source_block_number() / .encoding_symbol_id() / .data()
 ```
 
-**Caveat that matters for qrbeam:** `encode(repair_packets_per_block)` returns a **finite
+**Caveat that matters for screenferry:** `encode(repair_packets_per_block)` returns a **finite
 array** of packets — it is a batch API, not an infinite generator. Truly endless streaming
 requires either generating a large batch up front and looping it (which reintroduces a
 coupon-collector effect, just a much weaker one) or patching the crate. Also, the npm build
@@ -384,7 +384,7 @@ lags the crate (npm 1.7.24 from 2023 vs. crate activity in 2026).
 
 This is the most directly relevant existing library: it was extracted from
 [qifi-dev/qrs](https://github.com/qifi-dev/qrs) (1 621 ★, MIT, TypeScript), *a QR-code file
-streaming app* — i.e. someone has already built roughly qrbeam and open-sourced the codec.
+streaming app* — i.e. someone has already built roughly screenferry and open-sourced the codec.
 
 | Property | Value |
 |---|---|
@@ -457,7 +457,7 @@ O(N log N)-ish behaviour and explicitly designed for big blocks. A WASM build ex
 [kig/wirehair-wasm](https://github.com/kig/wirehair-wasm), building `wirehair_core.mjs` via
 Emscripten.
 
-**Not viable for qrbeam:** the WASM port is **not published to npm** (`wirehair` is not a
+**Not viable for screenferry:** the WASM port is **not published to npm** (`wirehair` is not a
 registered package), so it must be built from source with Emscripten in CI — a heavy toolchain
 dependency for a static site. Wirehair is also optimised for N in the tens of thousands; at
 K ≈ 100–1000 its advantage over plain GE evaporates while its complexity does not.
@@ -522,7 +522,7 @@ That number appears in an AI-generated aggregator blog and is **not** in divan's
 posts, which state 501 ms for ~13 KB (≈ 26 KB/s peak, 1–2 KB/s typical). Use the primary
 figures.
 
-**Lessons for qrbeam:** (a) 6–15 fps, not 30; (b) ECC Low; (c) fountain coding *raises* the
+**Lessons for screenferry:** (a) 6–15 fps, not 30; (b) ECC Low; (c) fountain coding *raises* the
 optimal chunk size, so tune density after the codec is in place, not before; (d) variance
 reduction is the headline benefit.
 
@@ -554,7 +554,7 @@ part = [
 
 CBOR-encoded, then Bytewords-encoded, then wrapped as `ur:<type>/<seqNum>-<seqLen>/<fragment>`.
 
-**The key idea qrbeam should steal — zero-byte index transmission.** From the shipped
+**The key idea screenferry should steal — zero-byte index transmission.** From the shipped
 `src/fountainUtils.ts` of `@ngraveio/bc-ur@1.1.13`:
 
 ```ts
@@ -575,7 +575,7 @@ Because both sides derive the index set from `(seqNum, checksum)` alone, **the w
 index list**. Contrast `luby-transform`'s 4-bytes-per-index (§3.2). The `checksum` field is
 beautifully overloaded: it is simultaneously the **PRNG seed**, the **session discriminator**
 (two different messages produce different mixes, so parts can't be cross-contaminated), and
-the **final integrity check**. qrbeam should copy this trick verbatim.
+the **final integrity check**. screenferry should copy this trick verbatim.
 
 **Degree distribution** — plain harmonic, `Pr(d) ∝ 1/d`, sampled via Walker–Vose alias:
 
@@ -657,7 +657,7 @@ The competing Bitcoin animated-QR format, shipped on COLDCARD.
 
 BBQr's argument is that for a 2–5 part PSBT the fountain machinery is not worth it — and at
 K = 3 they are right (§1: at N = 50 the penalty is only 1.85×; at N = 3 it is negligible).
-**qrbeam's regime is K = 50–1500, where the argument inverts completely.** BBQr's transferable
+**screenferry's regime is K = 50–1500, where the argument inverts completely.** BBQr's transferable
 lessons are its compression-with-fallback heuristic and its QR-version auto-selection, not its
 FEC stance.
 
@@ -673,7 +673,7 @@ Paper-oriented, but the coding lessons carry: both face a *one-way, no-retransmi
   patterns, quiet zones, and fixed RS.
 
 Both chose *fixed-rate* codes because paper is a fixed-size medium — you know exactly how much
-redundancy you can afford. **That is the opposite of qrbeam's situation** (unbounded time
+redundancy you can afford. **That is the opposite of screenferry's situation** (unbounded time
 budget, unknown loss rate), which is precisely why they chose RS/Golay and we should not.
 
 ### 4.5 qrstream, QRFileTransfer, and the "qr-filetransfer" false friends
@@ -688,14 +688,14 @@ Genuine optical projects:
 - [xloem/qrstream](https://github.com/xloem/qrstream) — Android, splits data across successive
   QR codes. No fountain code.
 - [LucaIaco/QRFileTransfer](https://github.com/LucaIaco/QRFileTransfer) — vanilla JS/HTML/CSS,
-  camera-to-camera, closest existing thing to qrbeam architecturally.
+  camera-to-camera, closest existing thing to screenferry architecturally.
 - [ganlvtech/qrcode-file-transfer](https://github.com/ganlvtech/qrcode-file-transfer) —
   screen + webcam.
 - [mohankumarelec/airgapped-qr-code-transfer](https://github.com/mohankumarelec/airgapped-qr-code-transfer)
   — Vue + `pako` + `qrcode.js` + **`zbar-wasm`**. The `zbar-wasm` choice is a useful data
-  point for qrbeam's *decode* side (§7.5): it generally outperforms `jsQR` on blurry frames.
+  point for screenferry's *decode* side (§7.5): it generally outperforms `jsQR` on blurry frames.
 - [qifi-dev/qrs](https://github.com/qifi-dev/qrs) — 1 621 ★, the most polished, and the source
-  of `luby-transform` (§3.2). **Closest existing project to qrbeam.**
+  of `luby-transform` (§3.2). **Closest existing project to screenferry.**
 
 None publish throughput benchmarks; divan's remain the only rigorous numbers.
 
@@ -707,7 +707,7 @@ bidirectional TCP/WebSocket channel with retransmit, so their "chunking" is just
 back-pressure — nothing to port.
 
 **What *is* worth stealing** is the human-factors idea: a short, memorable session code that
-lets the receiver confirm it is talking to the right sender. qrbeam's 32-bit `streamId` (§7.2)
+lets the receiver confirm it is talking to the right sender. screenferry's 32-bit `streamId` (§7.2)
 can be rendered as a 4-word or 6-character code on both screens so the user can visually confirm
 the pairing — valuable when two people are beaming files in the same room, where a stray QR from
 someone else's screen could otherwise enter the camera's field of view.
@@ -761,7 +761,7 @@ field testing shows mis-corrections; cost rises to 0.16 %.)
 ### 5.3 Payload budget
 
 QR byte-mode capacities ([thonky.com](https://www.thonky.com/qr-code-tutorial/character-capacities)),
-with qrbeam's 13-byte header (§7.2) deducted, at the ECC-Low level §4.1 recommends:
+with screenferry's 13-byte header (§7.2) deducted, at the ECC-Low level §4.1 recommends:
 
 | Version | Modules | Byte cap (L) | Payload after header | Header cost |
 |---:|---:|---:|---:|---:|
@@ -875,14 +875,14 @@ headroom for files whose head is unrepresentative — being wrong costs a few pe
 whereas *always* compressing costs CPU and a tiny expansion on the very common case of sending
 a photo.
 
-**Interaction with encryption:** if qrbeam ever adds encryption, **compress first, then
+**Interaction with encryption:** if screenferry ever adds encryption, **compress first, then
 encrypt.** Ciphertext is incompressible, so the reverse order silently disables compression.
 (The CRIME/BREACH concern about compression-before-encryption does not apply — that attack
 needs an adaptive chosen-plaintext oracle, which a one-shot file transfer does not provide.)
 
 ---
 
-## 7. Recommendations for qrbeam
+## 7. Recommendations for screenferry
 
 ### 7.1 Coding scheme — implement it ourselves, ~300 lines
 
@@ -960,7 +960,7 @@ Binary QR byte-mode. All multi-byte fields big-endian.
 
 | Offset | Size | Field | Description |
 |---:|---:|---|---|
-| 0 | 1 | `magic_ver` | High nibble `0xB` = qrbeam; low nibble = protocol version. **`0xB1`** = v1. Rejects foreign QR codes in one byte |
+| 0 | 1 | `magic_ver` | High nibble `0xB` = screenferry; low nibble = protocol version. **`0xB1`** = v1. Rejects foreign QR codes in one byte |
 | 1 | 1 | `flags` | bits 0–1 `comp`: 0 = none, 1 = `deflate-raw`, 2 = `gzip`, 3 = reserved · bits 2–3 reserved (encryption, beacon) · bits 4–7 `block`: source-block index 0–15 |
 | 2–5 | 4 | `streamId` | **CRC-32 of the encoded payload.** Triple duty: session discriminator, PRNG seed, whole-file integrity check |
 | 6–8 | 3 | `payloadLen` | uint24 — encoded payload length in bytes (max 16 MiB). With observed `fragLen`, gives `K = ceil(payloadLen / fragLen)` |

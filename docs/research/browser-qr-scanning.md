@@ -1,6 +1,6 @@
 # Browser QR Scanning — Receiver-Side Research
 
-Research for **qrbeam**: a static web app that transfers a file device-to-device
+Research for **screenferry**: a static web app that transfers a file device-to-device
 optically. Sender displays an animated QR sequence; receiver points a camera at
 the sender's screen and decodes frames to reassemble the file.
 
@@ -69,7 +69,7 @@ and
   on my phone but not theirs".
 - `min`/`max` are also requirements and can reject.
 
-**Rule for qrbeam: use `ideal` for everything in the primary attempt.** Reserve
+**Rule for screenferry: use `ideal` for everything in the primary attempt.** Reserve
 `exact` only for `facingMode` in a *fallback* attempt where you can catch the
 rejection.
 
@@ -157,7 +157,7 @@ device from a drifting 15–20 fps to a locked 24
 > **Never trust the constraint — always read back `track.getSettings()`**, and
 > better still measure delivered fps from rVFC callbacks (§6.1). The gap between
 > requested and delivered is the first thing to check when a user reports poor
-> scanning, and qrbeam should surface it in a diagnostics readout.
+> scanning, and screenferry should surface it in a diagnostics readout.
 
 Low-end Android adds another wrinkle: cameras often default to an ISO-priority
 mode that lowers frame rate to reduce noise, so a dim room can silently halve your
@@ -211,7 +211,7 @@ Caveats:
 **Torch must be off.** It is off by default — `torch` is a boolean constrainable
 property that defaults to false and only activates if explicitly requested
 ([MDN: torch](https://developer.mozilla.org/en-US/docs/Web/API/MediaStreamTrack/applyConstraints)).
-qrbeam should never enable it: pointing an LED at a glossy screen produces a
+screenferry should never enable it: pointing an LED at a glossy screen produces a
 specular hotspot that wipes out a region of the QR. Do not offer a torch button
 on the scanning screen.
 
@@ -241,7 +241,7 @@ Omitting `playsinline` is the single most common iOS bug in browser QR scanners.
 **User gesture and permission**
 - `getUserMedia` requires a **secure context** (HTTPS, or `localhost` /
   `127.0.0.1` for development). A static app served over plain HTTP on a LAN IP
-  will not get a camera — this matters for qrbeam, which is deployed as a static
+  will not get a camera — this matters for screenferry, which is deployed as a static
   site and may be tested from a phone against a dev server.
 - iOS Safari requires the call to originate from a user gesture in practice.
   Always put camera start behind an explicit "Start scanning" button. This is
@@ -261,18 +261,18 @@ Omitting `playsinline` is the single most common iOS bug in browser QR scanners.
   getUserMedia"; home-screen web apps were tracked separately as
   [#185448](https://bugs.webkit.org/show_bug.cgi?id=185448)).
   On any iOS in current use this works, so it is not a design risk in 2026 — but
-  it is worth a smoke test since qrbeam is a static app users may well install.
+  it is worth a smoke test since screenferry is a static app users may well install.
 - **Important surviving caveat from that same bug:** the fix applies only to
   **`https` and `localhost`** origins. **Custom URL schemes** (`app://`, as used
   by Cordova/Capacitor/Ionic) still raise `NotAllowedError` even after the user
-  grants permission. Irrelevant if qrbeam ships as a plain HTTPS static site —
+  grants permission. Irrelevant if screenferry ships as a plain HTTPS static site —
   but a hard blocker if it is ever wrapped in a hybrid shell. **Keep it served
   over `https`.**
 
 **In-app browsers**
 - Third-party in-app browsers (Facebook, Instagram, LinkedIn, TikTok) embed
   `WKWebView`, and the embedding app must opt in to camera access — many do not,
-  so `getUserMedia` **fails or is silently denied**. qrbeam should **detect
+  so `getUserMedia` **fails or is silently denied**. screenferry should **detect
   in-app browsers and prompt the user to open in Safari** — a link-out is far
   better than a camera that never starts.
 
@@ -280,7 +280,7 @@ Omitting `playsinline` is the single most common iOS bug in browser QR scanners.
 - Backgrounding the tab, switching apps, or locking the screen suspends or ends
   the stream. On resume, tracks may be `muted` or `ended`.
 - Listen for `visibilitychange` and for the track's `ended`/`mute`/`unmute`
-  events, and be prepared to **re-acquire the stream**. For qrbeam this matters:
+  events, and be prepared to **re-acquire the stream**. For screenferry this matters:
   a partially received file must survive a backgrounding without losing decoded
   frames.
 
@@ -304,7 +304,7 @@ Omitting `playsinline` is the single most common iOS bug in browser QR scanners.
   webcam, but sharpness is mediocre.
 - Firefox supports `getUserMedia` and `facingMode` but **not** the image-capture
   extensions (`focusMode`, `torch`, `zoom`).
-- Desktop is a plausible *receiver* for qrbeam (phone screen → laptop webcam),
+- Desktop is a plausible *receiver* for screenferry (phone screen → laptop webcam),
   but webcam optics make it the weaker direction. The stronger desktop role is as
   **sender**, with a phone receiving.
 
@@ -365,7 +365,7 @@ first thing to check when a user reports "it doesn't scan".
 
 ### 2.1 Verdict up front
 
-**`BarcodeDetector` cannot be used as qrbeam's decoder.** Not because of browser
+**`BarcodeDetector` cannot be used as screenferry's decoder.** Not because of browser
 support — because of the API surface. It has **no byte channel at all**. See
 §2.4; this is a hard blocker, not a trade-off.
 
@@ -451,7 +451,7 @@ Confirmed empirically by running the ponyfill in Node against a generated QR:
 
 **No — but its engine is.** The polyfill is well maintained (pushed 2026-07-31,
 8 open issues, MIT) and is a good choice for an app that scans *text* QR codes.
-For qrbeam it is strictly worse than depending on `zxing-wasm` directly, because
+For screenferry it is strictly worse than depending on `zxing-wasm` directly, because
 it wraps the same WASM engine in an interface that discards exactly the field we
 need. **Ship `zxing-wasm` directly** (§3, §7).
 
@@ -549,7 +549,7 @@ zxing-wasm stays within **9–26 ms across every scene**. Bounded, predictable
 latency is exactly what a real-time frame pipeline requires.
 
 (`inversionAttempts: 'dontInvert'` should be set on jsQR regardless — the default
-`attemptBoth` doubles the worst case. qrbeam always shows dark-on-light QR, so
+`attemptBoth` doubles the worst case. screenferry always shows dark-on-light QR, so
 inversion attempts are pure waste.)
 
 ### 3.5 Robustness summary
@@ -575,11 +575,11 @@ All candidates run in a Worker:
   (`qr-scanner` ships exactly this arrangement.)
 - **zxing-wasm** — WASM + JS glue, no DOM dependency. Works. Needs the `.wasm`
   URL configured via `prepareZXingModule({ overrides: { wasmBinary } })` or a
-  same-origin `locateFile`; by default it fetches from a CDN, which qrbeam should
+  same-origin `locateFile`; by default it fetches from a CDN, which screenferry should
   override to a self-hosted asset (static app, no external dependency).
 - **@nuintun/qrcode**, **@zxing/library**, **rxing-wasm** — all DOM-free. Work.
 
-For qrbeam the Worker matters less than it seems, because at ROI-cropped sizes
+For screenferry the Worker matters less than it seems, because at ROI-cropped sizes
 decode is ~1–5 ms desktop / ~5–20 ms phone. But keeping it off the main thread
 protects the UI and the video element's own compositing. **Do it.**
 
@@ -601,7 +601,7 @@ no copy beyond the transfer.
 
 ## 4. THE BINARY-SAFETY QUESTION
 
-This is the highest-stakes item for qrbeam, and it is worse than the framing
+This is the highest-stakes item for screenferry, and it is worse than the framing
 suggests. The failure is not merely "some decoders return a string" — it is that
 **the same decoder returns an exact string for some payloads and a corrupted one
 for others**, so the bug passes testing and destroys user files in production.
@@ -614,7 +614,7 @@ mechanism can override it, and **in practice every major decoder runs charset
 *auto-detection*** over the bytes — guessing UTF-8, Shift-JIS, GB2312, etc.
 
 That means the string you get back is a function of *what the bytes happen to
-look like*. Compressed or encrypted data — exactly what qrbeam will carry — looks
+look like*. Compressed or encrypted data — exactly what screenferry will carry — looks
 like random bytes, and random bytes will trip different guesses at different
 lengths.
 
@@ -668,7 +668,7 @@ interface ScanResult {
 ```
 
 It bundles a fork of jsQR — which *has* `binaryData` internally — but the worker
-only posts back the string. Using qr-scanner for qrbeam would require forking it.
+only posts back the string. Using qr-scanner for screenferry would require forking it.
 Combined with its last npm publish being **2022-11-23**, it is out.
 
 **Trap 3 — `@zxing/library.getText()` is the most dangerous single API here.**
@@ -789,7 +789,7 @@ than methodology. Specifics are in §5.6. The peer-reviewed literature and the o
 long-standing project with a published benchmark methodology
 ([libcimbar](https://github.com/sz3/libcimbar/blob/master/PERFORMANCE.md)) top out
 around **100–120 KB/s using a non-QR custom colour symbology**; honest QR-based
-systems land at **1–30 KB/s**. **Design qrbeam to the low numbers.**
+systems land at **1–30 KB/s**. **Design screenferry to the low numbers.**
 
 ### 5.1 The binding constraint is exposure and readout, not decode speed
 
@@ -934,7 +934,7 @@ Five independent lines converge on this:
    code held for four refreshes on a 60 Hz screen"
    ([deedy/qr-data-transfer](https://github.com/deedy/qr-data-transfer)).
 5. 15 is an exact divisor of 60 and 120 Hz, so an integer `requestAnimationFrame`
-   counter hits it precisely on every display qrbeam will encounter.
+   counter hits it precisely on every display screenferry will encounter.
 
 **Why 2× oversampling is the right target, not 3×.** At 15 fps sender / 30 fps
 capture each displayed symbol is sampled by exactly 2 camera frames. In the worst
@@ -948,7 +948,7 @@ walking its transitions across the camera's exposure window and producing period
 bursts of torn frames. Use `requestAnimationFrame` with an integer refresh counter.
 
 **Adaptive ladder.** Do not hard-code 15 — the sender cannot know the receiver's
-camera, and qrbeam has no back-channel. The receiver *does* know everything needed
+camera, and screenferry has no back-channel. The receiver *does* know everything needed
 (`getSettings().frameRate`, counted rVFC callbacks, measured unique decodes/sec),
 so **display a recommendation on the receiver and let the user set the sender**:
 
@@ -1013,7 +1013,7 @@ K(1+ε) distinct symbols, so misses cost airtime and nothing else. txqr's two po
 are effectively a controlled experiment on exactly this: same hardware, repetition
 codes → 1–2 KB/s sustained; fountain codes → variance "plummeted significantly."
 
-This also removes any need for a back-channel, which matters because qrbeam is
+This also removes any need for a back-channel, which matters because screenferry is
 strictly one-way.
 
 **The asymmetry changes the fps answer.** With a fountain code, `P(clean) = 0.6`
@@ -1193,7 +1193,7 @@ full-frame form. What scales linearly is `getImageData`:
 
 ### 6.4 Getting pixels into a Worker
 
-Ranked for qrbeam:
+Ranked for screenferry:
 
 **1. `VideoFrame.copyTo()` requesting the I420 Y plane — the underrated win.**
 `copyTo(dest, {rect, format, layout})` can extract a **sub-rectangle** (the ROI
@@ -1224,7 +1224,7 @@ fallback. The flag matters because `getImageData` on a GPU-backed canvas must co
 all pixels from GPU to system RAM; the flag tells the UA to keep a CPU-backed
 surface instead ([canvas2D spec](https://github.com/fserb/canvas2D/blob/master/spec/will-read-frequently.md)).
 The tradeoff is that it disables GPU acceleration for canvas *writes* — fine here,
-since qrbeam does one blit and one full read per frame. Published magnitude is
+since screenferry does one blit and one full read per frame. Published magnitude is
 modest and noisy (one measurement: 18.8% faster, but "the variance in tests was
 higher than the performance difference"), so **prefer skipping the canvas entirely
 via paths 1–2.**
@@ -1274,7 +1274,7 @@ instead of a multiply-add.
 
 ---
 
-## 7. Recommendations for qrbeam
+## 7. Recommendations for screenferry
 
 ### 7.1 Which decoder to ship
 
@@ -1294,7 +1294,7 @@ instead of a multiply-add.
 
 Cost: **~449 KB gzipped**. Mitigate by importing `zxing-wasm/reader` (not the
 default full build, which adds 266 KB of writer), **self-hosting the `.wasm`**
-rather than the default CDN fetch (qrbeam must work offline — much of the point),
+rather than the default CDN fetch (screenferry must work offline — much of the point),
 and lazy-loading it when the user taps "Scan".
 
 > **Do not ship `qr-scanner` or `BarcodeDetector` as the decoder.** Neither can

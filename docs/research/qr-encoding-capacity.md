@@ -1,6 +1,6 @@
 # QR Encoding Capacity, Modes, Error Correction, and JS Generation Libraries
 
-Research for **qrbeam** — a static, serverless web app that transfers a file device-to-device
+Research for **screenferry** — a static, serverless web app that transfers a file device-to-device
 purely optically (sender screen → receiver camera).
 
 **Scope of this document:** QR symbol capacity, encoding-mode selection for binary payloads,
@@ -225,7 +225,7 @@ real decoders do not:
   exposes only `rawValue: DOMString`.** There is no byte array. Binary payloads get lossily coerced
   through a text decoder, and implementations have historically returned "Unknown encoding" for
   binary QR content
-  ([android-vision#156](https://github.com/googlesamples/android-vision/issues/156)). **If qrbeam
+  ([android-vision#156](https://github.com/googlesamples/android-vision/issues/156)). **If screenferry
   wants to use the fast, hardware-accelerated native `BarcodeDetector`, raw byte mode is off the
   table.** This is the single most important constraint in this whole section.
 - **ZXing's `Result.getRawBytes()`** returns the raw *bitstream including QR headers*, not the
@@ -240,7 +240,7 @@ real decoders do not:
   *"avoid[s] the use of QR code binary mode to support transparency and wide compatibility"*
   ([BCR-2020-005](https://github.com/BlockchainCommons/Research/blob/master/papers/bcr-2020-005-ur.md)).
 
-**But qrbeam controls both ends.** We write the encoder and the decoder. So the question reduces to:
+**But screenferry controls both ends.** We write the encoder and the decoder. So the question reduces to:
 *does our chosen decoder library return raw bytes?*
 
 - **[jsQR](https://github.com/cozmo/jsQR) does** — the result object has `binaryData:
@@ -516,7 +516,7 @@ Byte mode, EC L, 12-byte frame header, LT fountain overhead 1.15×:
 Sanity check against reality: decimen reports **129 KB/s handheld** at v27/24 fps, which is well
 above my v27@24fps estimate of 29.6 KB/s. Their figure appears to assume ~every frame decodes at
 full rate on a high-end phone. Treat **15–30 KB/s as the realistic planning number** and anything
-above as upside. qrbeam is a **"a few hundred KB in under a minute"** tool, not a bulk transport.
+above as upside. screenferry is a **"a few hundred KB in under a minute"** tool, not a bulk transport.
 
 ---
 
@@ -621,7 +621,7 @@ data is — I measured the penalty scores of all 8 masks across 60 random v27 pa
 - **Penalty spread between best and worst mask: median 8.3%, p90 12.3%, max 16.4%.**
 
 That is a small spread, and round-trip decoding succeeded for masks auto/0/3/7 at v20/27/33/40
-(16/16, §2.4). **Conclusion: pinning is safe for qrbeam's data profile.** A tidy refinement is to
+(16/16, §2.4). **Conclusion: pinning is safe for screenferry's data profile.** A tidy refinement is to
 *rotate* the mask per frame (`mask = frameIndex % 8`) so no single mask persists across the stream.
 
 That said — **you probably don't need this optimisation.** With Worker-based look-ahead, 3.63 ms is
@@ -713,7 +713,7 @@ Byte mode needs `q.addData(buf.toString('latin1'), 'Byte')`. Matrix via `isDark(
 **(row, col)** order, transposed from the usual (x, y). **Not viable.**
 
 **@nuintun/qrcode** — modern TypeScript, ships encoder **and** decoder in one package (genuinely
-appealing for qrbeam), clean `BitMatrix`, and a documented `encode?: (content, charset) => Uint8Array`
+appealing for screenferry), clean `BitMatrix`, and a documented `encode?: (content, charset) => Uint8Array`
 hook that is a clean escape hatch for raw bytes. But **no mask API**, so it is locked to ~18.4 ms at
 v40, and it had the worst p95/mean spread in the study (24.2 vs 18.4 ms). **Still worth evaluating
 for the decoder side.**
@@ -874,13 +874,13 @@ A full-screen animated QR at 15 fps plausibly violates this for photosensitive u
 
 ---
 
-## Recommendations for qrbeam
+## Recommendations for screenferry
 
 ### The pick
 
 | Decision | Choice | Why |
 |---|---|---|
-| **Encoding mode** | **Raw byte mode** (`Uint8Array`, no ECI) | 100% efficient; every alternative loses ≥3%. Viable because qrbeam ships its own decoder. |
+| **Encoding mode** | **Raw byte mode** (`Uint8Array`, no ECI) | 100% efficient; every alternative loses ≥3%. Viable because screenferry ships its own decoder. |
 | **Fallback mode** | **base45 in alphanumeric mode** (RFC 9285) | Costs only 3%; the *only* option that makes the native `BarcodeDetector` fast path usable, since it returns `rawValue` as a string. Build the mode as a swappable parameter from day one. |
 | **EC level** | **L** | 20% overhead, ~10% per-block correction. The channel is erasure-dominated; redundancy belongs in a fountain code, not in the symbol. Every prior project that A/B-tested this landed on L. |
 | **QR version — desktop profile** | **v27** (125×125) | 6.50 px/module at 1080p capture with 80% fill — real headroom. 1465 B/frame. Matches decimen's independently-chosen default. |

@@ -1,4 +1,4 @@
-# qrbeam — App Shell Research: Platform APIs, Offline/PWA, File I/O, and Optical-Transfer UX
+# screenferry — App Shell Research: Platform APIs, Offline/PWA, File I/O, and Optical-Transfer UX
 
 **Scope:** the app shell only — how the file gets in, how it gets out, how the app runs with no
 network, how the sender's screen is set up, how progress is communicated with no back-channel,
@@ -43,7 +43,7 @@ The five things that actually shape the design:
    newly and partially on Android, and permanently absent from Safari and Firefox. Design for
    `<input type=file>` + `navigator.share` and treat FSA as a *large-file optimisation on desktop
    Chrome only*.
-2. **iOS has no Web Share Target.** You cannot make "Share → qrbeam" appear in the iOS share
+2. **iOS has no Web Share Target.** You cannot make "Share → screenferry" appear in the iOS share
    sheet from a web app. Android can. This asymmetry is permanent for now.
 3. **iOS Safari deletes all service-worker cache after 7 days of non-use** — unless the app is
    added to the Home Screen, which gets its own usage counter. "Air-gapped forever" on iOS
@@ -76,7 +76,7 @@ Key properties, all from MDN:
 - `input.value` is always `C:\fakepath\<name>` — no real path is ever exposed, and you cannot
   set `input.value` from script. Irrelevant for us but worth knowing.
 - `accept` filters the picker. On mobile, `accept="image/*"` will bias the picker toward the
-  photo library. **For qrbeam we want the opposite: no `accept` at all**, so iOS offers "Browse"
+  photo library. **For screenferry we want the opposite: no `accept` at all**, so iOS offers "Browse"
   into the Files app rather than defaulting to Photos.
 - `capture="environment"` forces the camera instead of a picker — we never want this on the
   sender side (we *do* care about `facingMode: environment` on the receiver, which is a
@@ -86,7 +86,7 @@ Key properties, all from MDN:
 
 - Picking a photo from the Photos library on iOS yields a file often named `image.jpg` with a
   transcoded JPEG, not the original HEIC. If the user picks via **Browse → Files**, they get
-  the real file with the real name. qrbeam should nudge users toward Files ("Choose from Files")
+  the real file with the real name. screenferry should nudge users toward Files ("Choose from Files")
   because we're transferring *files*, not *photos*, and a silent HEIC→JPEG transcode would make
   the received bytes differ from the source bytes.
 - iOS reads from iCloud Drive on demand; a file that is not downloaded locally may take a moment
@@ -100,7 +100,7 @@ completely irrelevant on mobile. Worth adding purely because on desktop it is th
 On Chromium you can upgrade a drop into a **handle** rather than a snapshot, via
 `DataTransferItem.getAsFileSystemHandle()`, which returns a `FileSystemFileHandle`
 ([Chrome docs](https://developer.chrome.com/docs/capabilities/web-apis/file-system-access)).
-For qrbeam this buys nothing on the read path (we don't need to write back to the source), so
+For screenferry this buys nothing on the read path (we don't need to write back to the source), so
 plain `DataTransfer.files` is sufficient.
 
 ### 1.3 File System Access API (`showOpenFilePicker`) — Chromium desktop, and don't rely on it
@@ -157,14 +157,14 @@ sessions when persisted to IndexedDB — nice for "resume last transfer" but not
 
 ### 1.4 Web Share Target — the Android superpower, absent on iOS
 
-Registering qrbeam as a share destination is genuinely the nicest sender UX on Android:
-long-press a file in Files/Drive/Photos → Share → qrbeam → the animation starts. From the
+Registering screenferry as a share destination is genuinely the nicest sender UX on Android:
+long-press a file in Files/Drive/Photos → Share → screenferry → the animation starts. From the
 [Chrome docs on Web Share Target](https://developer.chrome.com/docs/capabilities/web-apis/web-share-target)
 and the [MDN `share_target` reference](https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps/Manifest/Reference/share_target):
 
 ```json
 {
-  "name": "qrbeam",
+  "name": "screenferry",
   "share_target": {
     "action": "/share-in",
     "method": "POST",
@@ -184,7 +184,7 @@ Mechanics:
 
 - File sharing **requires** `method: "POST"` and `enctype: "multipart/form-data"`. `method`
   defaults to `GET` if omitted, which cannot carry files.
-- The share arrives as a real HTTP POST to `action`. Because qrbeam is a static site with no
+- The share arrives as a real HTTP POST to `action`. Because screenferry is a static site with no
   backend, **a service worker must intercept it**:
 
 ```js
@@ -250,7 +250,7 @@ processed, and pages crash around the 1 GB mark on desktop — far lower on mobi
 The three correct tools:
 
 1. **`Blob.slice(start, end)`** — zero-copy-ish view; the browser does not materialise the bytes
-   until you read the slice. This is the right primitive for qrbeam because our unit of work is
+   until you read the slice. This is the right primitive for screenferry because our unit of work is
    "give me bytes `[k*C, (k+1)*C)` so I can build frame *k*". A common recommendation is 64 MB
    read chunks for general file processing; for us the natural chunk is the *QR payload size*
    (~1–2 KB), so we'd slice a working window of, say, 1–4 MB and sub-slice within it.
@@ -270,7 +270,7 @@ implies **random access across the whole file**. Two options:
   boundaries, and the receiver must stay locked on until each window completes.
 - **Whole-file in memory**: only viable when `file.size` is small. Given the throughput numbers
   in §6 (roughly 1 MB/minute), *anything we can realistically transmit fits in memory anyway* —
-  a 10 MB file is 10 minutes of staring at a screen. **This is the key insight: qrbeam's
+  a 10 MB file is 10 minutes of staring at a screen. **This is the key insight: screenferry's
   practical file-size ceiling is far below the memory ceiling, so the memory question is
   largely moot.** Read via `Blob.slice` on principle, cap the accepted size at something like
   5–10 MB, and the problem disappears.
@@ -361,7 +361,7 @@ await writable.close();
 MDN and Chrome's docs both state that **"changes are not written to disk until the stream is
 closed, either by calling `close()` or when the stream is automatically closed by the pipe"** —
 i.e. the browser buffers into a temporary swap file, then atomically moves it into place on
-`close()`. The important consequence for qrbeam: **the buffered data lives on disk, not in the JS
+`close()`. The important consequence for screenferry: **the buffered data lives on disk, not in the JS
 heap**, so a long transfer does not grow the renderer's memory. `write()` accepts a string,
 `BufferSource`, or `Blob`, and a `FileSystemWritableFileStream` is a `WritableStream`, so you can
 `pipeTo()` it.
@@ -390,7 +390,7 @@ often-cited "500 MB blob cap" is historical Chromium behaviour from ~2014–2015
 applies. Safari does not document a limit; assume the constraint is device RAM, since iOS is
 aggressive about killing memory-hungry web content.
 
-Since qrbeam's realistic maximum payload is single-digit megabytes (§6), blob URL size is a
+Since screenferry's realistic maximum payload is single-digit megabytes (§6), blob URL size is a
 non-issue in practice. Document it and move on.
 
 ### 2.4 Should we stream to disk for large files?
@@ -433,12 +433,12 @@ Safari 11.1+, **iOS Safari 11.3+**, Samsung 4.0+ — 95.59% global
 Note the Firefox caveat in that dataset: **service workers are not supported in Private Browsing
 mode**.
 
-Strategy for qrbeam: **precache everything, cache-first, no network in the critical path.**
-qrbeam is small and fully static — there is no reason to use any strategy other than
+Strategy for screenferry: **precache everything, cache-first, no network in the critical path.**
+screenferry is small and fully static — there is no reason to use any strategy other than
 precache-all + cache-only serving.
 
 ```js
-const CACHE = 'qrbeam-v<BUILD_HASH>';
+const CACHE = 'screenferry-v<BUILD_HASH>';
 const ASSETS = ['/', '/index.html', '/app.js', '/qr.wasm', '/decode-worker.js', '/manifest.webmanifest', /* … */];
 
 self.addEventListener('install', (e) => {
@@ -490,11 +490,11 @@ The exemption that saves us, quoted verbatim:
 > resets the timer. We do not expect the first-party in such a web application to have its
 > website data deleted."*
 
-**Consequence for qrbeam:** on iOS, a user who visits the site in a Safari tab, uses it once, and
+**Consequence for screenferry:** on iOS, a user who visits the site in a Safari tab, uses it once, and
 comes back three weeks later offline will find **nothing cached and a blank page**. Add to Home
 Screen is not a nice-to-have on iOS; it is the mechanism by which "offline forever" is true. The
 onboarding must push it hard on iOS, and should explain *why* ("iOS deletes offline data for
-websites you haven't used in a week — installing keeps qrbeam available with no internet").
+websites you haven't used in a week — installing keeps screenferry available with no internet").
 
 The same reasoning applies to OPFS-staged partial transfers: don't assume they survive a week.
 
@@ -504,8 +504,8 @@ Minimum viable manifest:
 
 ```json
 {
-  "name": "qrbeam",
-  "short_name": "qrbeam",
+  "name": "screenferry",
+  "short_name": "screenferry",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
@@ -542,7 +542,7 @@ Plus the Android `share_target` block from §1.4.
   So on iOS 26+ every add-to-home-screen is a web app by default, but the manifest still governs
   name, icon, theme, and scope. Ship the manifest regardless.
 - **There is no install prompt on iOS.** No `beforeinstallprompt`. The user must tap Share →
-  Add to Home Screen manually. qrbeam must detect iOS Safari + non-standalone
+  Add to Home Screen manually. screenferry must detect iOS Safari + non-standalone
   (`!window.matchMedia('(display-mode: standalone)').matches && !navigator.standalone`) and show
   an illustrated instruction. This is unavoidable friction; treat it as a first-class onboarding
   screen, not a dismissible banner.
@@ -572,7 +572,7 @@ This has a long and ugly history. Current summary:
 - **Same-document navigation kills the stream.** WebKit ties the media-capture environment to the
   top frame document's current URL; a `pushState`/path change (not a hash change) destroys the
   environment and the stream ([WebKit 252465](https://bugs.webkit.org/show_bug.cgi?id=252465)).
-  **Actionable:** qrbeam must not change the URL path while the camera is live. Use hash routing
+  **Actionable:** screenferry must not change the URL path while the camera is live. Use hash routing
   or no routing at all on the receive screen.
 - **Regressions recur.** iOS 18.0 broke camera in Home Screen web apps and was fixed in 18.1.1
   ([Apple Developer Forums](https://developer.apple.com/forums/thread/769203)). iOS 26 introduced
@@ -618,7 +618,7 @@ may clear it under storage pressure. *"The browser may or may not honor the requ
 browser-specific rules"* — Chromium grants it silently based on engagement/installed-PWA
 heuristics; Firefox prompts. It requires a secure context and is **not available in Web Workers**.
 
-Two important limits for qrbeam:
+Two important limits for screenferry:
 
 - Persisted storage protects against **eviction under storage pressure**. It does **not**
   demonstrably override WebKit's 7-day ITP deletion (§3.2), which is a privacy mechanism, not a
@@ -637,7 +637,7 @@ write-then-hand-off pipeline that exists.
 
 ### 3.7 Single self-contained HTML file as an alternative distribution
 
-Extremely attractive for this app: one `qrbeam.html` the user saves to a USB stick or their
+Extremely attractive for this app: one `screenferry.html` the user saves to a USB stick or their
 Downloads folder and can open forever, with no server, no service worker, no cache eviction, no
 install flow. It is the true air-gap artefact.
 
@@ -721,7 +721,7 @@ So, concretely:
 - Static assets in `public/` are *not* inlined by `vite-plugin-singlefile` — everything must go
   through the bundler as an import.
 
-**Verdict:** ship **both**. The hosted PWA is the primary product; a `qrbeam-standalone.html`
+**Verdict:** ship **both**. The hosted PWA is the primary product; a `screenferry-standalone.html`
 (pure JS, no WASM, no modules, blob-URL worker or no worker at all) is a secondary artefact
 offered on the page as "Download the offline copy". For the truly air-gapped use case — the one
 where someone is transferring a key onto a machine that has never touched a network — the single
@@ -793,7 +793,7 @@ contrast"* under poor lighting, citing native apps (Starbucks, government ID app
 it. Status: *"This API shape is currently being experimented with"* — a WIP spec draft and a
 Chromium CL. WebKit has an open standards-position issue on it
 ([WebKit/standards-positions#19](https://github.com/WebKit/standards-positions/issues/19)).
-**Nothing has shipped. Do not plan around it; do feature-detect it so qrbeam gets better for free
+**Nothing has shipped. Do not plan around it; do feature-detect it so screenferry gets better for free
 if Chromium ships it.**
 
 **What to do instead:**
@@ -1027,7 +1027,7 @@ repo returns zero hits for "rate limited". Separately, `crypto-request`
 is a UR *payload type* for asking a device for data — not an encoding mode, and unrelated to
 fountain codes.
 
-### 5.1 Five findings that should shape qrbeam's UX
+### 5.1 Five findings that should shape screenferry's UX
 
 1. **The entire hardware-wallet ecosystem runs animated QR at 3–5 fps** — Keystone 3 at 200 ms,
    Sparrow at 200 ms, the BBQr spec recommending 250 ms, Envoy at 3 fps. Browser projects doing
@@ -1110,7 +1110,7 @@ parts"* above a fill bar. Three states per chunk (**got / missing / corrupt**). 
 are possible only because BBQr is **fixed-rate**.
 
 **(5) ★ Fountain-aware fragment bar — Blockchain Commons URDemo.** The best design for a rateless
-stream, and directly applicable to qrbeam. Three states (`.off`, `.on`, `.highlighted`) in
+stream, and directly applicable to screenferry. Three states (`.off`, `.on`, `.highlighted`) in
 [URFragmentBar.swift](https://github.com/BlockchainCommons/URUI/blob/master/Sources/URUI/URFragmentBar.swift):
 
 ```swift
@@ -1229,13 +1229,13 @@ converge on: **count frames in, not blocks out.**
 > 3-of-5 PSBT data**."*
 
 That is a fixed-rate stall compounded by a dishonest progress bar — both avoidable, and a precise
-description of the failure qrbeam must not reproduce. SeedSigner's v0.8.0 fix was shipped as
+description of the failure screenferry must not reproduce. SeedSigner's v0.8.0 fix was shipped as
 *"Much better animated QR scanning progress estimation calcs: **no more stuck-at-99%-progress
 misery!**"*
 
 ### 5.6 Closing the loop — does anyone use a reverse channel?
 
-Yes, three distinct designs, and the answer for qrbeam is "probably not, but know why".
+Yes, three distinct designs, and the answer for screenferry is "probably not, but know why".
 
 **(1) Sequential handoff (ubiquitous, but not feedback).** Every PSBT round trip is bidirectional
 in that each device shows QRs to the other, but each leg is an independent one-shot transfer with
@@ -1287,7 +1287,7 @@ Every instruction I could find, verbatim:
 | [Keystone](https://support.keyst.one/getting-started/setting-up-keystone-new) | *"If a transaction is large, the number of QR codes shown will increase. Please keep scanning until the whole process is finished."* |
 
 **Nobody ships the words "hold steady" prominently.** decimen is the only project that names
-autofocus hunting as the dominant failure mode, and only in a README. **This is a real gap qrbeam
+autofocus hunting as the dominant failure mode, and only in a README. **This is a real gap screenferry
 can fill.**
 
 **Quantified: propping the device is worth ~40–45%.**
@@ -1384,7 +1384,7 @@ The "tell the user what to fix" pattern **is** shipped, just not by animated-QR 
 RaptorQR, Sparrow, BlueWallet, Specter-DIY, Coldcard, qrs) exposes manual controls only. Combined
 with `requestVideoFrameCallback`'s `presentedFrames` (which
 [MDN](https://developer.mozilla.org/en-US/docs/Web/API/HTMLVideoElement/requestVideoFrameCallback)
-notes *"can be used to detect whether frames were missed"*), qrbeam can measure the true capture
+notes *"can be used to detect whether frames were missed"*), screenferry can measure the true capture
 rate and **tell the user what fps to set on the sender**. That is unbuilt territory and cheap.
 
 ### 5.9 An unaddressed risk: photosensitivity
@@ -1402,7 +1402,7 @@ insurance on a genuinely unexamined risk.
 
 - **No animated-QR tool gives live "too far / too close / too fast" feedback**, despite Apple and
   Google both shipping the primitive at the platform level (§5.8). libcimbar's static guide
-  brackets and SeedSigner's green/grey dot are the closest. **This is qrbeam's clearest opportunity
+  brackets and SeedSigner's green/grey dot are the closest. **This is screenferry's clearest opportunity
   to beat the state of the art.**
 - **No vendor recommends a phone stand or tripod** for animated QR — zero results — despite
   propping being worth ~40–45% (§5.7).
@@ -1536,7 +1536,7 @@ translation for a 1080p receiver:
 | 33% (360 px) | 120 modules → ~v28 | 72 modules → ~v14 |
 | 25% (270 px) | 90 modules → ~v19 | 54 modules → ~v9 |
 
-**Implication for qrbeam: QR version must be a runtime-adaptive parameter, and the thing to adapt
+**Implication for screenferry: QR version must be a runtime-adaptive parameter, and the thing to adapt
 on is measured decode success, not distance.** Start at v20–v27 and climb while the receiver is
 succeeding. Never hard-code v40. And since blur costs roughly a factor of two in density, the
 "prop your phone against something" instruction is worth ~4× in throughput — it is the single
@@ -1560,7 +1560,7 @@ That version was **v23**, and it is a known jsQR data-table typo
 are `[6, 30, 54, 74, 102]` where ISO/IEC 18004 Annex E specifies `[6, 30, 54, **78**, 102]`.
 Versions 21, 22, 24 and 25 are all correct.
 
-**This is uniquely dangerous for qrbeam.** Frame size is chosen from chunk payload size; if a
+**This is uniquely dangerous for screenferry.** Frame size is chosen from chunk payload size; if a
 chunk size happens to land on version 23, **every single frame fails silently** and the transfer
 simply never completes, with no error to diagnose. On a library with no commits since 2021. This
 alone disqualifies jsQR for production use here — see §7.7.
@@ -1715,7 +1715,7 @@ Recommended thresholds:
 2. **Offer a WebRTC/LAN path when one exists.** qr-send does exactly this: *"The browser-to-browser
    transfer falls up to WebRTC when possible because **30 MB/s over wifi beats a 100 kB/s QR
    stream**."* A 300× ratio. Optical should be the fallback for the genuinely air-gapped case,
-   not the default when a network is reachable. *(Whether qrbeam wants a network path at all is a
+   not the default when a network is reachable. *(Whether screenferry wants a network path at all is a
    product decision — "no server, ever" is a legitimate positioning that trades this away.)*
 
 ### 6.7 Gaps in the literature
@@ -1899,7 +1899,7 @@ scaling, not by real 1080p pixels. Author the fixture at the resolution you inte
 | full Chromium | ❌ | ❌ | ❌ `NotAllowedError` |
 
 The headless shell has no permission machinery and fails with a misleading `NotSupportedError`
-regardless of what you grant. **To test the camera-denied UX — which qrbeam needs, since "camera
+regardless of what you grant. **To test the camera-denied UX — which screenferry needs, since "camera
 blocked" is a first-class receiver state — you must use `channel: 'chromium'` and omit
 `--use-fake-ui-for-media-stream`.**
 
@@ -2157,7 +2157,7 @@ custom video.
 
 ---
 
-## 8. Recommendations for qrbeam
+## 8. Recommendations for screenferry
 
 ### 8.1 File in / file out, per platform
 
@@ -2213,7 +2213,7 @@ quota eviction (it does not defeat iOS's 7-day ITP deletion).
 
 ### 8.2 PWA approach
 
-- **Ship a hosted PWA as the primary product** and a **`qrbeam-standalone.html` single-file build
+- **Ship a hosted PWA as the primary product** and a **`screenferry-standalone.html` single-file build
   as a first-class secondary artefact**, linked from the app itself. The single file is the honest
   answer for the truly air-gapped user, and it is a different build target with different
   constraints (classic blob workers only, no module workers, no OPFS, base64-inlined WASM or —
@@ -2255,7 +2255,7 @@ Ordered by impact:
    invert toggle.
 4. **Brightness is a user instruction, not an API.** No browser can set it. Show a short
    pre-flight checklist: brightness up, auto-brightness off, Night Shift/True Tone off. Feature-
-   detect the proposed `screen.requestBrightnessIncrease()` so qrbeam improves for free if
+   detect the proposed `screen.requestBrightnessIncrease()` so screenferry improves for free if
    Chromium ships it — its explainer names QR display as the motivating use case.
 5. **Drive frames from `requestAnimationFrame`, never `setInterval`.** Measure the refresh rate by
    timing rAF callbacks *while animating*, then quantise the target fps to an integer divisor of

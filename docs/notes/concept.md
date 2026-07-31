@@ -1,6 +1,6 @@
-# qrbeam — Concept and Constraints
+# screenferry — Concept and Constraints
 
-This note captures what qrbeam *is*, the constraints that are non-negotiable, and
+This note captures what screenferry *is*, the constraints that are non-negotiable, and
 the naming rationale. It is written before the research lands, so it deliberately
 contains no numbers — those live in `docs/research/` and get pulled into
 `docs/plan/plan.md`.
@@ -13,10 +13,10 @@ A static web app that transfers a file from one device to another over the
 Note the phrasing: the definition is the *channel*, not the *modulation*.
 Animated QR codes are the obvious and safest way to modulate that channel, but
 they are an implementation choice, not the point. QR spends its symbol budget on
-things qrbeam doesn't need — omnidirectional scanning from arbitrary angles,
+things screenferry doesn't need — omnidirectional scanning from arbitrary angles,
 robustness to print damage, a single-shot static payload — and it uses one bit
 per module when the channel can carry several. If a denser scheme (colored
-cells, a custom grid codec) survives a real camera pipeline, qrbeam should use
+cells, a custom grid codec) survives a real camera pipeline, screenferry should use
 it. See `docs/research/beyond-qr-optical-channels.md` and
 `docs/research/custom-codec-engineering.md`.
 
@@ -43,14 +43,14 @@ Properties of that channel:
 | **Hostile signal processing in the path** | The camera ISP applies auto-exposure, auto white balance, gamma, denoise, and sharpening before we ever see a pixel. Any modulation denser than black-and-white has to survive all of it. |
 
 The "erasure channel, not error channel" property is the single most important
-one. It means qrbeam does not need error *correction* at the application layer —
+one. It means screenferry does not need error *correction* at the application layer —
 the modulation layer handles that per frame (QR's Reed–Solomon, or an equivalent
-in a custom codec). What qrbeam needs at the application layer is **erasure
+in a custom codec). What screenferry needs at the application layer is **erasure
 recovery**, which is what fountain codes are for.
 
 Keeping that boundary clean is what lets the modulation layer be swapped: any
 scheme that delivers "here are N verified-correct bytes, or nothing" is a valid
-physical layer for qrbeam.
+physical layer for screenferry.
 
 ## Non-negotiable constraints
 
@@ -78,7 +78,7 @@ physical layer for qrbeam.
 ## Explicit non-goals
 
 - **Not a fast transfer tool.** If both devices are on the same network, use
-  literally anything else. qrbeam is for when they are not, or must not be.
+  literally anything else. screenferry is for when they are not, or must not be.
 - **Not an encryption tool** (v1). The threat model is "no network available",
   not "an adversary is filming the screen". Optional passphrase encryption is a
   plausible later addition, and would be genuinely useful — someone filming the
@@ -90,13 +90,20 @@ physical layer for qrbeam.
 
 ## Naming
 
-**qrbeam** — data beamed across a gap as light. Short, unambiguous, pronounceable
-and typeable, which matters for a URL a user has to read off someone else's
-screen.
+**screenferry** — it ferries files across the screen-to-camera gap. Plain-spoken
+and unmistakable: no cleverness to explain, and it reads correctly aloud, which
+matters for a URL someone has to read off another person's screen.
 
-Caveat now that the scope is "optical channel" rather than "QR specifically": if
-the shipped codec ends up not being QR, the `qr` prefix is misleading. Held as an
-open question below; renaming is free until the repo is pushed and shared.
+Deliberately **modulation-neutral**. The project was briefly named `qrbeam`, and
+the research is why it isn't: QR turned out to be roughly the *worst* viable
+option on this channel (~18.5 KB/s against a demonstrated ~106 KB/s), so a name
+naming the format would have committed us in public to the thing we're trying to
+move past. `screenferry` names the *channel and the job*, both of which are
+fixed, rather than the encoding, which is not.
+
+Renamed at 5 commits, before anything was deployed or linked. The GitHub
+namespace was clear at the time of the check (zero repositories); `qrbeam` was
+not — four repos shared it, one describing the same concept.
 
 ## Open questions for the plan
 

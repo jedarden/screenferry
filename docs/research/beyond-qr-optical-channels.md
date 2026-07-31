@@ -1,6 +1,6 @@
 # Beyond QR: high-capacity screen-to-camera optical channels
 
-*Research note for qrbeam. Compiled 2026-07-31.*
+*Research note for screenferry. Compiled 2026-07-31.*
 
 **Scope.** Everything that might beat plain animated QR on the screen→camera link:
 colour barcodes, academic screen-camera communication systems, raw pixel-grid codecs,
@@ -10,7 +10,7 @@ survives being implemented in JavaScript/WASM in a browser.
 **Method.** Literature was gathered from ACM/IEEE abstracts, arXiv, OpenAlex and
 Semantic Scholar (cited inline). Because most published numbers are lab numbers with
 tripods and DSLRs, and because none of them tell you what a *browser* can do, this note
-also contains **original measurements** made for qrbeam: the Fraunhofer JAB Code
+also contains **original measurements** made for screenferry: the Fraunhofer JAB Code
 reference implementation and zxing-cpp (the engine behind `zxing-wasm`) were run
 head-to-head through an identical simulated display→camera pipeline (linear-light
 colour crosstalk, optical blur, sensor noise, auto-white-balance error, tone curve,
@@ -43,7 +43,7 @@ notes cover adjacent ground and should be read with it — they are not duplicat
 | Biggest un-taken win | **Tiling.** 15 QR codes in one 1080p frame = **7 800 B/frame** for 7.8 ms of decode; one v40 = 2953 B. Nobody's animated-QR tool does this. **[measured here]** |
 | Best *shipped* custom codec | **libcimbar** — **106 KB/s sustained**, WASM receiver, on a 2016 Snapdragon 625. MPL-2.0. See `docs/research/custom-codec-engineering.md` §0 and `docs/notes/prior-art-libcimbar.md`. |
 | Realistic browser ceiling | **20–45 KB/s** mono tiled QR; **35–90 KB/s** colour-tripled tiled QR; **~106 KB/s** demonstrated by a custom codec. Not 1–3 KB/s, and not 1 MB/s. |
-| Should qrbeam use QR? | **Yes for v1 — but tiled, and with an RGB colour layer as v2.** Do not use JAB Code as the v1 wire format. See §10. |
+| Should screenferry use QR? | **Yes for v1 — but tiled, and with an RGB colour layer as v2.** Do not use JAB Code as the v1 wire format. See §10. |
 
 ---
 
@@ -65,7 +65,7 @@ corner finder patterns plus up to 60 **secondary symbols** docked to it.
   three times higher data density compared to conventional 2D matrix codes such as
   DataMatrix, QR or Aztec code … by the use of eight colors".
 
-**License — this changed very recently and matters a lot for qrbeam.** The repo was
+**License — this changed very recently and matters a lot for screenferry.** The repo was
 LGPL 2.1, moved to LGPLv3-with-linking-exception on 2025-07-23, and was
 **re-licensed to MIT on 2026-04-17** ("updated the license to the MIT license",
 commit on `master`; the LICENSE file now reads *"As the copyright holder, we are hereby
@@ -156,9 +156,9 @@ JAB advantage at ≥6 px/module entirely.
 Condition B is the decisive one. **Under ordinary handheld blur, the JAB reference
 decoder produces nothing at all at 4 or 5 px/module, while QR-L delivers its full 2953
 bytes.** JAB only pulls ahead once the camera resolves ≥8 px/module — a much closer,
-steadier hold than qrbeam can assume.
+steadier hold than screenferry can assume.
 
-**Verdict on JAB Code for qrbeam.** The symbology is good; the reference decoder is
+**Verdict on JAB Code for screenferry.** The symbology is good; the reference decoder is
 research-grade, not a video-rate camera decoder. Using it would mean either (a) accepting
 ~5 px/module and ~100 ms/frame decode in WASM ⇒ single-digit fps, or (b) writing a new
 blur-tolerant JAB decoder — which is most of the work of writing a custom codec anyway.
@@ -194,7 +194,7 @@ Prior art:
 - Academic variants: *Colour multiplexing of quick-response (QR) codes*
   (<https://doi.org/10.1049/el.2014.4319>), and QRGB (<https://qrgb.shyft.us/>).
   Print-oriented work encodes in CMY rather than RGB because printers are subtractive —
-  **irrelevant for qrbeam, which is emissive.**
+  **irrelevant for screenferry, which is emissive.**
 
 **Does it survive real camera colour crosstalk? [measured here] — yes, comfortably.**
 
@@ -224,10 +224,10 @@ With JPEG q60 on top (quantisation *and* 4:2:0), the penalty grows: at 4 px/modu
 planes survive, at 6 px/module 2 of 3, at 8 px/module 3 of 3, while monochrome is 5/5
 throughout. **If your capture path re-compresses, colour costs you an octave.**
 
-Crucially for qrbeam: **the three colour planes are three independent erasure
+Crucially for screenferry: **the three colour planes are three independent erasure
 channels.** With a fountain code you do not need all three; a frame that yields 2 of 3
 planes is simply a frame that delivered 2/3 of the symbols. This composes perfectly with
-the rateless design already in the qrbeam concept note. That is a much better failure
+the rateless design already in the screenferry concept note. That is a much better failure
 mode than JAB Code, where a colour misclassification corrupts the single LDPC block.
 
 ### 1.4 HCC2D and the colour-classification literature
@@ -241,7 +241,7 @@ substantially limited by the redundancy needed for correcting errors, which are 
 only to geometric but also to chromatic distortions", and SVMs "do not seem to pay off"
 versus simple clustering. Take-away: **spend the effort on a colour-reference/pilot
 pattern, not on a clever classifier.** JAB Code already does this (it embeds the palette
-redundantly in the symbol); qrbeam should too.
+redundantly in the symbol); screenferry should too.
 
 ### 1.5 Do Aztec / DataMatrix / PDF417 / MaxiCode / Han Xin beat QR?
 
@@ -262,7 +262,7 @@ the module count is set by what the camera can resolve.
 
 **Conclusion: none of the monochrome alternatives beats QR meaningfully.** QR-L is
 already the densest mainstream monochrome symbology per module, has the widest ECC range
-(L/M/Q/H), the best-tested decoders, and — decisive for qrbeam — decoders that expose
+(L/M/Q/H), the best-tested decoders, and — decisive for screenferry — decoders that expose
 **raw bytes**. Aztec's no-quiet-zone property is genuinely useful if you tile aggressively
 (it recovers ~8 modules of pitch per tile), and zxing-cpp decodes Aztec too, so it is a
 reasonable *tiling* experiment later. Everything else is a step backwards.
@@ -311,7 +311,7 @@ modulation tricks are instructive:
    demonstrated a sustained megabit phone-to-phone screen→camera link.
 3. Every system that got to that level built a **custom blur-aware colour decoder** and
    a **rateless/erasure layer**. SoftLight in particular is the closest published design
-   to what qrbeam wants: soft per-bit confidence → bit-level erasure channel → fountain
+   to what screenferry wants: soft per-bit confidence → bit-level erasure channel → fountain
    code. That architecture is worth copying even if the symbology differs.
 4. Nothing in the literature is a browser implementation. All of it is native
    Android/C++/CUDA.
@@ -339,7 +339,7 @@ symbol level instead of stacking a fountain code on top of Reed–Solomon.
   during the sensor's readout, the frame is *torn*: the top rows are frame N, the bottom
   rows frame N+1. This is not corruption — it is a hard split. PixNet's answer was to run
   the camera at **twice** the display rate so that at least one capture per display frame
-  is clean; that is the correct answer for qrbeam too, and it halves your usable frame
+  is clean; that is the correct answer for screenferry too, and it halves your usable frame
   rate. (It is also *exploitable* — see §5.)
 - **Moiré / aliasing** between the display's pixel grid and the sensor's Bayer grid. This
   is why you cannot go to 1 display pixel per module: you need the display to render each
@@ -354,10 +354,10 @@ symbol level instead of stacking a fountain code on top of Reed–Solomon.
 "Colour-icon-matrix barcode", MPL-2.0, C++/OpenCV → Emscripten, ~6.2k stars, actively
 maintained. It sustains **852 kbit/s ≈ 106 KB/s** decoding on a 2016 Snapdragon 625, using
 8×8 px cells with a 1 px guard gutter, 4 *icon-shape* bits + 2 *colour* bits per cell,
-RS(155,125), zstd, and **wirehair** fountain codes — the same layering qrbeam's concept
+RS(155,125), zstd, and **wirehair** fountain codes — the same layering screenferry's concept
 note sketched. It ships a WASM receiver.
 
-**This is the single most important artefact for qrbeam and it is covered in depth in the
+**This is the single most important artefact for screenferry and it is covered in depth in the
 sibling documents, which should be read alongside this one:**
 - `docs/research/custom-codec-engineering.md` §0 — grid geometry, cell config, per-mode
   throughput, and the whole receiver-side engineering analysis.
@@ -373,7 +373,7 @@ or a licence decision. **It is the v3 upgrade path, not the v1 plan**, but it is
 *credible* v3, not a research gamble.
 
 Print-oriented paper-data formats (Twibright Optar, PaperBack) are explicitly out of
-qrbeam's scope.
+screenferry's scope.
 
 ---
 
@@ -457,12 +457,12 @@ pilot set, nearest-neighbour decode. Symbol error rate (SER):
 - **Rolling-shutter exploitation** (DisCo, ACM TOG 2016; RollingLight, MobiSys 2015).
   Modulating the *whole* display brightness at kHz rates turns time into space: one
   exposure captures many "rows" of symbols. This is how LED-to-camera VLC gets kbps out
-  of a 30 fps camera. **For qrbeam this is not a throughput win** — it converts spatial
-  bandwidth into temporal bandwidth, and qrbeam has plenty of spatial bandwidth and very
+  of a 30 fps camera. **For screenferry this is not a throughput win** — it converts spatial
+  bandwidth into temporal bandwidth, and screenferry has plenty of spatial bandwidth and very
   little temporal. It is only useful for the *ambient-light-sensor* fallback (§7).
 - **Complementary frames** (InFrame++, Uber-in-Light, ChromaCode): display +Δ and −Δ in
   successive frames so the *time-average* is the unmodified image. This is a technique
-  for **invisibility**, and it halves your rate. qrbeam has no invisibility requirement —
+  for **invisibility**, and it halves your rate. screenferry has no invisibility requirement —
   the screen is *supposed* to look like a code. **Skip it.** The one borrowable idea is
   **DC balance**: keeping every frame's mean luminance and mean colour constant stops the
   camera's auto-exposure and auto-white-balance from hunting between frames. That is
@@ -503,7 +503,7 @@ pilot set, nearest-neighbour decode. Symbol error rate (SER):
 |---|---|---|
 | **zxing-wasm** (<https://github.com/Sec-ant/zxing-wasm>) | **Yes** — `ReadResult.bytes: Uint8Array` and `bytesECI` are in the public type (`src/bindings/readResult.ts`) | zxing-cpp compiled to WASM. Reader-only bundle ~1.04 MiB. Multiple symbols per frame (returns `ReadResult[]`). Apache-2.0 / BSD-3 / MIT. **The right choice.** |
 | **jsQR** (<https://github.com/cozmo/jsQR>) | **Yes** — `QRCode.binaryData: number[]` | Pure JS, small, single code per frame, no perspective-hardening beyond the basics. Fine as a fallback. |
-| **`BarcodeDetector`** (native) | **No** — the spec exposes only `rawValue: DOMString`. Bytes are lost. | Also: Chrome Android full support (v150+), Chrome desktop *partial* (v83+), **Safari/iOS disabled by default**, **Firefox not supported**. <https://caniuse.com/mdn-api_barcodedetector> **Unusable for qrbeam** — the binary-safety constraint in the concept note rules it out on its own. |
+| **`BarcodeDetector`** (native) | **No** — the spec exposes only `rawValue: DOMString`. Bytes are lost. | Also: Chrome Android full support (v150+), Chrome desktop *partial* (v83+), **Safari/iOS disabled by default**, **Firefox not supported**. <https://caniuse.com/mdn-api_barcodedetector> **Unusable for screenferry** — the binary-safety constraint in the concept note rules it out on its own. |
 | **JABCodeJS** (<https://github.com/TMSSassen/JABCodeJS>) | No (string-only encode API) | 6 commits, unmaintained, wraps the fragile reference decoder. |
 
 **Decode cost [measured here]** — zxing-cpp (the exact engine behind `zxing-wasm`), native
@@ -557,7 +557,7 @@ finds; the marginal cost of the 15th code is far below the cost of the first.
 
 (ECC level M costs about 20–25% of the payload for a modest robustness gain — e.g. 15 × v15-M
 = 6180 B/frame vs 7800 B/frame for L. With a fountain code above it, **L is the right
-choice**: qrbeam wants the *erasure* behaviour, and pays for reliability once, at the
+choice**: screenferry wants the *erasure* behaviour, and pays for reliability once, at the
 fountain layer, rather than twice.)
 
 Three things fall out:
@@ -611,7 +611,7 @@ channel. Payload per 1920×1080 camera frame, all planes byte-exact [measured he
   predicted from the module-size penalty in §1.3.
 
 Note also that in the 4:4:4 rows several configurations lose 3–5 planes out of 84 while
-still returning most of the payload. **That is the erasure behaviour qrbeam wants**: a
+still returning most of the payload. **That is the erasure behaviour screenferry wants**: a
 partially-decoded colour frame is a partially-delivered frame, not a lost one.
 
 ### 6.5 Defensible browser throughput estimates
@@ -712,7 +712,7 @@ both this note and §7.2 as hypotheses until it runs.
   Audible protocols base at F0 = 1875 Hz; ultrasound at F0 = 15 kHz. Documented rate:
   **8–16 bytes/second.** Real WASM builds and browser demos exist
   (waver.ggerganov.com, ggwave-js.ggerganov.com). Excellent for a 32-byte key or a URL;
-  **~1000× too slow to be a file transport.** Its real value to qrbeam would be as an
+  **~1000× too slow to be a file transport.** Its real value to screenferry would be as an
   **out-of-band control channel** — e.g. the receiver chirps "got it, stop" back at the
   sender, which is otherwise impossible on a one-way optical link.
 - **quiet.js / libquiet** (<https://github.com/quiet/quiet-js>, **BSD-3-clause**, libfec
@@ -721,7 +721,7 @@ both this note and §7.2 as hypotheses until it runs.
   audible profiles are on the order of a few kbps at best. Browser support is the killer:
   **Safari has no microphone support for it at all**, Firefox is limited to 16 kHz with
   "strong audio distortion", and Chrome Android is GMSK-profiles-only. Effectively
-  Chrome-desktop-only. Not viable for qrbeam's "same app on both devices" constraint.
+  Chrome-desktop-only. Not viable for screenferry's "same app on both devices" constraint.
 - **Chirp.io** — acquired by Sonos (2020) and the developer SDK shut down. Dead.
 - **Screen brightness flicker → ambient light sensor.** The W3C
   `AmbientLightSensor` API is **"Limited availability / Experimental, not Baseline"**,
@@ -732,7 +732,7 @@ both this note and §7.2 as hypotheses until it runs.
 - **Web Bluetooth / WebUSB / WebNFC**: Web Bluetooth and WebUSB are Chromium-only and
   absent from iOS Safari entirely (Apple has declined to implement them, citing privacy);
   WebNFC is Chrome-Android-only and read/write NDEF only. None of them work as a
-  cross-platform, no-pairing, static-page transport, which is precisely qrbeam's premise.
+  cross-platform, no-pairing, static-page transport, which is precisely screenferry's premise.
   **All dead ends for v1.**
 
 ---
@@ -801,9 +801,9 @@ a throughput figure.
 
 ---
 
-## 10. Recommendations for qrbeam
+## 10. Recommendations for screenferry
 
-### Should qrbeam use QR at all?
+### Should screenferry use QR at all?
 
 **Yes for v1 — and the current plan under-uses QR by roughly 10×. But QR is not the
 long-term answer, and the note should say so plainly:** libcimbar demonstrates ~106 KB/s
@@ -825,7 +825,7 @@ wins both by an enormous margin, at zero implementation risk:
 - zxing-wasm returns `bytes: Uint8Array`, satisfying the concept note's non-negotiable
   binary-safety constraint, and it is Apache-2.0.
 - QR gives an **erasure** channel (a symbol decodes correctly or not at all), which is
-  exactly the assumption the qrbeam concept note already builds the fountain code on.
+  exactly the assumption the screenferry concept note already builds the fountain code on.
   A colour symbology with a single LDPC block over the whole symbol does *not* give you
   that cleanly.
 
@@ -897,7 +897,7 @@ looks like.
 - **Do not use JAB Code as the v1 wire format.** The MIT relicense (2026-04-17) makes it
   legally attractive and it is a genuinely good symbology — but the reference decoder is
   40–50× too slow and needs 25% more pixels per module. Revisit only if someone writes a
-  fast, blur-tolerant JAB decoder. (If qrbeam ever *does* want a colour symbology with a
+  fast, blur-tolerant JAB decoder. (If screenferry ever *does* want a colour symbology with a
   spec behind it, JAB Code is now the one to pick — it is ISO-standardised and MIT.)
 - **Do not use `BarcodeDetector`.** It returns only a string, which violates the
   binary-safety constraint, and it is absent from iOS Safari and Firefox.
@@ -905,7 +905,7 @@ looks like.
   the same bit rate, and much worse than binary luma at low pixel counts.
 - **Do not chase the imperceptible-watermark literature** (HiLight, InFrame++,
   ChromaCode, DeepLight). Those systems pay 10–100× in throughput for invisibility that
-  qrbeam does not need.
+  screenferry does not need.
 - **Do not quote PixNet's 12 Mb/s** as a target. It is a DSLR, a 30-inch monitor, and a
   nominal bits-per-still figure.
 - **Do not plan for a ≥30 fps decode loop.** The camera must run at ≥2× the display rate,

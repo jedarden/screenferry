@@ -2,7 +2,7 @@
 
 `docs/research/custom-codec-engineering.md` surfaced
 [sz3/libcimbar](https://github.com/sz3/libcimbar) as an existing implementation of
-essentially qrbeam's thesis. Because that finding changes what qrbeam *is*, it
+essentially screenferry's thesis. Because that finding changes what screenferry *is*, it
 was verified against the source rather than taken from the research summary.
 
 ## Verification
@@ -22,7 +22,7 @@ third-party summary.
 ## Why this matters
 
 **1. It validates the architecture independently.** libcimbar arrived at the same
-layering qrbeam sketched before this research landed — chunk, fountain-code,
+layering screenferry sketched before this research landed — chunk, fountain-code,
 frame, modulate — including the choice to lean on rateless coding rather than
 retransmission. Two independent designs converging is good evidence the shape is
 right. It also confirms compression belongs *before* chunking (libcimbar uses
@@ -40,7 +40,7 @@ and the remaining risk is our execution, not the concept.
 
 ## The licensing problem — decide before writing any code
 
-libcimbar is **MPL-2.0**. qrbeam's README currently says MIT. These interact in a
+libcimbar is **MPL-2.0**. screenferry's README currently says MIT. These interact in a
 specific way that is easy to get wrong:
 
 - MPL-2.0 is **file-level copyleft**. Any file containing MPL-licensed code must
@@ -48,7 +48,7 @@ specific way that is easy to get wrong:
 - It is *not* viral across the whole project the way GPL is. MPL files can live
   alongside MIT files in one codebase, and merely *linking* or shipping them
   together does not relicense the rest.
-- So: porting libcimbar's decoder into qrbeam is legally fine, but those ported
+- So: porting libcimbar's decoder into screenferry is legally fine, but those ported
   files stay MPL-2.0 and must be marked as such.
 
 Three options, to be settled in the plan:
@@ -56,26 +56,26 @@ Three options, to be settled in the plan:
 | Option | Consequence |
 |---|---|
 | **Port/adapt libcimbar code** | Fast, proven. Ported files are MPL-2.0; repo becomes mixed-license and must say so clearly in README and per-file headers. |
-| **Clean-room implement from the format** | Keeps qrbeam uniformly MIT. Slower, and re-derives work that is already done well. |
+| **Clean-room implement from the format** | Keeps screenferry uniformly MIT. Slower, and re-derives work that is already done well. |
 | **Use it as reference only** | Read it for geometry and calibration technique, write our own. The realistic middle path — but "reference only" must be genuine, not a fig leaf over copied code. |
 
 Whichever we pick, this must not be decided implicitly by someone pasting a
 function in. Flagging it here so the plan makes it an explicit choice.
 
-## What qrbeam still adds
+## What screenferry still adds
 
-libcimbar existing does not make qrbeam redundant, but it does sharpen what
-qrbeam is *for*:
+libcimbar existing does not make screenferry redundant, but it does sharpen what
+screenferry is *for*:
 
 - **libcimbar is not a web app.** It's a C++ library with CLI tools and a WASM
-  decoder demo. qrbeam's premise — open a URL on two devices, no install, works
+  decoder demo. screenferry's premise — open a URL on two devices, no install, works
   offline, auditable static bundle — is a genuinely different product.
 - **Its WASM component is the receiver.** The sender side in a browser, and the
   whole PWA/offline/file-I/O story, is unbuilt work.
-- **Symmetry.** qrbeam's constraint that one deployed page is both roles is not
+- **Symmetry.** screenferry's constraint that one deployed page is both roles is not
   something libcimbar addresses.
 
-The honest framing: qrbeam's contribution is the *delivery vehicle and the UX*,
+The honest framing: screenferry's contribution is the *delivery vehicle and the UX*,
 and libcimbar is proof the physical layer can be much better than QR. The plan
 should treat its published numbers as the target to match, and its geometry and
 calibration approach as the reference design.

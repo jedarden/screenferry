@@ -1,4 +1,4 @@
-# qrbeam — Application Plan
+# screenferry — Application Plan
 
 > **Status: awaiting research.** This file is the single, complete plan for the
 > application — architecture, components, data model, phases, open questions.

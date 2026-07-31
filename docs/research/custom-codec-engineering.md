@@ -1,6 +1,6 @@
 # Custom Optical Codec — Receiver-Side Engineering Feasibility
 
-**Question:** can qrbeam replace QR with a custom screen→camera codec, and decode it in a
+**Question:** can screenferry replace QR with a custom screen→camera codec, and decode it in a
 browser, in real time, handheld, on a mid-range phone?
 
 **Short answer:** yes, and it has already been done — but not by anyone using a naive
@@ -52,7 +52,7 @@ existence proof and the engineering constraints it implies.
 Before any theory: **a custom screen→camera codec with a browser (WASM) receiver already
 exists, ships, and is fast.** [libcimbar](https://github.com/sz3/libcimbar) ("colour-icon-matrix
 barcode", MPL-2.0, C++/OpenCV → Emscripten) is the single most valuable artefact for this
-project. Everything qrbeam wants to do, it does.
+project. Everything screenferry wants to do, it does.
 
 Headline numbers, from
 [PERFORMANCE.md](https://github.com/sz3/libcimbar/blob/master/PERFORMANCE.md) **[MEASURED]**:
@@ -86,7 +86,7 @@ pair of cells.** That is not decoration; it is the anti-bleed guard band, and th
 samples only the *interior* — `Cell(_image, pos.x+1, pos.y+1, cell_size-2, cell_size-2)`,
 i.e. the middle 6×6 of an 8×8 cell **[CODE]**.
 
-The rest of this document is largely "what libcimbar does, why, and what qrbeam should do
+The rest of this document is largely "what libcimbar does, why, and what screenferry should do
 differently."
 
 ---
@@ -111,9 +111,9 @@ per-corner localisation accuracy** over a square checkerboard, and it is the hig
 tiling of the Euclidean plane for this purpose. The detector finds *monkey saddle* points
 (third-order saddles) rather than ordinary saddles.
 
-**Verdict for qrbeam: do not use Deltille.** The 10% accuracy gain is aimed at camera
+**Verdict for screenferry: do not use Deltille.** The 10% accuracy gain is aimed at camera
 *calibration*, where you sub-pixel-fit a few dozen corners offline and care about the
-fourth decimal place. qrbeam needs ~0.3 px accuracy over a 1000-px span, in 33 ms, and a
+fourth decimal place. screenferry needs ~0.3 px accuracy over a 1000-px span, in 33 ms, and a
 triangular lattice makes the *payload* grid triangular too, which complicates everything
 downstream (cell addressing, interleaving, guard bands) for no throughput gain. Interesting,
 not applicable.
@@ -148,7 +148,7 @@ not applicable.
    edges** of the code region and returns midpoints — which are then used to correct for
    lens/perspective curvature rather than trusting a pure 4-point homography.
 
-**Recommendation for qrbeam:** copy this. Run-length ratio scanning on a *sparsely sampled*
+**Recommendation for screenferry:** copy this. Run-length ratio scanning on a *sparsely sampled*
 set of rows is the cheapest reliable rectangle finder that exists, it is scale-invariant,
 it needs no contour library, and it is exactly what jsQR/ZXing already do — so the
 algorithm is well-trodden and there is reference code in JS.
@@ -210,7 +210,7 @@ So (b) is nominally ~3.5× less arithmetic. **But:**
 `warpPerspective(..., INTER_LINEAR)` into a 1024×1024 buffer, and everything downstream
 reads that buffer **[CODE]**.
 
-**Recommendation for qrbeam: (a), and do the warp on the GPU** (see §5). The moment the
+**Recommendation for screenferry: (a), and do the warp on the GPU** (see §5). The moment the
 warp is a fragment shader, (a) is free and the argument is over. Even on the CPU, (a) is
 the better engineering choice because it converts a random-access problem into a streaming
 one.
@@ -220,7 +220,7 @@ There is a third option worth naming:
 **(c) Warp *and reduce* in one pass** — render the warp with the output resolution set to
 one texel *per cell* (C×C, not S×S), with the fragment shader doing the k×k box average
 internally. This is (a) with the sampling folded in, and it makes the GPU readback tiny
-(112×112×4 = 50 KB instead of 4 MB). This is the design qrbeam should target. See §5.4.
+(112×112×4 = 50 KB instead of 4 MB). This is the design screenferry should target. See §5.4.
 
 ### 2.3 Sub-pixel and interpolation concerns
 
@@ -239,7 +239,7 @@ Three real ones:
    flood fill (`FloodDecodePositions`) **[CODE]**. It also runs `scan_edges()` and
    `SimpleCameraCalibration`/`Undistort` to pre-correct lens distortion.
 
-   For qrbeam the cheaper equivalent is: **put registration marks inside the grid**, not
+   For screenferry the cheaper equivalent is: **put registration marks inside the grid**, not
    just at the corners — e.g. a known cell pattern every 16 cells — and fit a
    piecewise-bilinear correction on top of the global homography. That is essentially what
    QR's alignment patterns are for, and it's why large QR versions have many of them.
@@ -454,7 +454,7 @@ float adjust = 255.0/(max - min);
 drift entirely, and immune to white-balance drift to first order. Then a per-cell
 max/min stretch removes what's left.
 
-**qrbeam's answer should be stronger than libcimbar's**, because qrbeam is not chasing
+**screenferry's answer should be stronger than libcimbar's**, because screenferry is not chasing
 100 KB/s and can afford the area:
 
 > **Transmit the palette in-band, every frame, at multiple spatial sites.**
@@ -670,7 +670,7 @@ vs reliability **[LAB]**:
 
 ⚠️ **Do not transfer these numbers directly.** HiLight detects a **1–8% intensity change**;
 a full-contrast code has ~30× more signal, so its limit is *amplitude SNR*, not spatial
-resolution, and its cell sizes are far more conservative than qrbeam needs. What *does*
+resolution, and its cell sizes are far more conservative than screenferry needs. What *does*
 transfer is the shape of the curve and the hardware dependence they measured: an 18 MP SLR
 supported **720 grids at 6.6 kbps** versus an 8 MP iPhone 5s's **120 grids at 1.1 kbps** —
 *"higher-resolution cameras capture more pixels on the transmitter screen, and thus they
@@ -697,7 +697,7 @@ points**, consistently.
 **The killer conclusion for phone-to-phone:** at 30 cm, a 6.1" phone screen gives only
 ~327 camera pixels across. At 6 camera px/cell that is a **54×54 grid**. At 4 bits/cell
 that's 54²×4/8 = 1,458 bytes/frame before ECC. **Phone-to-phone is a fundamentally smaller
-channel than laptop-to-phone**, and qrbeam must either detect the situation and switch to a
+channel than laptop-to-phone**, and screenferry must either detect the situation and switch to a
 coarser mode, or tell the user to move closer. libcimbar handles this with explicit modes
 (`Conf8x8_micro` at 80×69 cells for smaller displays) **[CODE]**.
 
@@ -827,7 +827,7 @@ that you cannot assume 30.
 rolling shutter for camera communication and on coping with *heterogeneous* readout rates —
 ⚠️ **full text not retrieved (ACM 403); listed as the right next read, no verified numbers.**
 
-For qrbeam, band decoding means specifically:
+For screenferry, band decoding means specifically:
 
 1. Detect the tear as a **discontinuity in the reference column** (§3.2) — you get this for
    free from the calibration ring.
@@ -894,7 +894,7 @@ Practical levers:
 
 Also: **autofocus hunting** is a worse enemy than blur. A focus hunt costs 5–20 consecutive
 frames. Request `focusMode: 'continuous'` and accept that bursts of loss will happen — this
-is precisely why qrbeam is fountain-coded.
+is precisely why screenferry is fountain-coded.
 
 **OIS helps; EIS actively hurts; neither is controllable.** Optical image stabilisation
 counteracts rotation in the lens and directly attacks the dominant term above — pure win.
@@ -920,7 +920,7 @@ Why this helps:
 - It defeats ISP **temporal denoising**, which would otherwise blend consecutive (different)
   code frames together.
 
-This costs nothing and qrbeam should copy it.
+This costs nothing and screenferry should copy it.
 
 ---
 
@@ -939,7 +939,7 @@ measured **8–30 fps** across devices **[LAB]**).
    ID and checksum; duplicates are recognised and dropped; torn frames fail the checksum
    and are discarded; missing frames don't matter because the sender emits an endless stream
    of distinct fountain-coded frames. This makes synchronisation a *throughput* question
-   rather than a *correctness* question. qrbeam's plan already commits to this, and it is
+   rather than a *correctness* question. screenferry's plan already commits to this, and it is
    the right call. libcimbar does the same (wirehair fountain codes, generating
    `blocks_required() × 8` distinct blocks before looping **[CODE]**).
 
@@ -1029,7 +1029,7 @@ Browser support: `requestVideoFrameCallback` is Chrome 83+, Edge 83+, Firefox 13
 ([MDN](https://developer.mozilla.org/en-US/docs/Web/API/VideoFrame/copyTo)) **[SPEC]**.
 
 **Read plane 0 (Y) and stop there.** Because the frame is NV12 or I420 (§3.1), plane 0 *is*
-a full-resolution 8-bit grayscale image, contiguous, one byte per pixel. If qrbeam encodes
+a full-resolution 8-bit grayscale image, contiguous, one byte per pixel. If screenferry encodes
 in luma (§7.3), **that plane is the entire signal** — no colour conversion, no chroma
 upsample, no RGBA expansion, and ⅓ the bytes of an RGBA copy. Branch on `VideoFrame.format`
 to find the plane layout (I420 = 3 planes, NV12 = 2 with interleaved UV).
@@ -1098,7 +1098,7 @@ This is where GPU pipelines usually die, so:
   design, no fence gymnastics. And it is now available on **both** targets: WebGPU shipped
   in **Safari 26** for macOS/iOS/iPadOS
   ([WebKit blog](https://webkit.org/blog/16993/news-from-wwdc25-webgpu-now-available-in-safari-tech-preview/))
-  **[SPEC]**, and has been in Chrome Android for some time. But qrbeam must still run on
+  **[SPEC]**, and has been in Chrome Android for some time. But screenferry must still run on
   older iOS, so **WebGL2 is the compatibility floor and WebGPU the fast path.**
 
 **Verdict on the GPU question:** *worth doing, but as phase 2, not phase 1.* The warp is
@@ -1142,7 +1142,7 @@ libraries (§6) and that dominate everything else.
 **(a) The search and the sample want different resolutions.** `qr-scanner`, the most
 carefully perf-tuned browser scanner in existence, downscales *everything* to a fixed
 **400×400** before decoding **[CODE]**. That works for QR because a Version 10 symbol is
-57 modules across — 7 camera px/module at 400 px. It does **not** work for qrbeam: a 96-cell
+57 modules across — 7 camera px/module at 400 px. It does **not** work for screenferry: a 96-cell
 grid at 400 px is 4.2 px/cell, below the §3.4 threshold for multi-level luma.
 
 The resolution is to split the pipeline:
@@ -1171,7 +1171,7 @@ scored by four Bresenham line walks *before* the top-4 cutoff is applied. js-aru
 have this cliff because its contour-length, convexity and minimum-edge filters kill
 candidates *before* any per-candidate scoring.
 
-**Design rule for qrbeam: the anchor detector must have a hard cap on candidate count
+**Design rule for screenferry: the anchor detector must have a hard cap on candidate count
 before any per-candidate scoring, and a tight ratio tolerance.** An unbounded worst case on
 the hot path is exactly what turns a working demo into an app that freezes when you point it
 at a bookshelf. Sensor noise in dim light is literally the per-pixel-noise column.
@@ -1211,7 +1211,7 @@ Target: 33 ms per frame at 30 fps, or 66 ms at 15 fps. **Estimates unless marked
 
 **Sanity check against reality:** libcimbar decodes a *harder* problem (12,400 cells, each
 requiring a 16-way image-hash symbol match plus colour, plus a ±7 px per-cell drift search)
-at ~15 frames/s on a **Snapdragon 625 with 4 threads** **[MEASURED]**. qrbeam's proposed
+at ~15 frames/s on a **Snapdragon 625 with 4 threads** **[MEASURED]**. screenferry's proposed
 codec has no symbol-shape matching at all — just an interior average and a nearest-centroid
 lookup — so it is *substantially cheaper* per cell. The budget above is conservative.
 
@@ -1220,11 +1220,11 @@ lookup — so it is *substantially cheaper* per cell. The budget above is conser
 - **WASM SIMD** is broadly available on both Chrome Android and Safari (iOS 16.4+). Safe to
   use with a scalar fallback.
 - **WASM threads need `SharedArrayBuffer`, which needs cross-origin isolation
-  (COOP/COEP).** That is a *header* requirement, and qrbeam is a static site. GitHub Pages
+  (COOP/COEP).** That is a *header* requirement, and screenferry is a static site. GitHub Pages
   **cannot** set custom headers; Cloudflare Pages and Netlify can (via `_headers`). There is
   a well-known workaround — a service worker that synthesises COOP/COEP headers on
   responses ([`coi-serviceworker`](https://github.com/gzuidhof/coi-serviceworker)) — but it
-  requires a reload on first visit and interacts awkwardly with qrbeam's own PWA service
+  requires a reload on first visit and interacts awkwardly with screenferry's own PWA service
   worker.
   **Recommendation: do not depend on threads.** Use a *pool of Web Workers* processing
   *different frames* (libcimbar's approach) instead of threads splitting one frame. No
@@ -1327,7 +1327,7 @@ those appear only as accepted *input* types. Contrast libcimbar, which skips can
 
 It also hard-disables the native `BarcodeDetector` on ARM Macs running Ventura+ (Chromium
 bug 1382442) — a nice piece of field knowledge. **The native `BarcodeDetector` is unusable
-for qrbeam regardless: it returns `rawValue: string` only, no bytes.**
+for screenferry regardless: it returns `rawValue: string` only, no bytes.**
 
 ### 6.3 js-aruco2 — the best starting skeleton for a custom codec
 
@@ -1345,7 +1345,7 @@ this.candidates = this.notTooNear(this.candidates, 10);
 return this.findMarkers(this.grey, this.candidates, 49);
 ```
 
-What's in there that qrbeam needs:
+What's in there that screenferry needs:
 
 - **`adaptiveThreshold`** implemented as blur-and-compare: a separable 5×5 `stackBoxBlur`
   with a fixed-point reciprocal, then a 768-entry LUT to avoid a branch. Equivalent to
@@ -1363,7 +1363,7 @@ What's in there that qrbeam needs:
   sampling.
 - **`otsu`** — textbook between-class-variance over a 256-bin histogram.
 
-**Its sampling is what qrbeam should copy, and it is strictly better than jsQR's:** it warps
+**Its sampling is what screenferry should copy, and it is strictly better than jsQR's:** it warps
 the **grayscale** image (not the thresholded one) into a 49×49 patch, runs **Otsu on the
 warped patch**, and then decides each of the 8×8 cells by **counting non-zero pixels over
 that cell's full 6×6 block and comparing to half** — a 36-sample majority vote, versus
@@ -1391,7 +1391,7 @@ Per-stage at 640×480 — **this is the table to design against**:
 Threshold + contours are **55% of the frame**, and both are trivially SIMD-able if you later
 port to WASM. Its one ugly spot: ID matching falls back to a linear scan over 250 codes ×
 4 rotations × 36 character comparisons = **36,000 string-index comparisons per unmatched
-quad** — replace with integer popcount if you fork it. (qrbeam doesn't need marker IDs at
+quad** — replace with integer popcount if you fork it. (screenferry doesn't need marker IDs at
 all, so this is moot.)
 
 ### 6.4 AprilTag WASM — the best size-to-capability ratio
@@ -1428,7 +1428,7 @@ per-format trimming** — format selection is a *runtime* option, so you cannot 
 QR-only. **No SIMD, no threads** (verified: no `-msimd128`, no `USE_PTHREADS` in
 `src/cpp/CMakeLists.txt`).
 
-**Its decisive advantage for qrbeam is the binary contract**, which is *designed* rather
+**Its decisive advantage for screenferry is the binary contract**, which is *designed* rather
 than incidental:
 
 ```ts
@@ -1463,7 +1463,7 @@ threaded build.**
 A custom build is possible: `platforms/js/build_js.py` reads
 `OPENCV_JS_WHITELIST` from `--config <file>`, a Python file of `{Class: [methods]}` dicts.
 (This mechanism is **not documented** on the official tutorial page — you have to read
-`build_js.py`.) Everything qrbeam would want — `cvtColor`, `adaptiveThreshold`,
+`build_js.py`.) Everything screenferry would want — `cvtColor`, `adaptiveThreshold`,
 `findContours`, `approxPolyDP`, `getPerspectiveTransform`, `warpPerspective` — lives in
 **core + imgproc**, so `dnn`, `calib3d`, `features2d`, `photo`, `video` can all go.
 
@@ -1512,7 +1512,7 @@ Two corrections to common assumptions, verified by enumerating the source:
   budget at 25 fps, this is not worth building.
 
 **`perspective-transform` at 1.6 KB gzipped is the size winner** for the narrow job of
-"given 4 detected corners, map cell (i,j) → source pixel (x,y)". If qrbeam ever goes the
+"given 4 detected corners, map cell (i,j) → source pixel (x,y)". If screenferry ever goes the
 sample-in-place route (§2.1(b)) rather than the warp route, that's the whole dependency.
 
 ---
@@ -1592,7 +1592,7 @@ Sources: [HiLight](https://www.cs.columbia.edu/~xia/publication/mobisys15-hiligh
 The prominent colour-heavy academic system, **COBRA** (MobiSys'12), could not be retrieved
 (ACM 403) — ⚠️ **no verified numbers from it.** And notably: **no study directly measuring
 4:2:0's effect on a colour barcode appears to exist.** The §3.1 and §7.2 numbers here are
-derived, not measured. That is a genuine gap, and it is a gap qrbeam could cheaply fill with
+derived, not measured. That is a genuine gap, and it is a gap screenferry could cheaply fill with
 its own instrumentation (§10.3).
 
 ### 7.3 Recommendation
@@ -1602,7 +1602,7 @@ its own instrumentation (§10.3).
 | Binary (black/white) | 1 | Guaranteed. This is QR. |
 | **4 luma levels** | **2** | **Safe.** Monotonic, one-dimensional, trivially calibrated with 4 reference cells. Recommended v1. |
 | **4 colours (e.g. K/R/G/B or K/C/M/Y)** | **2** | **Safe** — validated by libcimbar's shipped default. Needs ≥6 camera px/cell. |
-| **4 luma × 4 colours** | **4** | **Plausible but unproven at qrbeam's cell sizes.** This is the interesting target. Treat as a measured upgrade, not an assumption. |
+| **4 luma × 4 colours** | **4** | **Plausible but unproven at screenferry's cell sizes.** This is the interesting target. Treat as a measured upgrade, not an assumption. |
 | 8 colours | 3 | **Risky.** Implemented and deprecated by the one team with real-world data. Only with large cells (≥8 camera px) and full per-frame palette calibration. |
 | 16 colours | 4 | **No.** Explicitly reported as not working at small cell sizes. |
 | 8 luma levels | 3 | **Risky but more defensible than 8 colours**, because luma survives 4:2:0 at full resolution and the distortion is one-dimensional. Requires ≥7 camera px/cell and per-frame level calibration. Worth measuring. |
@@ -1807,14 +1807,14 @@ calibration.**
 
 ---
 
-## 10. Recommendations for qrbeam
+## 10. Recommendations for screenferry
 
 ### 10.1 Is a custom codec feasible in a browser?
 
 **Yes — this is settled, not speculative.** libcimbar ships a WASM receiver
 (`cimbard_scan_extract_decode`) driven from `requestVideoFrameCallback` + WebCodecs
-`VideoFrame`, in a worker pool, and decodes a *harder* codec than qrbeam needs at
-~15 fps on a 2016 mid-range SoC. qrbeam's proposed codec — no per-cell shape matching, just
+`VideoFrame`, in a worker pool, and decodes a *harder* codec than screenferry needs at
+~15 fps on a 2016 mid-range SoC. screenferry's proposed codec — no per-cell shape matching, just
 an interior average and a nearest-centroid lookup — is materially cheaper per cell.
 
 The browser-specific risks are all known and all have known answers:
@@ -1841,7 +1841,7 @@ the user's distance*, not by anything you can engineer.** §3.4:
 
 - Laptop screen at 30 cm → ~1,325 camera px → a ~165-cell grid at 8 px/cell. Comfortable.
 - **Phone screen at 30 cm → ~327 camera px → a ~54-cell grid.** That is *one ninth* the
-  cells, and phone→phone is a headline use case for qrbeam ("AirDrop doesn't talk to
+  cells, and phone→phone is a headline use case for screenferry ("AirDrop doesn't talk to
   Android").
 
 This is a physical limit, not a software one. **Consequences for the design:**
@@ -1867,7 +1867,7 @@ fiction.**
 Third: **no back-channel means no adaptation.** The sender cannot learn that its frame rate
 is too high or its palette too dense. Every parameter must be either conservative or
 user-selectable. libcimbar exposes an FPS slider (5–20) and a mode selector for exactly this
-reason. qrbeam should too.
+reason. screenferry should too.
 
 ### 10.3 Minimum viable version
 

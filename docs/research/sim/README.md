@@ -15,7 +15,7 @@ python3 fountain_overhead_sim.py 200
 ## `fountain_overhead_sim.py` — decoder choice for the fountain code
 
 **Claim under test**, from `../fountain-codes-and-protocol.md`: textbook LT with a
-peeling decoder is unusable at qrbeam's block sizes, and swapping peeling for
+peeling decoder is unusable at screenferry's block sizes, and swapping peeling for
 full GF(2) Gaussian elimination on the *identical* symbol stream drops reception
 overhead to a few percent.
 
@@ -57,7 +57,7 @@ Reception overhead is the decoder property under test.
 | 500 | **+1.8%** (p99 +23.6%) | +18.3% (p99 +57.8%) |
 | 1000 | **+0.6%** (p99 +3.8%) | +12.3% (p99 +38.7%) |
 
-### What this means for qrbeam
+### What this means for screenferry
 
 **1. The decoder matters more than the code.** Gaussian elimination beats peeling
 by a factor of 4–150× in overhead across every cell tested. At K=1000 harmonic,

@@ -2,7 +2,7 @@
 """
 Independent verification of the central claim in fountain-codes-and-protocol.md:
 
-    "Textbook LT with peeling is unusable at qrbeam's block sizes; swapping
+    "Textbook LT with peeling is unusable at screenferry's block sizes; swapping
      peeling for full GF(2) Gaussian elimination on the IDENTICAL symbol stream
      drops overhead to a few percent."
 
