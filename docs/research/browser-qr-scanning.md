@@ -23,344 +23,437 @@ in the browser.
 > ms as indicative and **relative** differences between libraries as solid.
 
 ---
-
 ## 1. Camera access (`getUserMedia`)
+
+> **Measured note.** Much of this section is **on-device measurement**, not spec
+> reading: a **Pixel 6 running Chrome 150** (driven over ADB) and a Linux laptop
+> running **Chromium 150 / Firefox 153**. Several widely repeated beliefs turned
+> out to be false — they are called out inline. Chromium source citations are to
+> `chromium.googlesource.com/chromium/src/+/refs/heads/main`.
 
 ### 1.1 What actually matters for scanning a screen at close range
 
 Scanning an emissive display at 30–60 cm is a different problem from scanning a
-printed label. The target is **bright, high-contrast, self-illuminated, flat,
-and changing 10+ times a second**. That inverts several defaults:
+printed label. The target is **bright, high-contrast, self-illuminated, flat, and
+changing 15 times a second**. That inverts several defaults:
 
 | Concern | Printed label | Screen at close range |
 |---|---|---|
 | Illumination | often needs torch | **torch must be off** — specular glare |
-| Focus | fixed/macro OK | **continuous AF**, close-range macro is the failure mode |
+| Focus | fixed/macro OK | **lock focus**; AF hunting is the top throughput killer |
 | Exposure | longer is fine | **short exposure required** — target changes |
 | Motion blur | hand shake only | hand shake **+ content changing mid-exposure** |
 | Contrast | paper, ~4:1 | screen, very high — binarizer rarely the bottleneck |
+| Resolution | more is better | **more is worse** — see §1.3; use zoom instead |
 
-The dominant real-world failure is **focus**, not resolution. Phones routinely
-fail to lock focus on a flat, low-texture, self-lit rectangle at close range —
-the contrast-detect AF hunts because the QR's high-frequency detail aliases.
+The two dominant real-world failures are **autofocus hunting** and — far less
+obviously — **the camera silently delivering half the frame rate you asked for**
+(§1.4). The second is the highest-value finding in this document after §4.
 
-### 1.2 Constraint reference
+### 1.2 Constraint reference and failure modes
 
-`MediaTrackConstraints` for video are specified in
+`MediaTrackConstraints` are specified in
 [W3C Media Capture and Streams](https://www.w3.org/TR/mediacapture-streams/#media-track-constraints);
-the camera-specific extensions (`focusMode`, `exposureMode`, `torch`, `zoom`,
-`focusDistance`, `pointsOfInterest`) live in the separate
-[MediaStream Image Capture](https://w3c.github.io/mediacapture-image/) spec and are
-surfaced through `track.getCapabilities()` / `track.applyConstraints()`.
+the camera extensions (`focusMode`, `exposureMode`, `torch`, `zoom`,
+`focusDistance`, `pointsOfInterest`) live in
+[MediaStream Image Capture](https://w3c.github.io/mediacapture-image/) and surface
+through `track.getCapabilities()` / `applyConstraints()`.
 
-Critically, the image-capture extensions are **Chromium-only in practice**.
-Safari (desktop and iOS) does not implement `focusMode`, `exposureMode`,
-`torch`, or `zoom` as constrainable properties. See
-[MDN: MediaTrackConstraints](https://developer.mozilla.org/en-US/docs/Web/API/MediaTrackConstraints)
-and
-[MDN: MediaTrackCapabilities](https://developer.mozilla.org/en-US/docs/Web/API/MediaStreamTrack/getCapabilities).
+- `ideal` is a *preference* — never rejects.
+- `exact` / `min` / `max` are *requirements* — reject with `OverconstrainedError`.
+  This is the most common cause of "works on my phone, not theirs".
 
-**`ideal` vs `exact` vs `min`/`max`:**
+**⚠️ Feature detection differs by engine — a successful `applyConstraints` proves
+nothing.** Firefox **silently ignores** unknown constraints; Chrome **throws
+`OverconstrainedError`**. So `try/catch` is not detection on Firefox. Likewise
+`getSupportedConstraints().torch` returns `true` on desktop Chrome where no device
+has a torch.
 
-- `ideal` (inside a `ConstrainDoubleRange`/`ConstrainDOMString`) is a *preference*.
-  The UA picks the closest it can. **It never causes `getUserMedia` to reject.**
-- `exact` is a *requirement*. If unsatisfiable, `getUserMedia` rejects with
-  `OverconstrainedError`. This is the single most common cause of "camera works
-  on my phone but not theirs".
-- `min`/`max` are also requirements and can reject.
+> **Always gate on `track.getCapabilities()`, never on `getSupportedConstraints()`
+> and never on a non-throwing `applyConstraints()`.**
 
-**Rule for screenferry: use `ideal` for everything in the primary attempt.** Reserve
-`exact` only for `facingMode` in a *fallback* attempt where you can catch the
-rejection.
+Also note `resizeMode: 'none'` **bare is only an ideal**: Chromium 150 discarded it
+and returned `crop-and-scale`; Firefox 153 threw on the same input. Use
+`{exact:'none'}` if you mean it.
 
-### 1.3 Resolution
+### 1.3 Resolution — and why more is worse
 
-Requesting more pixels is not free and past a point is actively harmful:
+**Measured, Pixel 6, naive full-frame `drawImage` + `getImageData` scan loop:**
 
-- Higher capture resolution costs CPU in the capture path, in `drawImage`, in
-  `getImageData`, and in the decoder (decoder cost scales roughly with pixel
-  count — see §6.3, where 1080p→ROI-crop gave a **9× decode speedup**).
-- A QR only needs **~2.5–3 pixels per module** to decode reliably (measured in
-  §3.5). A 97-module (version 20) symbol filling ~40% of the frame width needs
-  only ~400–500 px across. **720p is sufficient** for that geometry.
-- Many phones deliver 1080p at 30fps but drop to lower frame rates or use
-  heavier processing at 4K.
+| capture res | **scans/sec** | Chrome CPU (800% = 8 cores) | battery draw |
+|---|---|---|---|
+| 640×480 | **29.7** | 68 % | −140 mA |
+| 1280×720 | **26.6** | 175 % | −575 mA |
+| 1920×1080 | **11.9** | 188 % | −813 mA |
+| 3840×2160 | **2.7** | 257 % | −1267 mA |
 
-**Recommendation:** ask for `width: {ideal: 1920}, height: {ideal: 1080}` but
-treat it as a ceiling, and immediately downscale/crop for decoding (§6). Do not
-request 4K — it costs CPU and thermal budget for no decode benefit. Never use
-`exact` on resolution.
+**4K is disqualified** — under 3 scans/sec makes an animated-QR receiver unusable,
+at 9× the battery draw of VGA. And the Pixel 6's Tensor G1 is *above* mid-range in
+2026.
 
-### 1.4 Focus — the most important control
+(These are naive full-frame numbers. ROI cropping (§6.3) improves all of them
+substantially — but the *relative* cost of resolution is unchanged.)
+
+**Correction to a common belief: 4K is not blocked on Android.** The Pixel 6
+delivered **2160×3840@60**, and `{ideal: 99999}` returned the full 12.5 MP sensor
+at **3072×4080@30**. Chromium enumerates every HAL size
+([`VideoCaptureCamera2.java`](https://chromium.googlesource.com/chromium/src/+/refs/heads/main/media/capture/video/android/java/src/org/chromium/media/VideoCaptureCamera2.java));
+the only global cap is `kMaxDimension = 32767`
+([limits.h](https://chromium.googlesource.com/chromium/src/+/refs/heads/main/media/base/limits.h)).
+The 2016-era "1080p ceiling" is dead. It is simply a bad idea to use it.
+
+**Correction: `{video: true}` is always 640×480@30**, not 720p — `kDefaultWidth=640,
+kDefaultHeight=480, kDefaultFrameRate=30`
+([media_stream_video_source.h](https://chromium.googlesource.com/chromium/src/+/refs/heads/main/third_party/blink/public/web/modules/mediastream/media_stream_video_source.h)),
+confirmed on Chromium 150 Linux, Chrome 150 Android **and Firefox 153**. So the
+bare-`{video:true}` rung of any fallback ladder is a **VGA** rung — usable for
+acquisition, marginal for a dense symbol.
+
+**Use zoom, not resolution, to get pixels-per-module.** Zoom is
+`SCALER_CROP_REGION` — a sensor-readout crop applied *before* scaling to the
+requested size — so **1080p at zoom 1.5–2× yields more pixels per QR module than
+1080p at 1×, at identical CPU cost.** This is the single best density lever.
+
+> **Target 1920×1080 with zoom ≈1.5–2×.** Never 4K.
+
+### 1.4 🔴 Frame rate: the camera lies, and there is a one-line fix
+
+**Measured, Pixel 6 @1080p, ordinary indoor light, timed with rVFC:**
+
+| requested | `getSettings().frameRate` | **actually delivered** |
+|---|---|---|
+| `{ideal: 60}` | 60 | **15.2** |
+| `{min: 30}` | 60 | **15.0** ← did not throw, did not deliver |
+| `{exact: 30}` | 30 | **15.0** |
+
+> **`getSettings().frameRate` reports the nominal configured rate, not the
+> delivered one.** A receiver that trusts it will silently run at half the
+> frame rate it believes it has.
+
+**Root cause — Chrome opts into this deliberately.** Android's
+`CONTROL_AE_TARGET_FPS_RANGE` is "the range over which the auto-exposure routine
+can adjust the capture frame rate", and every LIMITED+ device must advertise both
+a `[min,max]` with `min ≤ 15` and a `[max,max]`
+([CameraCharacteristics](https://developer.android.com/reference/android/hardware/camera2/CameraCharacteristics)).
+Chrome scores candidates with WebRTC's `getClosestFramerateRange`
+([VideoCapture.java](https://chromium.googlesource.com/chromium/src/+/refs/heads/main/media/capture/video/android/java/src/org/chromium/media/VideoCapture.java)).
+For a 30 fps request:
+
+```
+[15,30] → 15000 × 1                        = 15 000   ← chosen
+[30,30] → 8000 × 1 + (30000−8000) × 4      = 96 000
+```
+
+Chrome prefers `[15,30]` by 6×, **handing the driver licence to drop to 15 fps** —
+and the web API offers no way to request `[30,30]`, because `frameRate` is
+flattened to a single value before it reaches the HAL.
+
+**The fix, measured on the same device and scene:**
+
+| lever | delivered fps | gain |
+|---|---|---|
+| baseline | 15.0 | — |
+| **`exposureCompensation: -4`** | **41.6** | **2.8×** |
+| `exposureMode:'manual', exposureTime: 50` (5 ms) | **30.3** | 2×, rock steady |
+| `exposureMode:'manual', exposureTime: 20, iso: 3200` | **30.3** | 2×, min. blur |
+| `torch: true` | 53.7 | 3.6× — but glare; **never** for screens |
+
+> **`exposureCompensation: caps.exposureCompensation.min` is the single best
+> lever in this section.** It nearly triples the frame rate, shortens exposure
+> (directly attacking the frame-mixing problem in §5.1), leaves AE continuous so
+> **autofocus keeps working**, and costs nothing. Pixel 6 range:
+> `{min:-4, max:4, step:0.1667}`.
+
+This works because the whole problem is AE asking for a long exposure. Telling AE
+to underexpose is exactly right for our target anyway — we are photographing a
+*bright emissive screen*, which we want darker, not brighter.
+
+Full manual exposure is the fallback if `exposureCompensation` is absent. Caveat:
+"when `CONTROL_AE_MODE` is OFF, the behavior of AF is device dependent" — so set
+focus manually at the same time. Also `getSettings().exposureMode` reads back as
+`"none"` after setting `"manual"` (Chrome quirk — do not assert on it).
+
+**⇒ The receiver must MEASURE delivered fps by counting rVFC callbacks over ~1 s,
+and must never trust `getSettings()`.** This measurement is also what drives the
+sender-rate recommendation shown to the user (§5.5).
+
+Low-end Android adds a wrinkle: cameras often default to an ISO-priority mode that
+lowers frame rate to reduce noise, so a dim room can silently halve capture rate
+again — another reason to bias exposure down.
+
+### 1.5 Focus — lock it, don't chase it
 
 ```js
-// after obtaining the track
 const caps = track.getCapabilities?.() ?? {};
-if (caps.focusMode?.includes('continuous')) {
-  await track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] });
+if (caps.focusMode?.includes('manual') && caps.focusDistance) {
+  await track.applyConstraints({ advanced: [{
+    focusMode: 'manual',
+    focusDistance: Math.min(Math.max(0.45, caps.focusDistance.min), caps.focusDistance.max),
+  }]}).catch(() => {});
 }
 ```
 
-- `focusMode: 'continuous'` is the desired mode and is **usually the default**
-  on Android Chrome, but not guaranteed — apply it explicitly when advertised.
-- `focusDistance` (manual focus) is advertised by some Android devices via
-  `caps.focusDistance` as a `MediaSettingsRange`. Where available it is a
-  genuinely useful escape hatch for close-range macro: set it near the minimum.
-  Support is sparse and device-specific — always feature-detect.
-- `pointsOfInterest` lets you bias AF toward the region where the QR was last
-  seen. Chromium-only, and honoured inconsistently. Worth attempting, never
-  worth depending on.
-- **Safari/iOS implements none of these.** On iOS you get whatever the system
-  AF decides. The practical mitigations are UX-level: tell the user to hold
-  ~30–40 cm away, and make the sender's QR physically large.
+**Prefer manual focus locked at ~0.45 m over continuous AF.** Autofocus hunting is
+repeatedly the biggest practical throughput killer: a flat, low-texture, self-lit
+rectangle is exactly what contrast-detect AF handles worst, and every hunt cycle
+costs a burst of blurred frames. Locking focus removes the failure mode entirely,
+and the user is holding the phone at a roughly fixed distance anyway.
 
-Because `applyConstraints` on unsupported properties can reject, always wrap in
-`try/catch` and always gate on `getCapabilities()`.
+Measured Pixel 6 capabilities:
 
-### 1.5 Frame rate and exposure
+| | rear | front |
+|---|---|---|
+| `focusMode` | `["manual","single-shot","continuous"]` | `["manual"]` |
+| `focusDistance` (metres) | `{min: 0.105, max: 5.2}` | `{min: 0, max: 9.22e18}` |
 
-Requesting 60fps is usually counterproductive. Under typical indoor light the
-sensor's auto-exposure lengthens integration time; if the requested frame rate
-forces shorter exposure the driver compensates with gain, producing **noise** —
-and noise is exactly what destroys decode reliability (and, for jsQR
-specifically, causes a catastrophic latency blowup — §3.6).
+So **30–60 cm sits comfortably inside the rear camera's range**, and the absurd
+`max: 9.22e18` on the front camera is the fixed-focus signature — a useful
+detector.
 
-The governing constraint for animated QR is:
+`pointsOfInterest` drives **AF, AE *and* AWB** at maximum metering weight, which
+makes it the right spot-metering tool for the bright-screen-in-a-dark-room case.
+Exactly one point is supported and the region is fixed at 1/8 × 1/8 of the frame.
+**Coordinates are in sensor space and are *not* rotation-corrected — swap x/y in
+portrait. Applying `zoom` clears it, so always set POI last.**
 
-> **the sender's frame must be displayed for longer than the receiver's exposure
-> time + sensor readout time**, otherwise a single captured frame integrates two
-> different QR images and is unconditionally undecodable.
+Safari/iOS implements none of these; there, mitigation is UX-level (hold ~40 cm,
+make the sender's QR large).
 
-At a typical indoor exposure of 1/30 s, a sender running at 30fps guarantees that
-a large fraction of captured frames straddle two symbols. This is the core
-argument for a **slow sender** (§5).
+### 1.6 Choosing the right rear camera — the enumeration order rule
 
-`exposureMode`, `exposureTime`, `exposureCompensation`, `iso` and
-`whiteBalanceMode` are Chromium-only image-capture extensions. On Android Chrome
-where available, biasing exposure *down* slightly can help: the screen is a
-bright source, and letting AE expose for the room over-exposes the QR to a white
-blur. `exposureCompensation` toward negative, or `exposureMode: 'continuous'`
-with a `pointsOfInterest` on the QR, both help.
+**`facingMode: 'environment'` reliably picks the *wrong* rear camera on Android.**
+Chrome's enumeration loop runs **backwards** and appends rear cameras, producing:
+**front cameras ascending, then rear cameras in *descending* index.** Combined with
+the selector's tie-break rule ("favour IDs that appear first"),
+`facingMode:'environment'` **selects the highest-numbered rear camera** — typically
+the ultrawide or macro.
 
-**Recommendation:** request `frameRate: {ideal: 30}`. Do not request 60. Do not
-use `exact`.
-
-**⚠️ iOS lies about frame rate.** `frameRate: {ideal: 60}` is silently satisfied
-with 30 — no error, no warning. Only `{exact: 60}` actually negotiates 60 fps
-(and on iOS typically only at 1280-wide capture), at the cost of an
-`OverconstrainedError` when unavailable. More generally, `{ideal:}` is frequently
-ignored across implementations; adding a `min:` has been observed to change a
-device from a drifting 15–20 fps to a locked 24
-([addpipe](https://blog.addpipe.com/getusermedia-video-constraints/),
-[amazon-chime-sdk-js#2598](https://github.com/aws/amazon-chime-sdk-js/issues/2598)).
-
-> **Never trust the constraint — always read back `track.getSettings()`**, and
-> better still measure delivered fps from rVFC callbacks (§6.1). The gap between
-> requested and delivered is the first thing to check when a user reports poor
-> scanning, and screenferry should surface it in a diagnostics readout.
-
-Low-end Android adds another wrinkle: cameras often default to an ISO-priority
-mode that lowers frame rate to reduce noise, so a dim room can silently halve your
-capture rate.
-
-### 1.6 Choosing the right rear camera
-
-`facingMode: 'environment'` is necessary but **not sufficient** on modern
-multi-camera Android phones. The UA may hand you an ultrawide or a depth/macro
-sensor, which typically has lower resolution, worse optics, and heavy barrel
-distortion at the edges — all bad for QR.
-
-The robust pattern is: get a stream first (which grants permission and therefore
-unlocks device labels), then enumerate and re-open if a better device exists.
+> **Correct rule: choose the LOWEST-numbered rear camera, which is the LAST
+> `videoinput` in the list.**
 
 ```js
-// 1. permission first — labels are empty until a stream has been granted
-let stream = await navigator.mediaDevices.getUserMedia({
-  video: { facingMode: { ideal: 'environment' } }, audio: false,
-});
-
-// 2. now labels are populated
-const devices = (await navigator.mediaDevices.enumerateDevices())
+const cams = (await navigator.mediaDevices.enumerateDevices())
   .filter(d => d.kind === 'videoinput');
-
-// 3. prefer the plain rear camera; avoid ultrawide/telephoto/depth
-const BAD = /ultra|wide|tele|depth|macro|infrared|truedepth/i;
-const rear = devices.filter(d => /back|rear|environment/i.test(d.label));
-const preferred = rear.find(d => !BAD.test(d.label)) ?? rear[0];
-
-if (preferred && preferred.deviceId !== stream.getVideoTracks()[0].getSettings().deviceId) {
-  stream.getTracks().forEach(t => t.stop());
-  stream = await navigator.mediaDevices.getUserMedia({
-    video: { deviceId: { exact: preferred.deviceId } }, audio: false,
-  });
-}
+const rear = cams
+  .map(d => ({ d, m: /^camera(?:2)? (\d+), facing back/.exec(d.label) }))
+  .filter(x => x.m)
+  .sort((a, b) => +a.m[1] - +b.m[1])[0];
+const chosen = rear?.d ?? cams[cams.length - 1];   // last entry = rear index 0
 ```
 
-Caveats:
+Notes:
 
-- Device labels are **empty strings until permission is granted** — this ordering
-  is mandatory ([MDN: enumerateDevices](https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/enumerateDevices)).
-- iOS labels are localised and generic ("Back Camera", "Back Dual Wide Camera",
-  "Back Ultra Wide Camera"). The regex above works for English; on iOS the
-  heuristic is weaker, but iOS's default `environment` choice is generally the
-  correct main camera, so the fallback is fine.
-- Label sniffing is a heuristic, not an API. Always fall back gracefully.
+- Labels are **empty until permission is granted**, so get *a* stream first, then
+  enumerate, then re-open if needed
+  ([MDN](https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/enumerateDevices)).
+- Current Chrome emits **`"camera N, facing back"`**; `"camera2 N, facing back"` is
+  the older dual-backend string. Parse tolerantly, and always keep the positional
+  fallback.
+- **Validate the choice from capabilities, not the label**: a main rear camera
+  focuses close and supports continuous AF —
+  `caps.focusDistance?.min <= 0.25 && caps.focusMode?.includes('continuous')`.
+- Chrome **cannot see the physical sub-lenses of a logical multi-camera**
+  ([`CameraManager.getCameraIdList()`](https://developer.android.com/reference/android/hardware/camera2/CameraManager)),
+  so a Pixel 6 exposes only 2 cameras and its ultrawide is unreachable. The
+  ultrawide problem is real on **Samsung/Xiaomi/OnePlus**, which publish extra
+  standalone rear IDs ([mobile_scanner#897](https://github.com/juliansteenbakker/mobile_scanner/issues/897):
+  S21/S22/S23 open the ultrawide).
+- Chrome filters out non-`BACKWARD_COMPATIBLE` devices (depth sensors) but **not
+  NIR**, which appear labelled `", infrared"`.
+- **On iOS the labels name the lens** ("Back Camera", "Back Ultra Wide Camera"), so
+  label-based selection *does* work there. iOS 18 Safari auto-switches rear lenses
+  behind the logical camera
+  ([SO #79504234](https://stackoverflow.com/questions/79504234/prevent-ios-from-switching-between-back-camera-lenses-in-getusermedia-safari-we)).
 
 ### 1.7 Torch and zoom
 
-**Torch must be off.** It is off by default — `torch` is a boolean constrainable
-property that defaults to false and only activates if explicitly requested
-([MDN: torch](https://developer.mozilla.org/en-US/docs/Web/API/MediaStreamTrack/applyConstraints)).
-screenferry should never enable it: pointing an LED at a glossy screen produces a
-specular hotspot that wipes out a region of the QR. Do not offer a torch button
-on the scanning screen.
+**Torch must stay off.** Although it measured a 3.6× frame-rate gain (by forcing a
+short exposure), pointing an LED at a glossy screen produces a specular hotspot
+that destroys a region of the QR. Use `exposureCompensation` instead — same
+mechanism, no glare. **Do not offer a torch button on the scanning screen.**
 
-`zoom` (Chromium-only, `caps.zoom` as a `MediaSettingsRange`) is genuinely useful:
-if the QR occupies a small part of the frame, a modest optical/digital zoom
-raises pixels-per-module without raising capture resolution. But it narrows the
-field of view and makes aiming harder. Treat it as an advanced/opt-in control,
-not a default.
+Platform facts worth knowing: torch is **hardcoded `false` on Windows and Linux**
+(a literal `photo_capabilities->torch = false;` in both backends). Chrome cannot
+truly query torch support on Android either — it "assumes so" if a flash unit
+exists, so `caps.torch === true` can be optimistic. `LEGACY` hardware-level devices
+get `SUPPORTS_TORCH = false`.
 
-### 1.8 What breaks on iOS Safari
+**Zoom is the good one** (§1.3). Request `zoom: true` up front — harmless on
+Android and correct for the desktop PTZ-permission path. Measured correction: on
+an already-open Chrome 150 Android stream,
+`applyConstraints({advanced:[{zoom:2}]})` worked with **no prompt and no user
+gesture**, so it is not the hard gate the spec text implies for desktop. Zoom is
+digital crop only — no lens switching, and no zoom-out below 1×.
 
-This is the highest-risk platform. Concretely:
+### 1.8 Orientation: always request landscape numbers
 
-**`<video>` playback**
-- The video element **must** have `playsinline` (or `playsInline` in JSX) or iOS
-  will take the stream fullscreen or refuse to play inline.
-- It must be `muted` and ideally `autoplay`; without `muted`, autoplay is
-  blocked. Even with a `MediaStream` source, iOS applies autoplay policy.
-- `video.play()` returns a promise that can reject; call it and catch.
+Chrome physically rotates frames and swaps dimensions
+([video_capture_device_client.cc](https://chromium.googlesource.com/chromium/src/+/refs/heads/main/media/capture/video/video_capture_device_client.cc)),
+but **evaluates constraints in the unrotated landscape space**
+([video_track_adapter.cc](https://chromium.googlesource.com/chromium/src/+/refs/heads/main/third_party/blink/renderer/modules/mediastream/video_track_adapter.cc):
+"Perform all the rescaling computations as if the device was never rotated").
+Measured on a portrait Pixel 6:
+
+| ask | get |
+|---|---|
+| `1920×1080` | **1080×1920** ✅ |
+| `1080×1920` | **1920×1080** ❌ inverted |
+| `aspectRatio {ideal: 16/9}` | reports **0.5625** (9:16) |
+
+> **`getCapabilities()` is unrotated while `getSettings()` is rotated — they
+> contradict each other. Always request landscape numbers, never send
+> `aspectRatio` on mobile, and read geometry from
+> `video.videoWidth`/`video.videoHeight`.**
+
+Firefox has **no `aspectRatio` support at all** ("to be supported" in
+[MediaTrackSupportedConstraints.webidl](https://raw.githubusercontent.com/mozilla-firefox/firefox/main/dom/webidl/MediaTrackSupportedConstraints.webidl));
+Safari does. Firefox **144 shipped `resizeMode`**
+([release notes](https://www.firefox.com/en-US/firefox/144.0/releasenotes/),
+[bug 1286945](https://bugzilla.mozilla.org/show_bug.cgi?id=1286945)) and **defaults
+to `crop-and-scale`**, where Chrome prefers `none`.
+
+### 1.9 What breaks on iOS Safari
+
+**`<video>` playback.** The element **must** carry `playsinline` (`playsInline` in
+JSX) or iOS takes it fullscreen or refuses to play; it must also be `muted` for
+autoplay. Omitting `playsinline` is the single most common iOS bug in browser QR
+scanners.
 
 ```html
 <video playsinline autoplay muted></video>
 ```
 
-Omitting `playsinline` is the single most common iOS bug in browser QR scanners.
+**Secure context and gesture.** `getUserMedia` requires HTTPS (or
+`localhost`/`127.0.0.1`). A static app served over plain HTTP on a LAN IP gets no
+camera — relevant when testing screenferry from a phone against a dev server. Always put
+camera start behind an explicit "Start scanning" button.
 
-**User gesture and permission**
-- `getUserMedia` requires a **secure context** (HTTPS, or `localhost` /
-  `127.0.0.1` for development). A static app served over plain HTTP on a LAN IP
-  will not get a camera — this matters for screenferry, which is deployed as a static
-  site and may be tested from a phone against a dev server.
-- iOS Safari requires the call to originate from a user gesture in practice.
-  Always put camera start behind an explicit "Start scanning" button. This is
-  good UX anyway and sidesteps autoplay policy.
-- Historically iOS did **not persist camera permission** across page loads for
-  ordinary websites, re-prompting each visit. Later iOS versions added
-  per-site persistent camera/mic permission (Settings → Safari → Camera, and
-  the per-site "Website Settings" sheet), but the practical guidance is
-  unchanged: **assume you may be re-prompted, and never break if you are.**
-  Never gate app state on a permission that you assume is already granted.
+**Permission persistence.** Historically iOS did not persist camera permission for
+ordinary websites. Later versions added per-site persistence, but the guidance is
+unchanged: **assume you may be re-prompted and never break if you are.**
 
-**PWA / standalone (Add to Home Screen) and WKWebView**
-- `getUserMedia` was **unavailable in `WKWebView` and in standalone home-screen
-  web apps for years**. It was fixed in **iOS 14.3**
-  ([bugs.webkit.org #208667](https://bugs.webkit.org/show_bug.cgi?id=208667),
-  resolved 2021-01-05: "WKWebView applications can now have access to
-  getUserMedia"; home-screen web apps were tracked separately as
-  [#185448](https://bugs.webkit.org/show_bug.cgi?id=185448)).
-  On any iOS in current use this works, so it is not a design risk in 2026 — but
-  it is worth a smoke test since screenferry is a static app users may well install.
-- **Important surviving caveat from that same bug:** the fix applies only to
-  **`https` and `localhost`** origins. **Custom URL schemes** (`app://`, as used
-  by Cordova/Capacitor/Ionic) still raise `NotAllowedError` even after the user
-  grants permission. Irrelevant if screenferry ships as a plain HTTPS static site —
-  but a hard blocker if it is ever wrapped in a hybrid shell. **Keep it served
-  over `https`.**
+**PWA / standalone / WKWebView.** `getUserMedia` was unavailable in `WKWebView` and
+standalone home-screen apps for years; fixed in **iOS 14.3**
+([bugs.webkit.org #208667](https://bugs.webkit.org/show_bug.cgi?id=208667),
+resolved 2021-01-05: "WKWebView applications can now have access to getUserMedia";
+home-screen apps tracked as [#185448](https://bugs.webkit.org/show_bug.cgi?id=185448)).
+Not a design risk in 2026, but smoke-test it.
+**⚠️ Surviving caveat from that bug:** the fix covers **`https` and `localhost`
+only** — **custom URL schemes** (`app://`, as used by Cordova/Capacitor/Ionic) still
+raise `NotAllowedError` even after the user grants permission. Irrelevant for a
+plain HTTPS static site; a hard blocker inside a hybrid shell. **Keep screenferry on
+`https`.**
 
-**In-app browsers**
-- Third-party in-app browsers (Facebook, Instagram, LinkedIn, TikTok) embed
-  `WKWebView`, and the embedding app must opt in to camera access — many do not,
-  so `getUserMedia` **fails or is silently denied**. screenferry should **detect
-  in-app browsers and prompt the user to open in Safari** — a link-out is far
-  better than a camera that never starts.
+**In-app browsers.** Facebook/Instagram/LinkedIn/TikTok embed `WKWebView` and the
+host app must opt into camera access — many do not, so `getUserMedia` fails or is
+silently denied. **Detect in-app browsers and prompt the user to open in Safari.**
 
-**Lifecycle**
-- Backgrounding the tab, switching apps, or locking the screen suspends or ends
-  the stream. On resume, tracks may be `muted` or `ended`.
-- Listen for `visibilitychange` and for the track's `ended`/`mute`/`unmute`
-  events, and be prepared to **re-acquire the stream**. For screenferry this matters:
-  a partially received file must survive a backgrounding without losing decoded
-  frames.
+**Lifecycle.** Backgrounding, app-switching or screen lock suspends or ends the
+stream; on resume tracks may be `muted` or `ended`. Listen for `visibilitychange`
+and the track's `ended`/`mute`/`unmute` events and re-acquire — and **preserve
+already-decoded frames**, because a partial transfer must survive a backgrounding.
 
-**Dimensions**
-- `video.videoWidth`/`videoHeight` are `0` until `loadedmetadata` fires. Any
-  canvas sizing must happen after that event, or the first frames are garbage.
+**Dimensions.** `video.videoWidth`/`videoHeight` are `0` until `loadedmetadata`.
+Size canvases after that event.
 
-### 1.9 Android Chrome
+**Image-capture extensions are absent entirely** on iOS — no `exposureCompensation`,
+so the §1.4 frame-rate fix does not apply. Assume iOS delivers what it delivers and
+measure it.
 
-- Generally the best platform: full image-capture extensions, `BarcodeDetector`
-  available (§2), reliable 1280×720 and 1920×1080 at 30fps on mid-range hardware.
-- `focusMode: 'continuous'` is typically the default.
-- The **ultrawide selection problem** (§1.6) is the main pitfall.
-- Very cheap devices may deliver lower-than-requested resolution or frame rate
-  silently — always read back `track.getSettings()` and adapt rather than assume.
+### 1.10 Android Chrome
 
-### 1.10 Desktop Chrome / Firefox / Safari
+The best platform: full image-capture extensions, `BarcodeDetector` available (§2),
+and reliable high-resolution capture. Its two pitfalls are **the frame-rate lie**
+(§1.4) and **rear-camera selection** (§1.6), both solvable. No Camera1 path remains
+in Chromium.
 
-- Typical webcams are **720p/30fps with fixed focus**. Fixed focus is usually set
-  for ~50 cm–1 m, which is roughly right for holding a phone up to a laptop
-  webcam, but sharpness is mediocre.
-- Firefox supports `getUserMedia` and `facingMode` but **not** the image-capture
-  extensions (`focusMode`, `torch`, `zoom`).
-- Desktop is a plausible *receiver* for screenferry (phone screen → laptop webcam),
-  but webcam optics make it the weaker direction. The stronger desktop role is as
-  **sender**, with a phone receiving.
+### 1.11 Desktop Chrome / Firefox / Safari
 
-### 1.11 Recommended constraint ladder
+Typical webcams are **720p/30fps with fixed focus**. Concretely, a *premium* webcam
+— the [Elgato Facecam](https://www.elgato.com/us/en/p/facecam) — specifies "Focus
+type: Fixed. Focus range: **30 – 120 cm**."
 
-Try progressively weaker constraints, never letting a rejection be fatal:
+> **⇒ On desktop, instruct users to hold the phone at 40–60 cm, not 30.**
+
+Detect fixed focus by the **absence** of `focusMode`/`focusDistance` in
+`getCapabilities()`. The measured Linux test webcam had neither — nor zoom, torch,
+POI or iso — **but did expose `exposureMode: ["manual","continuous"]` and
+`exposureTime: {2..1250}`**.
+
+> **Exposure is the control you get on desktop.** Use it to freeze frames rather
+> than chasing focus you cannot influence.
+
+Desktop focus/exposure support is worse than commonly documented: those controls
+live in [`uvc_control_mac.mm`](https://chromium.googlesource.com/chromium/src/+/refs/heads/main/media/capture/video/mac/uvc_control_mac.mm)
+for **external UVC cameras only — never the built-in FaceTime camera** — and are
+gated behind `BASE_FEATURE(kExposeAllUvcControls, FEATURE_DISABLED_BY_DEFAULT)`.
+Only pan/tilt/zoom escape the flag.
+
+Desktop is a plausible receiver (phone screen → laptop webcam), but webcam optics
+make it the weaker direction. The stronger desktop role is as **sender**.
+
+### 1.12 Recommended acquisition sequence
 
 ```js
-async function openCamera() {
-  const attempts = [
-    // 1. ideal case — everything is a preference, cannot OverconstrainedError
-    { video: {
-        facingMode: { ideal: 'environment' },
-        width:      { ideal: 1920 },
-        height:     { ideal: 1080 },
-        frameRate:  { ideal: 30 },
-      }, audio: false },
-    // 2. drop resolution hints
-    { video: { facingMode: { ideal: 'environment' } }, audio: false },
-    // 3. force rear (may reject on desktop — that's why it is last-but-one)
-    { video: { facingMode: { exact: 'environment' } }, audio: false },
-    // 4. anything at all
-    { video: true, audio: false },
-  ];
-  let lastErr;
-  for (const c of attempts) {
-    try { return await navigator.mediaDevices.getUserMedia(c); }
-    catch (e) { lastErr = e; }
-  }
-  throw lastErr;
-}
+// ---- 1. permission first (labels are empty until a stream is granted) ----
+let stream = await navigator.mediaDevices.getUserMedia({
+  video: { facingMode: { ideal: 'environment' } }, audio: false,
+});
+
+// ---- 2. pick the LOWEST-numbered rear camera (§1.6) ----
+const cams = (await navigator.mediaDevices.enumerateDevices())
+  .filter(d => d.kind === 'videoinput');
+const rear = cams
+  .map(d => ({ d, m: /^camera(?:2)? (\d+), facing back/.exec(d.label) }))
+  .filter(x => x.m).sort((a, b) => +a.m[1] - +b.m[1])[0];
+const chosen = rear?.d ?? cams[cams.length - 1];
+
+// ---- 3. reopen with real constraints (LANDSCAPE numbers even in portrait) ----
+stream.getTracks().forEach(t => t.stop());
+stream = await navigator.mediaDevices.getUserMedia({
+  video: {
+    deviceId:  { exact: chosen.deviceId },
+    width:     { ideal: 1920 },
+    height:    { ideal: 1080 },
+    frameRate: { ideal: 30 },   // advisory ONLY — measure the truth (§1.4)
+    zoom:      true,            // harmless; correct for desktop PTZ
+  }, audio: false,
+});
+
+// ---- 4. tune: order matters (zoom clears pointsOfInterest) ----
+const track = stream.getVideoTracks()[0];
+const caps  = track.getCapabilities?.() ?? {};
+const adv = [];
+// #1 lever: ~2.8x frame rate, shorter exposure, AF still works (§1.4)
+if (caps.exposureCompensation) adv.push({ exposureCompensation: caps.exposureCompensation.min });
+// more px/module for free (§1.3)
+if (caps.zoom) adv.push({ zoom: Math.min(1.8, caps.zoom.max) });
+// lock focus — kills AF hunting (§1.5)
+if (caps.focusMode?.includes('manual') && caps.focusDistance)
+  adv.push({ focusMode: 'manual',
+             focusDistance: Math.min(Math.max(0.45, caps.focusDistance.min), caps.focusDistance.max) });
+if ('torch' in caps) adv.push({ torch: false });   // explicit: never illuminate a screen
+if (adv.length) await track.applyConstraints({ advanced: adv }).catch(() => {});
+
+// POI LAST. Sensor-space coords, NOT rotation-corrected — swap x/y in portrait.
+if (navigator.mediaDevices.getSupportedConstraints().pointsOfInterest)
+  await track.applyConstraints({ advanced: [{ pointsOfInterest: [{ x: 0.5, y: 0.5 }] }] })
+    .catch(() => {});
+
+// ---- 5. MEASURE delivered fps; never trust getSettings().frameRate (§1.4) ----
+const realFps = await measureFpsViaRVFC(video, 1000);
 ```
 
-Then post-open, best-effort tuning (all optional, all guarded):
+Fallback ladder for step 3, if the `deviceId` open fails: drop to
+`{facingMode:{ideal:'environment'}}`, then `{facingMode:{exact:'environment'}}`,
+then bare `{video:true}` — remembering that the last rung is **VGA** (§1.3), good
+enough to acquire but marginal for a dense symbol.
 
-```js
-async function tuneTrack(track) {
-  const caps = track.getCapabilities?.() ?? {};
-  const advanced = [];
-  if (caps.focusMode?.includes('continuous')) advanced.push({ focusMode: 'continuous' });
-  if (caps.exposureMode?.includes('continuous')) advanced.push({ exposureMode: 'continuous' });
-  if (caps.whiteBalanceMode?.includes('continuous')) advanced.push({ whiteBalanceMode: 'continuous' });
-  if ('torch' in caps) advanced.push({ torch: false });   // explicit: never illuminate a screen
-  if (advanced.length) {
-    try { await track.applyConstraints({ advanced }); } catch { /* non-fatal */ }
-  }
-  return track.getSettings();   // ALWAYS read back what you actually got
-}
-```
-
-Always surface `track.getSettings()` (actual width/height/frameRate/deviceId)
-into the UI or diagnostics — the delta between requested and delivered is the
-first thing to check when a user reports "it doesn't scan".
+Always surface delivered resolution and **measured** fps in a diagnostics readout —
+the gap between requested and delivered is the first thing to check when a user
+reports poor scanning.
 
 ---
-
 ## 2. The `BarcodeDetector` API
 
 ### 2.1 Verdict up front
@@ -922,6 +1015,27 @@ performance much: the camera is usually the bottleneck**."
 > **Sender: 15 fps, each frame held exactly 4 refreshes on a 60 Hz display
 > (8 on 120 Hz). Receiver: 30 fps capture.**
 
+> ### 🔴 Hard prerequisite: the receiver must actually *get* 30 fps
+>
+> §1.4 measured a Pixel 6 delivering **15.0 fps** at 1080p for *every* frame-rate
+> request — `{ideal:60}`, `{min:30}` and `{exact:30}` alike — while
+> `getSettings().frameRate` cheerfully reported 30 or 60.
+>
+> **A 15 fps sender against a 15 fps camera has zero oversampling** and the whole
+> analysis below collapses: every displayed symbol gets ~1 sample, at random
+> phase, so roughly half of them are torn. Throughput would fall by more than half
+> and the app would feel broken.
+>
+> **Therefore `exposureCompensation: caps.exposureCompensation.min` is not a
+> nice-to-have — it is a precondition for the 15 fps sender rate.** It measured
+> 15.0 → 41.6 fps (2.8×) on the same device and scene, and it *also* shortens
+> exposure, which shrinks `T_e` in the inequality above.
+>
+> **The receiver must measure delivered fps by counting rVFC callbacks and pick
+> the sender rate from the ladder below accordingly** — never from
+> `getSettings()`. On iOS, where `exposureCompensation` does not exist, measure
+> and adapt rather than assume.
+
 Five independent lines converge on this:
 
 1. **Derived (§5.1):** `T_s ≥ T_c + T_e + T_r` ≈ 58 ms ⇒ ≤17 fps. 15 fps (66.7 ms)
@@ -952,13 +1066,21 @@ camera, and screenferry has no back-channel. The receiver *does* know everything
 (`getSettings().frameRate`, counted rVFC callbacks, measured unique decodes/sec),
 so **display a recommendation on the receiver and let the user set the sender**:
 
-| Detected camera fps | Sender fps | Refreshes @60 Hz | QR version |
+| **Measured** camera fps | Sender fps | Refreshes @60 Hz | QR version |
 |---|---|---|---|
-| 15 (old/low-end) | 7 | 8–9 | V20 |
+| 15 — **Android default, or iOS; try the §1.4 fix first** | 7 | 8–9 | V20 |
 | 24 | 12 | 5 | V25 |
-| **30 (default)** | **15** | **4** | **V27** |
+| **30 — the target, after `exposureCompensation`** | **15** | **4** | **V27** |
 | 30, propped/tripod | 20 | 3 | V30 |
-| 60 (flagship, verified) | 30 | 2 | V30 |
+| 40+ (measured after the §1.4 fix) | 20 | 3 | V30 |
+| 60 (flagship, verified by measurement) | 30 | 2 | V30 |
+
+Note the top row is where an untuned Android phone actually lands — **15 fps is
+the default outcome, not the low-end outcome** (§1.4). Applying
+`exposureCompensation` moves a typical device from row 1 to row 3 or 5, roughly
+**doubling end-to-end throughput for one line of code**. Where it cannot be
+applied (iOS), the receiver should honestly report the lower rate and the sender
+should slow down; a reliable 7 fps beats a torn 15 fps.
 
 ### 5.6 Realistic sustained rate and goodput
 
@@ -1349,10 +1471,19 @@ exists solely to survive a WASM instantiation failure (strict CSP, exotic browse
 ### 7.4 Capture pipeline
 
 ```
-getUserMedia (constraint ladder §1.11)
+enumerate → pick LOWEST-numbered rear camera (= LAST videoinput)   §1.6
+            NOT facingMode:'environment' — that picks the ultrawide
+  → getUserMedia: deviceId exact, 1920x1080 LANDSCAPE numbers, zoom:true   §1.3/§1.8
   → <video playsinline autoplay muted>, started from a user gesture
-  → tuneTrack(): focusMode continuous, torch OFF
-  → ALWAYS read back getSettings() — iOS silently downgrades frameRate
+  → tune, IN THIS ORDER (zoom clears pointsOfInterest):                    §1.12
+       exposureCompensation = caps.exposureCompensation.min  ← 2.8x FPS    §1.4
+       zoom = min(1.8, caps.zoom.max)                        ← free px/module
+       focusMode 'manual', focusDistance ~0.45 m             ← no AF hunting §1.5
+       torch = false                                          ← never
+       pointsOfInterest LAST (sensor-space coords; swap x/y in portrait)
+  → MEASURE delivered fps over ~1 s of rVFC callbacks                      §1.4
+       NEVER trust getSettings().frameRate — it reports nominal, not real
+       → pick sender-rate recommendation from the ladder in §5.5, show it to user
   → requestVideoFrameCallback loop, guarded by a GENERATION COUNTER
       → check presentedFrames delta → record drops, degrade if behind
       → ACQUIRE: createImageBitmap(video, {resizeWidth: 480})
@@ -1375,8 +1506,14 @@ Safari/Chrome; and a live diagnostics readout of delivered fps vs decoded fps.
 
 ### 7.5 Realistic decode fps to design around
 
-> - **Camera capture: 30 fps.** Do not request 60 — iOS silently delivers 30 for
->   `{ideal: 60}`, and 30 fps gives 2× headroom in the rVFC callback path.
+> - **Camera capture: 30 fps — but you must earn it.** An untuned Android phone
+>   delivers **15 fps** whatever you request, while reporting 30 or 60 (§1.4).
+>   Apply `exposureCompensation: min` (measured 15.0 → 41.6 fps) and then
+>   **measure the result via rVFC**. Do not request 60: it changes nothing on
+>   Android and iOS silently gives 30.
+> - **Capture at 1920×1080 with zoom ≈1.5–2×, never 4K.** 4K measured 2.7
+>   scans/sec and 9× the battery draw; zoom buys pixels-per-module at identical
+>   CPU cost (§1.3).
 > - **Sender display: 15 fps**, vsync-locked to 4 refreshes at 60 Hz. Five
 >   independent lines converge here (§5.5); each symbol is then sampled by exactly
 >   2 camera frames, guaranteeing ≥1 clean capture.
