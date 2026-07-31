@@ -12,7 +12,11 @@
   select,input { font:inherit; background:#222; color:#eee; border:1px solid #444; border-radius:3px; padding:.2rem }
   main { display:none; padding:1rem }
   main.on { display:block }
-  #tx { background:#d8d8d8; display:block; width:100%; height:auto }
+  #tx { background:#d8d8d8; display:block }
+  body.fit header { display:none }
+  body.fit main { padding:0 }
+  #warn { padding:.4rem 1rem; background:#733; color:#fff; font-weight:600 }
+  #warn:empty { display:none }
   #cam { width:100%; max-width:640px; background:#000 }
   table { border-collapse:collapse; margin-top:.8rem; font-variant-numeric:tabular-nums }
   td { padding:.2rem .8rem .2rem 0 }
@@ -41,6 +45,7 @@
   <button id="dump">Copy results</button>
 </header>
 
+<div id="warn"></div>
 <main id="send">
   <canvas id="tx" width="1600" height="1000"></canvas>
   <table id="txstats"></table>
@@ -85,11 +90,31 @@ $('go').onclick = async () => {
   const c = cfg();
   if (role === 'send') {
     const r = RUNGS[c.rung];
-    // size the canvas so tiles land at an exact integer module size — no resampling
     const modules = 17 + 4 * r.ver;
     const tile = modules * c.modulePx, pad = 8;
+
+    // Fit the grid to the ACTUAL viewport. A canvas larger than the screen is not a
+    // cosmetic problem: clipped tiles are counted as emitted but are never visible,
+    // so the erasure rate is inflated before any optical loss occurs.
+    const avail = document.getElementById('send');
+    const availW = avail.clientWidth || innerWidth;
+    const availH = innerHeight - avail.getBoundingClientRect().top;
+    const maxCols = Math.max(1, Math.floor((availW - pad) / (tile + pad)));
+    const maxRows = Math.max(1, Math.floor((availH - pad) / (tile + pad)));
+    const clampedCols = Math.min(c.cols, maxCols);
+    const clampedRows = Math.min(c.rows, maxRows);
+    if (clampedCols !== c.cols || clampedRows !== c.rows) {
+      $('warn').textContent =
+        `grid clamped ${c.cols}x${c.rows} → ${clampedCols}x${clampedRows} — ` +
+        `only ${maxCols}x${maxRows} v${r.ver} tiles fit at ${c.modulePx} px/module in ${availW}x${Math.round(availH)}`;
+    }
+    c.cols = clampedCols; c.rows = clampedRows;
+    $('cols').value = String(clampedCols); $('rows').value = String(clampedRows);
+
     $('tx').width = pad + c.cols * (tile + pad);
     $('tx').height = pad + c.rows * (tile + pad);
+    $('tx').style.width = $('tx').width + 'px';   // defeat any CSS scaling — 1:1 or the
+    $('tx').style.height = $('tx').height + 'px'; // px/module measurement is a fiction
     sender = new Sender($('tx'));
     await sender.start(c);
     timer = setInterval(() => {
@@ -100,6 +125,11 @@ $('go').onclick = async () => {
         row('packets/frame', c.cols * c.rows * r.packets) +
         row('requested fps', c.fps) +
         row('actual fps', n(s.actualFps, 2), s.actualFps < c.fps * 0.9 ? 'warn' : 'ok') +
+        row('module px (actual)', (() => {
+          const a = $('tx').getBoundingClientRect().width / $('tx').width * c.modulePx;
+          return `${a.toFixed(2)} / ${c.modulePx} requested`;
+        })(), Math.abs($('tx').getBoundingClientRect().width / $('tx').width - 1) > 0.01 ? 'bad' : 'ok') +
+        row('grid on screen', `${c.cols}x${c.rows} = ${c.cols * c.rows} tiles`) +
         row('wire rate', `${n(s.wireBytesPerSec / 1024)} KB/s`) +
         row('packets emitted', s.packetsEmitted.toLocaleString());
     }, 500);
@@ -120,7 +150,7 @@ $('go').onclick = async () => {
         row('camera fps', n(s.cameraFps, 1), s.cameraFps < 20 ? 'warn' : 'ok') +
         row('exposureCompensation applied', s.exposureApplied, s.exposureApplied ? 'ok' : 'warn') +
         row('unique packets', s.uniquePackets.toLocaleString()) +
-        row('tile yield', `${n(s.tileYield * 100)}%`) +
+        row('seq span', s.seqSpan?.toLocaleString() ?? '-') + row('ROI', s.roi ?? '-') +
         row('<b>erasure rate</b>', `<b>${n(s.erasureRate * 100)}%</b>`,
             s.erasureRate > 0.30 ? 'bad' : s.erasureRate > 0.20 ? 'warn' : 'ok') +
         row('frames yielding zero', `${n(s.framesWithZero * 100)}%`) +
@@ -149,6 +179,7 @@ if (q.has('rung')) $('rung').value = q.get('rung');
 for (const [k, id] of [['mod','mod'],['cols','cols'],['rows','rows'],['fps','fps']]) {
   if (q.has(k)) $(id).value = q.get(k);
 }
+if (q.get('fit') === '1') document.body.classList.add('fit');
 setRole(q.get('role') === 'recv' ? 'recv' : 'send');
 
 // Expose live stats so the harness can scrape without OCR-ing a screenshot.

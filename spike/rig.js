@@ -165,6 +165,10 @@ export class Receiver {
     this.inexact = 0;
     this.perFrameCounts = [];
     this.decodeMs = [];
+    this.minSeq = Infinity;
+    this.maxSeq = -1;
+    this.roi = null;          // {x,y,w,h} once located — the measured 9x decode win
+    this.roiMisses = 0;
     this.t0 = performance.now();
   }
 
@@ -192,15 +196,47 @@ export class Receiver {
     const onFrame = async () => {
       if (!this.running) return;
       ctx.drawImage(this.video, 0, 0);
-      const frame = ctx.getImageData(0, 0, c.width, c.height);
+      // Crop to the region the codes were last seen in. Handing zxing a full 1080p
+      // frame when the grid occupies a third of it is most of the decode cost.
+      const r0 = this.roi;
+      const frame = r0
+        ? ctx.getImageData(r0.x, r0.y, r0.w, r0.h)
+        : ctx.getImageData(0, 0, c.width, c.height);
       const t = performance.now();
       let results = [];
       try {
-        // ImageData directly — a PNG encode per frame would dominate the 60 ms budget
         results = await readBarcodesFromImageData(frame, {
           tryHarder: false, formats: ['QRCode'], maxNumberOfSymbols: 64,
         });
       } catch { /* a frame that fails to decode is an erasure, not an error */ }
+      // Re-derive the ROI from where symbols actually landed, with a margin for drift.
+      if (results.length) {
+        let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+        for (const res of results) {
+          for (const pt of Object.values(res.position ?? {})) {
+            if (typeof pt?.x !== 'number') continue;
+            x0 = Math.min(x0, pt.x); y0 = Math.min(y0, pt.y);
+            x1 = Math.max(x1, pt.x); y1 = Math.max(y1, pt.y);
+          }
+        }
+        if (Number.isFinite(x0)) {
+          const ox = r0 ? r0.x : 0, oy = r0 ? r0.y : 0;
+          const m = 0.35 * Math.max(x1 - x0, y1 - y0);
+          this.roi = {
+            x: Math.max(0, Math.round(ox + x0 - m)),
+            y: Math.max(0, Math.round(oy + y0 - m)),
+            w: Math.min(c.width, Math.round(x1 - x0 + 2 * m)),
+            h: Math.min(c.height, Math.round(y1 - y0 + 2 * m)),
+          };
+          this.roiMisses = 0;
+        }
+      } else if (this.roi && ++this.roiMisses > 8) {
+        this.roi = null;    // lost lock — go wide again
+      }
+      // Periodic full-frame rescan. Without this the ROI is a one-way ratchet: a
+      // frame where only two tiles decode shrinks the crop to those two, and every
+      // later frame then sees only that region, so it can never recover the grid.
+      if (this.cameraFrames % 20 === 19) this.roi = null;
       this.decodeMs.push(performance.now() - t);
       this.cameraFrames++;
 
@@ -213,6 +249,8 @@ export class Receiver {
           if (!v) { this.corruptTiles++; continue; }
           if (!v.exact) this.inexact++;
           this.seen.add(v.seq);
+          if (v.seq < this.minSeq) this.minSeq = v.seq;
+          if (v.seq > this.maxSeq) this.maxSeq = v.seq;
           good++;
         }
       }
@@ -229,13 +267,17 @@ export class Receiver {
     const secs = (performance.now() - this.t0) / 1000;
     const p = [...this.perFrameCounts];
     const sorted = [...this.decodeMs].sort((a, b) => a - b);
-    const yieldRate = p.length ? p.reduce((a, b) => a + b, 0) / (p.length * this.expectPerFrame) : 0;
+    const span = this.maxSeq >= this.minSeq ? this.maxSeq - this.minSeq + 1 : 0;
+    const coverage = span ? this.seen.size / span : 0;
     return {
+      // Erasure from seq COVERAGE, not from a guessed grid size: of the packets the
+      // sender demonstrably emitted while we were watching, what fraction did we get?
+      erasureRate: span ? 1 - coverage : 1,
+      seqSpan: span,
+      roi: this.roi ? `${this.roi.w}x${this.roi.h}` : 'full frame',
       cameraFps: this.cameraFrames / secs,
       uniquePackets: this.seen.size,
       goodputBytesPerSec: (this.seen.size * this.L) / secs,
-      tileYield: yieldRate,                       // fraction of emitted tiles decoded
-      erasureRate: 1 - yieldRate,                 // ← the number D18c assumes is 20–30%
       framesWithZero: p.filter((x) => x === 0).length / (p.length || 1),
       decodeMsP50: sorted[Math.floor(sorted.length * 0.5)] ?? 0,
       decodeMsP99: sorted[Math.floor(sorted.length * 0.99)] ?? 0,
