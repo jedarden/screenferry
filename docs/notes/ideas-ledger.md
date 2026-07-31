@@ -221,7 +221,7 @@ Seven of ten finalists adopted and tracked as beads blocking genesis `bf-28p`.
 | F6 Single-file offline build | **rejected** — will deploy as a static site, and WASM (zxing, D3) is almost certainly required, which is exactly what a single-file build cannot cleanly inline | — |
 | F7 Delta transfer | **adopted, scope extended** — must also cover restarting interrupted transfers; see plan §10.2 for the D15/D19 tension | `bf-280` |
 | F8 Pairing splash QR | **adopted** | `bf-4tb` |
-| F9 Multi-receiver broadcast | **pending** — question raised: how would multiple receivers coordinate with the sender? | — |
+| F9 Multi-receiver broadcast | **deferred, kept out of the plan** — recorded in [`future-features.md`](future-features.md). Answer to the coordination question: they don't coordinate, and don't need to. The sender already broadcasts blindly, and a fountain code means every receiver needs *any* K+ε packets rather than particular ones — so receivers with different loss patterns all complete from the same stream. Reliable multicast is the problem fountain codes were invented for. Real work is UI plus union-capable repair codes; real constraints are physical (line of sight, off-axis px/module) | — |
 | F10 Verifiable build | **adopted, scope extended** — add a semver at the bottom of the page | `bf-13h` |
 
 Note on F6's rejection: it does not invalidate the offline requirement (concept.md
