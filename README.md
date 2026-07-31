@@ -54,7 +54,7 @@ matter — the next one is just as useful.
 
 ## Status
 
-**Research phase.** Nothing is implemented yet.
+**Research complete. Plan written. No application code yet.**
 
 - [`docs/plan/plan.md`](docs/plan/plan.md) — the complete application plan
 - [`docs/notes/`](docs/notes/) — design decisions and constraints specific to screenferry
