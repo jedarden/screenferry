@@ -287,3 +287,66 @@ Not usefully, at this stage. The measured limits are, in order:
 
 Items 1–3 are worth roughly 10× between them and require no new decoder. Symbology is
 the last lever to pull, not the first.
+
+---
+
+# Thermal — the finding that most threatens the premise
+
+Flagged by the operator mid-session: *"the phone itself is also getting exceptionally
+warm."* Confirmed on the device immediately after stopping:
+
+| Sensor | Reading |
+|---|---|
+| CPU (LITTLE cluster) | **70.0 °C** |
+| `quiet_therm` | 34.1 °C, **`mStatus=1` — throttling threshold reached** |
+| Battery | 34.1 °C |
+| Display | 35.9 °C |
+
+This was after roughly **20–30 minutes** of intermittent decoding, much of it at 1080p
+and some at 4K, on an unmounted phone with no airflow.
+
+## Why this matters more than any throughput number
+
+The plan's headline objective is multi-gigabyte transfer. §1.1 states 10 GB is
+**27 hours to 4 days** of *continuous* decoding. A receiver that reaches its throttling
+threshold in under half an hour cannot do that, and no amount of coding efficiency
+fixes it.
+
+Worse, thermal throttling is **self-reinforcing on this channel**: the SoC slows →
+decode latency rises → camera fps falls → erasure rises → the transfer takes longer →
+more total heat. The plan already names the mechanism in edge case E17 and risk R9, but
+both assumed it was an *hours* problem. It is a *tens of minutes* problem.
+
+Also invalidating: **every measurement in S2/S3 was taken on a device that was heating
+throughout.** Later runs are not comparable to earlier ones, which is an additional
+reason (beyond §13.2 deviations) that none of these figures are budget-qualifying. A
+proper campaign needs cool-down between runs and a recorded starting temperature.
+
+## What this changes
+
+**Continuous full-rate decoding is not a viable operating mode for long transfers.**
+The design needs a thermal strategy, not a thermal warning. Options, cheapest first:
+
+1. **Duty-cycle the receiver.** Decode a burst, idle, repeat. On a fountain-coded
+   erasure channel this is nearly free — skipped frames are erasures, which the code
+   already absorbs. A 50% duty cycle roughly halves heat for roughly half the rate,
+   and *finishes* where 100% duty may not.
+2. **Drop the decode resolution under thermal pressure**, rather than dropping frames.
+   Fewer pixels is superlinearly cheaper.
+3. **Read the thermal state and adapt.** No web API exposes SoC temperature, but
+   sustained fps decline is a usable proxy — the same signal E17 already proposes.
+4. **Design the UX around it**: a 10 GB transfer becomes a series of sessions with
+   cool-downs, which the resume machinery (D22) already supports. This may be the
+   honest framing rather than a defect.
+
+## New risk
+
+**R11 — thermal throttling makes long transfers self-defeating.** Likelihood **High**
+(observed in the first session). Impact **High** (attacks the multi-GB objective
+directly). Mitigation: duty-cycling (above) plus resume. Trigger: sustained fps decline
+> 30% from a cool start → drop duty cycle and tell the user, rather than silently
+running hot and slow.
+
+This should be measured properly: a long-run thermal profile with cool-down, plotting
+decode latency and camera fps against elapsed time. It is the single most important
+outstanding measurement, ahead of any density work.
