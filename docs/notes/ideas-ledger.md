@@ -206,3 +206,24 @@ itself** — both material for a tool aimed at sensitive transfers.
 | Killed in adversarial pass | 8 |
 | Gap-round entrants | 4 |
 | **Finalists** | **10** |
+
+### Adoption decisions (2026-07-31)
+
+Seven of ten finalists adopted and tracked as beads blocking genesis `bf-28p`.
+
+| Finalist | Decision | Bead |
+|---|---|---|
+| F1 Storage pre-flight | **adopted** | `bf-4d6` |
+| F2 Diagnostic stall detector | **adopted** | `bf-5vm` |
+| F3 Aim reticle + distance coach | **adopted** | `bf-1g0` |
+| F4 Photosensitivity safeguard | **adopted** | `bf-6d3` |
+| F5 Text/secret fast path | **rejected** — a different product hiding inside this one | — |
+| F6 Single-file offline build | **rejected** — will deploy as a static site, and WASM (zxing, D3) is almost certainly required, which is exactly what a single-file build cannot cleanly inline | — |
+| F7 Delta transfer | **adopted, scope extended** — must also cover restarting interrupted transfers; see plan §10.2 for the D15/D19 tension | `bf-280` |
+| F8 Pairing splash QR | **adopted** | `bf-4tb` |
+| F9 Multi-receiver broadcast | **pending** — question raised: how would multiple receivers coordinate with the sender? | — |
+| F10 Verifiable build | **adopted, scope extended** — add a semver at the bottom of the page | `bf-13h` |
+
+Note on F6's rejection: it does not invalidate the offline requirement (concept.md
+constraint 2). The PWA + service-worker path remains the offline story; only the
+single-file distribution variant is dropped.

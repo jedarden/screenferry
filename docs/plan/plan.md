@@ -606,7 +606,75 @@ Only after Stages 1–2 are solid, and only after the licensing decision below.
 
 ---
 
-## 10. Evidence index
+## 10. Adopted roadmap items
+
+From the ideation run recorded in [`../notes/ideas-ledger.md`](../notes/ideas-ledger.md)
+(103 generated → 10 finalists → 7 adopted). Tracked as beads blocking the genesis
+bead `bf-28p`.
+
+| Bead | Item | Grade | Phase | Note |
+|---|---|---|---|---|
+| `bf-4d6` | **Storage pre-flight and capacity gate** | S | 4 | Refuse before hour 9, not at it. Resolves open question 9. |
+| `bf-5vm` | **Diagnostic stall detector** | M | 5 | Say *why* nothing is arriving. Canary tile separates optical from payload failure. Absorbed 7 pool ideas. |
+| `bf-1g0` | **Aim reticle and distance coach** | M | 5 | Defends the 4 px/module cliff — the highest-impact measured effect in the research. |
+| `bf-6d3` | **Photosensitivity safeguard (WCAG 2.3.1)** | S | 5 | See §10.1 — this one changes a rendering decision. |
+| `bf-280` | **Delta transfer and cross-session resume** | L | 4+ | Scope extended: resume-after-interruption is the same mechanism. Tension with D15/D19 — see §10.2. |
+| `bf-4tb` | **Pairing splash QR** | S | 5 | Solves "we both need the same page open". Helps the online case, not the air-gapped one. |
+| `bf-13h` | **Verifiable build + version footer** | M | 0 / later | Semver + build hash in the page footer from Phase 0; reproducibility later. |
+
+**Rejected, with reasons recorded:** *text/secret fast path* (a different product
+hiding inside this one) and *single-file HTML build* — the latter because the app
+will be deployed as a static site and **WASM is almost certainly required**
+(zxing-wasm, D3), which is precisely what a single-file build cannot cleanly inline.
+
+### 10.1 Photosensitivity changes a rendering decision (bf-6d3)
+
+This is not a checkbox. A full-bleed, high-contrast animation changing at 12–15 fps
+for hours is a genuine seizure risk, and WCAG 2.3.1 caps general flashes at three
+per second *or* requires the flashing area to stay under the small-safe threshold.
+
+**The mitigation costs the core metric.** Bounding the flashing area reduces usable
+screen area → fewer cells → less throughput. So the compliant design is not
+"full-bleed tiles" but "coded region inside a bounded static surround", and the
+area cost must be **measured in Phase 3**, not assumed. D10's DC balancing already
+helps (constant mean luminance is much less provocative than alternating
+black/white fields) and should be treated as part of this mitigation, not just as
+an auto-exposure fix.
+
+### 10.2 Delta transfer tensions with the block design (bf-280)
+
+Recorded here because it must be resolved in the plan rather than discovered in code.
+
+The unifying insight is sound: **a partially-received file *is* "a file the receiver
+already has"**, so resume-after-interruption and delta transfer are one mechanism at
+two granularities. Designing them together avoids two overlapping subsystems.
+
+But the general delta case wants **content-defined chunking** (rolling hash, variable
+chunk boundaries), and that directly contradicts:
+
+- **D15** — fragment length `L` fixed for the session
+- **D19** — fixed 4 MB blocks, from which `K` is *derived and never transmitted*
+
+Variable-length chunks break the derive-don't-transmit property that keeps the header
+at 13 bytes. Two ways out, to be chosen before implementation:
+
+1. **Scope delta as a v2 mode with its own block scheme** — cleanest; the fixed-block
+   path stays untouched and delta becomes a parallel profile.
+2. **Keep fixed blocks and diff at block granularity** — much simpler, no rolling
+   hash, but only detects changes aligned to 4 MB boundaries, so an insertion near the
+   start of a file re-sends everything after it.
+
+Option 2 is dramatically cheaper and probably sufficient for the "update an
+air-gapped machine" case, where changes are usually appends or whole-file
+replacements of components. **Start there; only reach for rolling-hash chunking if
+measurement shows block-aligned diffing is missing real savings.**
+
+The near-term half of this bead — making cross-session resume genuinely robust — has
+no such tension and should ship first.
+
+---
+
+## 11. Evidence index
 
 | Document | Carries |
 |---|---|
