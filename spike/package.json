@@ -1,0 +1,17 @@
+{
+  "name": "screenferry-spike",
+  "private": true,
+  "type": "module",
+  "description": "Throwaway measurement rig for plan.md Phase 0.5. Not product code — delete after the numbers land in docs/notes/spike-results.md.",
+  "scripts": {
+    "ge": "node ge-bench.mjs",
+    "rig": "vite --host"
+  },
+  "dependencies": {
+    "qrcode": "1.5.4",
+    "zxing-wasm": "1.2.11"
+  },
+  "devDependencies": {
+    "vite": "5.4.10"
+  }
+}

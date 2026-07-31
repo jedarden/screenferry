@@ -1007,13 +1007,48 @@ independently once Phase 0 lands.
 | Phase | Entry | Exit |
 |---|---|---|
 | **0 — Repo and harness** | — | Builds, deploys, version footer present, stub-camera tier runs, G1–G3 and **G7** green, **module layout (§6.5) and dependency pins committed**, and a throwaway end-to-end spike (one tiny file through a no-op modulation) proves the seams line up |
-| **1 — Core codec, headless** | Phase 0 exit | 10 MB file survives 50% loss byte-exact; overhead within `sim/` bounds; synthetic 4 GB at flat ≤ 8 MB (A5); GE keeps pace at K=768 measured on a real phone; G1–G5 green |
+| **0.5 — Spike: measure the channel** | Phase 0 exit | S1–S4 run and recorded in `docs/notes/spike-results.md`; §13.1's forecast rows replaced with measured figures or the relevant §18 risk triggered. **Gates Phase 1 because it sets K, L, dwell and the rung ladder.** See `spike/README.md` |
+| **1 — Core codec, headless** | Phase 0.5 exit | 10 MB file survives 50% loss byte-exact; overhead within `sim/` bounds; synthetic 4 GB at flat ≤ 8 MB (A5); GE keeps pace at K=768 measured on a real phone; G1–G5 green |
 | **2 — Single-QR optical loop — the walking skeleton** | Phase 1 exit | A1 passes at any speed on two real devices. **This is the first demonstrable end-to-end transfer**; Phase 0's spike is a seam check, not a product |
 | **3 — Tiling + fixed-weight ladder (D18a)** | Phase 2 exit | A1 ≥ 20 KB/s, A2, A3, A4 pass on T-physical-rig; G6 green |
 | **4 — Large-file machinery** | Phase 3 exit | A5, A6, A7, A10 pass; quota pre-flight refuses correctly; repair code round-trips |
 | **5 — The app + local ladder adaptation (D18b)** | Phase 4 exit | A8, A9 pass; every §11 error code has a user-facing string and is reachable; iOS manual pass; non-technical user completes a transfer unaided |
 | **6 — Calibration probe + colour** | Phase 5 exit | Probe reports device cutoffs; colour enabled only where it measurably wins; A1 improves or colour stays off |
 | **7 — Custom codec** | Phase 6 exit **and** the §19 Q1 licensing decision recorded | Stage 3 beats Stage 2 on T-physical-rig |
+
+### 17.1 Phase 0.5 — why a spike, and why here
+
+The plan's parameters are currently modelled or borrowed from research on other
+people's hardware. The spike does not decide **whether** to build the codec — the
+fountain code, block layer and framing are needed whatever the channel does. It
+decides **what numbers to build it with**, and those numbers are encoded in the
+framing layer that Phase 1 writes:
+
+| Parameter | Basis today | Sets |
+|---|---|---|
+| Tiling gain (~10×) | measured on *simulated* camera paths | D1, the throughput thesis |
+| Erasure 20–30% | **assumption** (D18c states this) | dwell = 1.6 K (§8.1) |
+| 4 px/module cliff | other devices | D2, §3.1.1's rungs, `bf-1g0` |
+| Delivered fps | a Pixel 6, not ours | D9, D14 |
+| 200 MB/s JS XOR | **unmeasured guess** | D19's K = 768 |
+
+It is cheap *precisely because* it skips everything this plan carefully designs: no
+fountain code, no blocks, no compression, no resume, no OPFS, no UI. Sequential
+numbered packets and a counter suffice — the subject is the channel, not the protocol.
+
+**S1 is already done** (`spike/ge-bench.mjs`, no camera or install needed). A full
+GE decode of one block at K = 768 takes **8 ms** at **3,260 MB/s** on the dev
+machine — the 200 MB/s budget was ~16× pessimistic, leaving **7.1× margin at
+Stage 3** even after a harsh ÷4 phone factor. **R1 is provisionally closed**, pending
+a re-run in a browser on the target phone; the ÷4 factor is itself a guess.
+
+S2–S4 (rung sweep, distance sweep, handheld and phone→phone) need the optical rig and
+two devices. Kill criteria are fixed in advance in `spike/README.md`, each mapping to
+an existing §18 risk — if a criterion trips, the named risk's fallback applies rather
+than an improvised one.
+
+**Do not let spike code become product code.** Separate directory, separate
+`package.json`, deleted once the results land.
 
 **Parallel track** (independent of the codec, may run alongside Phases 1–3): PWA shell,
 service worker, file in/out per platform, pairing splash (`bf-4tb`), version footer
@@ -1029,7 +1064,7 @@ coaching ≈ 1500 — **Phase 5 is the largest single phase**, which the phase o
 
 | # | Risk | Likelihood | Impact | Mitigation | Trigger → fallback |
 |---|---|---|---|---|---|
-| **R1** | **GE still too slow at K=768 on real phones** | Medium | High — blocks Phase 1 | Cost model + conservative K (D19/D26) | Measured need > budget → drop to K=512 (2.88× margin), then re-open D5 against wirehair/RaptorQ (whose linear-time decode is what libcimbar uses) |
+| **R1** | **GE still too slow at K=768 on real phones** | ~~Medium~~ **Low** | High — blocks Phase 1 | Cost model + conservative K (D19/D26). **S1 measured 3,260 MB/s desktop = 7.1× margin at Stage 3 after a ÷4 phone factor; provisionally closed pending an on-device re-run** | Measured need > budget → drop to K=512 (2.88× margin), then re-open D5 against wirehair/RaptorQ (whose linear-time decode is what libcimbar uses) |
 | **R2** | **4 px/module cliff makes handheld use impractical** | Medium | High | Aim reticle + coach (`bf-1g0`), ladder (D16) | A2 fails → mandate a stand in the UI and reposition as a mounted-device tool |
 | **R3** | **Stage 1 measures far below 20 KB/s** | Medium | High — undermines the multi-GB objective | Tiling (D1) is the measured 10× | < 10 KB/s → cap the advertised file size, move Stage 2 earlier |
 | **R4** | **Phone→phone unusable at 54 cells** | **High** | Medium | Separate profile with bigger modules | A3 fails → document phone→phone as a small-file-only mode |
@@ -1130,6 +1165,7 @@ near-term half — robust cross-session resume — has no such tension and ships
 | [`sim/fountain_overhead_sim.py`](../research/sim/fountain_overhead_sim.py) | Independent verification of D5/D6 |
 | [`sim/ge_cost_model.py`](../research/sim/ge_cost_model.py) | **D19's K, re-derived against decode time** |
 | [`sim/degree_cap_sim.py`](../research/sim/degree_cap_sim.py) | **D25's degree cap, verified per D6** |
+| [`spike/README.md`](../../spike/README.md) | **Phase 0.5 protocol, kill criteria, and S1's measured GE result** |
 | [`beyond-qr-optical-channels.md`](../research/beyond-qr-optical-channels.md) | Tiling, colour tripling, screen-camera SOTA, JAB Code rejection |
 | [`custom-codec-engineering.md`](../research/custom-codec-engineering.md) | libcimbar geometry, GPU pipeline, calibration, camera ISP effects |
 | [`pwa-platform-and-ux.md`](../research/pwa-platform-and-ux.md) | iOS blockers, file I/O, PWA, testing tiers |
