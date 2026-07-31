@@ -10,3 +10,5 @@ coverage/
 .beads/*.db
 .beads/*.db-shm
 .beads/*.db-wal
+spike/node_modules/
+test-results/
