@@ -526,31 +526,66 @@ All libraries below were **installed and benchmarked locally**, not read about. 
 **Intel Core i5-13500**, node v20.19.2 (V8 — same engine class as Chrome, so timings transfer to
 desktop browsers; assume **3–5× slower on a mid-range phone**).
 
+Two independent benchmark runs were performed (different harnesses, different iteration counts,
+different payload sets). They agree within ~5% on every shared library — e.g. node-qrcode v40
+auto-mask 7.05 vs 7.12 ms, qrcode-generator v40 37.89 vs 38.11 ms, @nuintun v40 18.44 vs 19.59 ms.
+The tables below use the more complete run.
+
 ### 5.1 Comparison
 
-| Library | Version | License | min | **min+gzip** | Byte mode w/ arbitrary bytes | Module matrix API | Worker-safe | Pin version + EC |
+| Library | Version | License | min | **min+gzip** | Byte mode w/ arbitrary bytes | Module matrix API | Worker-safe | Mask pin |
 |---|---|---|---|---|---|---|---|---|
-| **[qrcode](https://github.com/soldair/node-qrcode)** (node-qrcode) | 1.5.4 | MIT | 24.9 KB | **9.6 KB** (8.0 KB via core subpath) | **Yes — native `Uint8Array`** | `q.modules.data` (`Uint8Array`) + `q.modules.size` | **Yes** — `lib/core/*` imports with zero DOM | Yes |
-| [qrcode-generator](https://github.com/kazuhikoarase/qrcode-generator) | 2.0.4 | MIT | 20.9 KB | **7.6 KB** | Only via latin1 string hack | `q.isDark(row,col)` + `q.getModuleCount()` | Yes | Yes |
-| [@nuintun/qrcode](https://github.com/nuintun/qrcode) | 5.0.3 | MIT | 25.7 KB | **8.2 KB** | Only via latin1 string hack | `BitMatrix.get(x,y)` + `.size` | Yes | Yes |
-| [qr-code-styling](https://github.com/kozakdenys/qr-code-styling) | 1.9.2 | MIT | 48.6 KB | **14.9 KB** | Wraps qrcode-generator | **No public matrix API** | Nominally, but DOM/canvas-oriented | Yes |
+| [fuqr](https://www.npmjs.com/package/fuqr) | 2.1.1 | MIT | 5.9 KB | **2.9 KB** | Yes — via custom `Encoder` | Flat `Uint8Array` | Yes | Fixed (no scoring) |
+| [uqr](https://www.npmjs.com/package/uqr) | 0.1.3 | MIT | 10.2 KB | **3.9 KB** | Via `Array.from(u8)` (full copy) | Nested `boolean[][]` | Yes | Yes |
+| [qrcodegen](https://github.com/nayuki/QR-Code-generator) (Nayuki) | 1.8.0 | MIT | 11.6 KB | **4.1 KB** | **Yes — native `makeBytes`** | `getModule(x,y)` | Yes | Yes |
+| [@paulmillr/qr](https://www.npmjs.com/package/@paulmillr/qr) | 0.3.0 | MIT/Apache-2.0 | 17.7 KB | 7.1 KB | **NO — UTF-8 only, disqualified** | Nested | Yes | Yes |
+| [qrcode-generator](https://github.com/kazuhikoarase/qrcode-generator) | 2.0.4 | MIT | 20.8 KB | **7.6 KB** | Only via latin1 string hack | `isDark(row,col)` | Yes | **No** |
+| **[qrcode](https://github.com/soldair/node-qrcode)** (node-qrcode) | 1.5.4 | MIT | 24.8 KB | **9.6 KB** (8.0 via core subpath) | **Yes — native `Uint8Array`, documented** | Flat `Uint8Array` + `.size` | **Yes** | Yes |
+| [@nuintun/qrcode](https://github.com/nuintun/qrcode) | 5.0.3 | MIT | 27.4 KB | **9.0 KB** (named imports; 18.7 KB namespace) | Via `encode` hook | `BitMatrix.get(x,y)` | Yes | **No** |
+| [qr-code-styling](https://github.com/kozakdenys/qr-code-styling) | 1.9.2 | MIT | 48.6 KB | 14.9 KB | **No** | **No public API** | **No** — throws on construct | No |
+| [rxing-wasm](https://www.npmjs.com/package/rxing-wasm) | 0.5.7 | Apache-2.0 | 2.3 MB wasm | **907 KB** | **No** — string only | **No** — returns text bitmap | — | No |
 | *(reference: decoder)* [jsQR](https://github.com/cozmo/jsQR) | 1.4.0 | Apache-2.0 | 131 KB | 46.4 KB | n/a — **returns `binaryData`** | n/a | Yes | n/a |
 
-### 5.2 Encode speed — ms per frame (matrix generation only, no PNG/SVG)
+Bundle figures are `esbuild --bundle --minify --format=esm` then `gzip -9`, importing **only the
+encode entry point** — they are lower than bundlephobia's whole-package numbers because the
+PNG/SVG/canvas renderers tree-shake away.
 
-400 timed iterations after 60 warm-up, rotating over 20 distinct random payloads at **full capacity**
-for each version, EC level L, byte mode.
+**Worker safety was tested for real**, not assumed: each library was imported and run inside a
+`worker_threads` worker with `document` / `window` / `HTMLCanvasElement` / `Image` / `XMLSerializer`
+/ `DOMParser` / `navigator` replaced by throwing getters. All passed **except qr-code-styling**,
+which imports fine but **throws `touched global "window"` on `new QRCodeStyling(...)`**.
 
-| Library | v20 (858 B) | v27 (1465 B) | v40 (2953 B) |
-|---|---|---|---|
-| **node-qrcode (auto mask)** | **2.12 ms** (p95 2.50) | **3.52 ms** (p95 4.27) | **7.12 ms** (p95 8.13) |
-| **node-qrcode (pinned mask)** | **0.38 ms** (p95 0.70) | **0.68 ms** (p95 1.18) | **1.31 ms** (p95 2.32) |
-| @nuintun/qrcode | 5.38 ms (p95 7.96) | 8.88 ms (p95 13.23) | 19.59 ms (p95 27.12) |
-| qrcode-generator | 10.97 ms (p95 11.64) | 18.55 ms (p95 20.56) | 38.11 ms (p95 42.15) |
+### 5.2 Encode speed — ms per frame (matrix generation only, no PNG/SVG), EC L, byte mode
 
-**node-qrcode is 2.5× faster than @nuintun and 5× faster than qrcode-generator** at every version.
+**Auto mask** (library scores all 8 masks — the default):
 
-Full pipeline (encode **+** ImageData fill), which is what actually matters:
+| Library | v10 (271 B) | v20 (858 B) | v25 (1273 B) | v40 (2953 B) |
+|---|---|---|---|---|
+| **fuqr** \* | **0.035** | **0.129** | **0.181** | **0.436** |
+| **node-qrcode** | 0.718 | 2.247 | 3.456 | 7.054 |
+| qrcodegen (Nayuki) | 1.787 | 5.311 | 7.814 | 18.314 |
+| @nuintun/qrcode | 1.792 | 5.343 | 7.837 | 18.436 |
+| uqr | 1.799 | 5.306 | 7.729 | 18.502 |
+| qrcode-generator | 3.568 | 10.901 | 15.817 | **37.887** |
+
+\* fuqr contains **no mask-scoring code at all** — it always uses a fixed mask (default 2), so its
+"auto" and "pinned" numbers are the same work.
+
+**Pinned mask** (`maskPattern: 2`) — the configuration you actually want:
+
+| Library | v10 | v20 | v25 | v40 |
+|---|---|---|---|---|
+| **fuqr** | **0.038** | **0.148** | **0.202** | **0.498** |
+| **node-qrcode** | 0.093 | 0.400 | 0.562 | **1.531** |
+| qrcodegen (Nayuki) | 0.136 | 0.516 | 0.748 | 2.301 |
+| uqr | 0.150 | 0.568 | 0.792 | 2.501 |
+| qrcode-generator / @nuintun | — no mask API — | | | |
+
+**Alphanumeric mode**, v20 EC L, 1249 chars: fuqr 0.136 ms, node-qrcode 2.246 ms auto / 0.405 pinned,
+qrcodegen 7.126 / 0.525, uqr 7.280 / 0.550, @nuintun 8.516, @paulmillr 9.837 / 0.700,
+qrcode-generator 11.931.
+
+Full pipeline (encode **+** ImageData fill) for node-qrcode, which is what actually matters:
 
 | Version | auto mask | pinned mask | Single-thread capacity | 1000 frames precomputed in |
 |---|---|---|---|---|
@@ -562,15 +597,20 @@ Full pipeline (encode **+** ImageData fill), which is what actually matters:
 ~37 ms/frame) you'd manage ~27 fps single-threaded; at v27 (~18 ms) you'd manage ~55 fps. Move it to
 a Worker with look-ahead and encoder speed disappears as a constraint entirely.
 
-### 5.3 The mask-pattern lever (measured — worth 5×)
+### 5.3 The mask-pattern lever (measured — worth 5–8×)
 
 QR encoding evaluates all **8 mask patterns** and picks the one minimising a penalty score. That
-search is the dominant cost. Pinning the mask (`maskPattern: 0`) skips it:
+search is the dominant cost. Pinning the mask skips it, and the effect is consistent across every
+library that exposes the option:
 
-| Version | auto mask | pinned | **Speedup** |
+| Library | v40 auto | v40 pinned | **Speedup** |
 |---|---|---|---|
-| v27 (1465 B) | 3.63 ms | 0.67 ms | **5.42×** |
-| v40 (2953 B) | 7.34 ms | 1.45 ms | **5.06×** |
+| node-qrcode | 7.054 ms | 1.531 ms | **4.6×** |
+| qrcodegen (Nayuki) | 18.314 ms | 2.301 ms | **8.0×** |
+| uqr | 18.502 ms | 2.501 ms | **7.4×** |
+
+**This is a bigger lever than library choice** for every library except fuqr (which has no mask
+scoring to skip).
 
 **Is pinning safe?** Mask selection exists to avoid patterns that confuse decoders (large same-colour
 blocks, finder-pattern lookalikes). For *random-looking* data — which fountain-coded, chunked file
@@ -588,10 +628,25 @@ That said — **you probably don't need this optimisation.** With Worker-based l
 already free. Keep auto-mask for maximum decode robustness and hold pinning in reserve for
 low-end devices or if you ever need to encode a large backlog synchronously.
 
-### 5.4 Notes per library
+### 5.4 Correctness cross-validation
 
-**node-qrcode — the pick.** The only library that accepts a `Uint8Array` directly, so there is no
-latin1 round-trip and no chance of silent UTF-8 mangling:
+Speed claims are worthless without correctness, so two differential tests were run:
+
+- **Bit-identical matrices.** With the same pinned mask, node-qrcode / Nayuki qrcodegen / uqr / fuqr
+  produce **byte-for-byte identical matrices** across `{v10, v20, v25, v40} × {mask 0, 2, 5, 7}` —
+  **16/16 exact.** fuqr's speed is not from cutting corners; it emits the same symbol.
+- **Capacity table agreement.** Binary-searching the maximum accepted byte payload for all
+  `{v1,5,10,15,20,25,30,35,40} × {L,M,Q,H}` = 36 combinations, node-qrcode, Nayuki and fuqr agreed on
+  **all 36**, and every max-capacity symbol decoded byte-exact. **0 mismatches.** This also
+  independently confirms the capacity tables in §1.
+- **Binary fidelity.** Payloads containing `0x00`, `0x80–0xFF` and the invalid-UTF-8 sequence
+  `C3 28` round-tripped **exact** at v10/v20/v25/v40 full capacity for qrcode, qrcode-generator,
+  qrcodegen, @nuintun, uqr and fuqr.
+
+### 5.5 Notes per library
+
+**node-qrcode — the pick.** Accepts a `Uint8Array` directly via the documented segment API, so there
+is no latin1 round-trip and no chance of silent UTF-8 mangling:
 
 ```js
 import QRCode from 'qrcode/lib/core/qrcode.js';   // core subpath: 8.0 KB gzip, no PNG/SVG renderers
@@ -605,47 +660,102 @@ const data = qr.modules.data;                     // Uint8Array, 1 byte per modu
 const isDark = (x, y) => !!data[y * size + x];
 ```
 
-The `qrcode/lib/core/qrcode.js` subpath import saves 1.6 KB gzip and, more importantly, avoids
-pulling in the PNG/SVG/terminal renderers — which is also what makes it cleanly Worker-safe
-(verified: `lib/core/qrcode.js`, `lib/core/version.js`, `lib/core/utils.js` all import with no DOM).
+> **Trap:** never call `QRCode.create(someString, …)` for binary. It UTF-8-encodes — 16 bytes
+> becomes a 24-byte Byte segment, silently. **Always use the segment array with `mode: 'byte'`.**
 
-**qrcode-generator** — smallest (7.6 KB gzip) and the classic reference implementation, but the
-**slowest by 5×** and byte mode requires `q.addData(buf.toString('latin1'), 'Byte')`. That works
-(verified round-trip exact at v27 full capacity) but it is a footgun: any accidental UTF-8 conversion
-silently corrupts the payload. Matrix access via `isDark(row, col)` — note the **(row, col)** order,
-which is transposed relative to the usual (x, y).
+The `qrcode/lib/core/qrcode.js` subpath import saves 1.6 KB gzip (9,577 → 7,985 B) and avoids
+pulling in the PNG/SVG/terminal renderers. The saving is modest because `segments.js` statically
+pulls in `dijkstrajs` (5.2 KB) for its segment optimiser regardless. Worker safety verified with DOM
+globals booby-trapped.
+
+**fuqr — the fastest thing tested, and a legitimate alternative.** 2.9 KB gzip, zero dependencies,
+**3–8× faster than node-qrcode** (0.50 ms at v40 vs 1.53 ms pinned), flat `Uint8Array` matrix,
+worker-safe. It emits bit-identical symbols to node-qrcode and Nayuki (§5.4). Its `ByteEncoder`
+UTF-8s its input, so you supply your own encoder via the public `Encoder` interface:
+
+```js
+import { generateWithEncoder, Module } from 'fuqr';
+
+class RawByteEncoder {
+  constructor(bytes) { this.bytes = bytes; }              // Uint8Array, no copy
+  bitLen(v) { return 4 + (v < 10 ? 8 : 16) + this.bytes.length * 8; }
+  encode(v, push) {
+    push(0b0100, 4);                                      // mode 4 = byte
+    push(this.bytes.length, v < 10 ? 8 : 16);             // char count indicator
+    for (const b of this.bytes) push(b, 8);
+  }
+}
+const qr = generateWithEncoder(new RawByteEncoder(payload),
+  { minVersion: 27, maxVersion: 27, minEcl: 0, maxEcl: 0, mask: 2 });  // 0=L 1=M 2=Q 3=H
+const n = qr.version * 4 + 17;
+const isDark = (x, y) => (qr.matrix[y * n + x] & Module.ON) !== 0;
+```
+
+Risks: **34 weekly npm downloads** vs node-qrcode's 20.5 M, and **no mask-penalty scoring at all**
+(always a fixed mask). Mitigation: fuqr is a **single MIT file** whose README explicitly sanctions
+`"Or simply copy src/fuqr.ts"` — vendor it and the supply-chain/abandonment risk goes away, with the
+§5.4 differential tests as your regression suite.
+
+**qrcodegen (Nayuki)** — the canonical reference implementation, 4.1 KB gzip, **native `Uint8Array`
+via `QrSegment.makeBytes()`**, clean `getModule(x,y)`. Not on npm officially: compile
+`typescript-javascript/qrcodegen.ts` yourself, or use the third-party republish
+[`nayuki-qr-code-generator`](https://www.npmjs.com/package/nayuki-qr-code-generator) (MIT, default
+export). Pass `boostEcl: false` or it will silently upgrade your EC level. 1.5× slower than
+node-qrcode pinned. Excellent as a *validation oracle*.
+
+**uqr** — small (3.9 KB gz) and supports `maskPattern`, but ~1.6× slower than node-qrcode pinned,
+needs `Array.from(u8)` (a full copy every frame), returns nested `boolean[][]` (pointer chasing in
+the render loop), and offers no way to force alphanumeric mode.
+
+**qrcode-generator** — the classic, 7.6 KB gzip, but **no mask API**, so it is stuck on the slow
+8-mask path: **37.9 ms at v40 exceeds the 30 fps budget on a desktop** before you render anything.
+Byte mode needs `q.addData(buf.toString('latin1'), 'Byte')`. Matrix via `isDark(row, col)` — note the
+**(row, col)** order, transposed from the usual (x, y). **Not viable.**
 
 **@nuintun/qrcode** — modern TypeScript, ships encoder **and** decoder in one package (genuinely
-appealing for qrbeam), MIT, clean `BitMatrix` API. But encoding is **2.5× slower** than node-qrcode
-and byte mode still needs the latin1 string hack. Worth re-evaluating for the decoder side.
+appealing for qrbeam), clean `BitMatrix`, and a documented `encode?: (content, charset) => Uint8Array`
+hook that is a clean escape hatch for raw bytes. But **no mask API**, so it is locked to ~18.4 ms at
+v40, and it had the worst p95/mean spread in the study (24.2 vs 18.4 ms). **Still worth evaluating
+for the decoder side.**
 
-**qr-code-styling** — **wrong tool.** It is a *styling/rendering* wrapper (gradients, dot shapes,
-embedded logos) built on top of qrcode-generator. 14.9 KB gzip, nearly 2× the alternatives, and it
-exposes no public module-matrix API — you'd be reaching into internals. Its whole value proposition
-(pretty branded codes) is actively harmful here: any styling reduces contrast and decode margin.
-**Do not use.**
+**@paulmillr/qr — disqualified.** It cannot represent arbitrary binary. `encodeQR(bytes, …)` throws
+`utf8ToBytes expected string, got object`; with `{encoding:'byte'}` and a latin1 string it runs the
+input back through `utf8ToBytes`, so 16 input bytes decode back as 24 and full-capacity payloads
+overflow. Hard fail on the critical requirement.
 
-**WASM options** — not benchmarked (research budget exhausted); the credible ones are
-`rxing-wasm` (Rust ZXing port, encode + decode) and `zxing-wasm` (zxing-cpp, decode-focused, and
-what [decimen](https://github.com/bashalarmistalt/decimen-optical-transfer/) uses). **For
-*generation*, WASM is unnecessary** — node-qrcode at 0.7–3.6 ms/frame already exceeds the
-requirement by ~100×, and a WASM module adds bundle weight plus an async init step to a static app.
-**WASM is worth serious evaluation on the *decode* side**, where the workload is genuinely heavy
-(full-frame binarization + perspective correction at 30 fps) and where jsQR's 46 KB gzip and pure-JS
-speed may not suffice.
+**qr-code-styling — wrong tool.** A *styling* wrapper (gradients, dot shapes, logos) over
+qrcode-generator. 14.9 KB gzip, **no public module-matrix API** (only `append(el)` / `getRawData()` /
+`update()`), it inherits the slowest encoder in the study, and it **throws `window is not defined` in
+a Worker at construction**. Its value proposition — pretty branded codes — is actively harmful here:
+any styling reduces contrast and decode margin. **Do not use.**
 
-### 5.5 Precomputation and Worker architecture
+**WASM** — evaluated and rejected for generation. `rxing-wasm` ships a **2.3 MB wasm (907 KB
+gzipped)**, takes a JS string with no binary API, and returns a *text bitmap* of `X`/space rather
+than a matrix. Other candidates checked: `qrcode-wasm` (abandoned demo), `@nayuki/qrcodegen` /
+`qr-wasm` / `qrcodegen-ts` (404 on npm). Note that **fuqr is *not* WASM** despite what search results
+suggest — it is hand-optimised pure TypeScript, and it beats what a wasm module would plausibly
+achieve after JS↔wasm boundary costs. **For generation, WASM is unnecessary** — pure JS already
+exceeds the requirement by ~50×. **WASM remains worth serious evaluation on the *decode* side**,
+where the workload is genuinely heavy (full-frame binarization + perspective correction at 30 fps)
+and where jsQR's 46 KB gzip and pure-JS speed may not suffice; `zxing-wasm` (zxing-cpp) is what
+[decimen](https://github.com/bashalarmistalt/decimen-optical-transfer/) uses.
 
-- All four libraries are pure computation and **Worker-safe** for the matrix-generation path.
+### 5.6 Precomputation and Worker architecture
+
+- Every library except qr-code-styling is pure computation and **Worker-safe** for the
+  matrix-generation path (verified with DOM globals booby-trapped).
 - **Recommended:** a Worker that maintains a **look-ahead ring buffer of ~60 encoded frames**,
   posting back `{ frameIndex, size, modules: Uint8Array }` with the `Uint8Array` **transferred**
   (zero-copy) rather than cloned.
 - Do **not** precompute the entire stream: with fountain codes the frame sequence is unbounded
   (you keep emitting until the receiver signals success or the user stops). A bounded ring buffer is
   both sufficient and memory-safe.
-- Reusing allocations across frames is not supported by any of these libraries (each `create()`
-  allocates a fresh matrix), but at 15–61 KB per matrix and with transfer semantics, GC pressure is
-  a non-issue.
+- **No library supports allocation reuse** across frames (none accepts a caller-supplied buffer) and
+  **none supports structured-append** encoding. Allocation pressure is low anyway: ~1.2 KB per encode
+  for node-qrcode at v25, ~0.8 KB for fuqr. With transfer semantics, GC is a non-issue.
+- **Memory, not time, is the reason not to precompute everything.** 1000 v40 matrices at 177×177 =
+  31,329 B each = **31 MB** as `Uint8Array` (250 KB if packed to 1 bit/module). Since a frame encodes
+  in 0.5–3.6 ms, just-in-time generation with a small rolling look-ahead strictly dominates.
 
 ---
 
@@ -778,8 +888,8 @@ A full-screen animated QR at 15 fps plausibly violates this for photosensitive u
 | **QR version — aggressive/opt-in** | **v33** (149×149) | 5.50 px/module at 1080p/80%. Reserve v40 for a "tripod mode" — 4.67 px/module has no margin. |
 | **Frame rate** | **15 fps default** (60 Hz → exactly 4 refreshes/symbol) | Half of a 30 fps camera capture rate, so every symbol gets one clean exposure. Offer 10 fps (6 refreshes) as the reliable fallback and 20 fps (3 refreshes) as aggressive. Never a rate that doesn't divide the refresh rate. |
 | **Protocol redundancy** | **LT fountain codes**, robust soliton, ~1.15× overhead | Rateless and order-independent; dropped frames cost time, not correctness. This is what lets EC level L be correct. |
-| **Generation library** | **`qrcode` (node-qrcode) v1.5.4, MIT**, imported via the `qrcode/lib/core/qrcode.js` subpath | 8.0 KB gzip; the **only** library taking `Uint8Array` natively (no latin1 hack); exposes `modules.data` + `modules.size` directly; DOM-free so it runs in a Worker; and **2.5–5× faster than every alternative** (3.52 ms at v27 vs 8.88 / 18.55 ms). |
-| **Mask pattern** | **Auto (default)**; pin or rotate only if CPU-starved | Auto costs 3.63 ms/frame at v27 — free behind a Worker. Pinning is a measured **5.4× speedup** and is safe for random data (best-mask distribution is uniform; penalty spread only 8.3% median), so it is a real lever in reserve. |
+| **Generation library** | **`qrcode` (node-qrcode) v1.5.4, MIT**, via the `qrcode/lib/core/qrcode.js` subpath, **with `maskPattern` pinned** | 8.0 KB gzip; native documented `Uint8Array` byte-mode segments (no latin1 hack, no UTF-8 trap); flat `Uint8Array` matrix; DOM-free so it runs in a Worker; 20.5 M weekly downloads. At 1.53 ms for a pinned v40 it leaves **93% of a 30 fps budget free**. |
+| **Mask pattern** | **Pin it** (`maskPattern: 2`) | Measured **4.6–8× speedup** across every library that exposes it — a bigger lever than library choice. Safe for our data: best-mask distribution across 60 random payloads is uniform (`8,9,7,13,7,4,3,9`) and the penalty spread is only 8.3% median, and all masks round-tripped 16/16. A pinned mask also keeps the visual texture stable frame-to-frame instead of flickering as the optimiser jumps between masks. |
 | **Rendering** | **`ImageData` at 1 px/module → `putImageData` → `drawImage` upscale with `imageSmoothingEnabled = false`, integer device-pixel scale** | O(modules) JS, O(1) draw calls, GPU upscale. Never SVG; never per-module `fillRect` at these versions. |
 | **Encoding placement** | **Web Worker with a look-ahead ring buffer (~60 frames)** | Fully decouples frame rate from encoder speed; the rAF loop does nothing but blit. |
 
@@ -820,6 +930,30 @@ minimum safe design.
 - **SVG rendering** — thousands of DOM nodes per frame.
 - **`setInterval` frame advancement** — clamped, drifts, throttled in background tabs.
 - **Full-bleed edge-to-edge QR** — worse for WCAG 2.3.1 and worse for camera framing.
+- **`@paulmillr/qr`** — cannot represent arbitrary binary at all (UTF-8 only). Hard fail.
+- **`qr-code-styling`** — no matrix API, throws `window is not defined` in a Worker, 14.9 KB, wraps
+  the slowest encoder tested.
+- **`qrcode-generator`** — no mask API, so 37.9 ms at v40 blows the 30 fps budget on a *desktop*.
+- **`rxing-wasm`** — 907 KB gzipped, string-only input, returns a text bitmap not a matrix.
+
+### The close call: fuqr
+
+**[fuqr](https://www.npmjs.com/package/fuqr) is genuinely faster and smaller** — 2.9 KB gzip and
+0.50 ms at v40, vs node-qrcode's 9.6 KB and 1.53 ms. It emits **bit-identical symbols** to
+node-qrcode and Nayuki across 16 version×mask combinations, agrees on all 36 capacity combinations,
+is worker-safe, and hands back a flat `Uint8Array`. It is a serious candidate and I want to record
+that clearly rather than bury it.
+
+**I still pick node-qrcode, because the thing fuqr optimises is not our bottleneck.** Behind a Worker
+with look-ahead, encoder cost is already free — 1.53 ms of a 33 ms budget. Trading 20.5 M weekly
+downloads for 34 to reclaim 1 ms we do not need, plus 6.7 KB against a 46 KB decoder, is not a good
+trade. fuqr also requires a hand-written `Encoder` subclass to avoid its `ByteEncoder` UTF-8 trap,
+which is exactly the class of subtle bug that corrupts a file transfer silently.
+
+**Switch to fuqr if** profiling on real low-end mobile shows encode cost actually matters, or if
+bundle size becomes tight. It is a single MIT file its README invites you to vendor, and the §5.4
+differential tests give you a ready-made regression suite for the swap. Keep node-qrcode in the test
+suite as the validation oracle either way.
 
 ### Open questions to resolve in implementation
 

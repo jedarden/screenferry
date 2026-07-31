@@ -10,6 +10,12 @@ marked *"check before shipping"* moves fast.
 **Reading note:** Every "does X work on iOS?" answer in this document is deliberately pessimistic
 until proven otherwise. iOS is the constraint that shapes the whole architecture.
 
+> ⚠️ **Name collision, flagged early because it is cheap to fix now and expensive later:** a project
+> called **QRBeam** already exists — [DzKriMo/QRBeam](https://github.com/DzKriMo/QRBeam) —
+> browser-based animated-QR file transfer, 2–30 fps selectable (default 10), 300/500/750 B frames,
+> ECC M. Same concept, same name, same delivery model. Worth a deliberate decision to rename or
+> differentiate before any public artefact ships.
+
 ---
 
 ## 0. Executive summary of platform blockers
@@ -646,39 +652,72 @@ install flow. It is the true air-gap artefact.
   `file:///` URL scheme, or a page loaded from localhost"*
   ([MDN: getUserMedia](https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getUserMedia),
   [MDN: Secure Contexts](https://developer.mozilla.org/en-US/docs/Web/Security/Defenses/Secure_Contexts)).
-  So `navigator.mediaDevices` is exposed and `getUserMedia` is spec-permitted from a local file.
-  A May 2025 W3C WebRTC thread questioning `getDisplayMedia()` from `file://` explicitly frames
-  the spec as *currently permitting* it
+  A May 2025 W3C WebRTC thread questioning `getDisplayMedia()` from `file://` frames the spec as
+  *currently permitting* it
   ([public-webrtc archive](https://lists.w3.org/Archives/Public/public-webrtc/2025May/0002.html)) —
-  which is corroboration that the file:// secure-context path is real, and also a warning that
-  it is under scrutiny. **Verify empirically on each target browser before promising it.**
+  corroboration that the path is real, and a warning that it is under scrutiny.
+
+  **Verified empirically** (Chrome for Testing 151.0.7922.34, Linux, page loaded from a
+  `file:///…/probe.html`):
+
+  ```json
+  { "isSecureContext": true, "origin": "file://",
+    "hasMediaDevices": true, "hasGUM": true,
+    "hasShowOpenFilePicker": true, "hasShowSaveFilePicker": true,
+    "hasStorageGetDirectory": true, "hasWakeLock": true,
+    "hasRVFC": true, "hasBarcodeDetector": false }
+  ```
+
+  So on Chromium the camera path, the file pickers, OPFS, wake lock and
+  `requestVideoFrameCallback` all survive the `file://` transition. **Re-run this probe on Safari
+  and Firefox before promising the single-file build works there.**
 
 **What breaks:**
 
-- **Service workers cannot be registered from `file://`.** Not a loss — a single file has nothing
-  to cache — but it does mean *no Web Share Target*, and no offline-readiness indicator.
-- **Web Workers.** A classic `new Worker('./decode.js')` needs a separate file. The workaround is
-  a **Blob URL worker**: inline the worker source as a string, `new Worker(URL.createObjectURL(
-  new Blob([src], {type:'text/javascript'})))`. This works, but note that `type: 'module'`
-  workers from blob URLs have historically had inconsistent support, and **importScripts from a
-  blob worker resolves relative URLs against the blob origin**, which breaks. Bundle the worker
-  to a single self-contained classic-script string.
-- **WASM.** `WebAssembly.instantiateStreaming(fetch('x.wasm'))` cannot fetch a sibling file over
-  `file://` (blocked by the file-origin policy in Chrome unless launched with
-  `--allow-file-access-from-files`). Workaround: **base64-embed the `.wasm` and use
-  `WebAssembly.instantiate(bytes)`**. Cost: ~33% size inflation and a synchronous decode.
-  `vite-plugin-wasm` exists but note Vite's docs state the *ES Module Integration Proposal for
-  WebAssembly is not supported* natively — community plugins are required
+- **Service workers cannot be registered from `file://`** — **verified empirically**, same run:
+  `navigator.serviceWorker.register('./sw.js')` rejects with
+  `TypeError: Failed to register a ServiceWorker: The URL protocol of the current origin ('null')
+  is not supported.` Not a real loss (a single file has nothing to precache) but it does mean
+  *no Web Share Target* and no offline-readiness indicator in this build.
+- The `file://` origin is **opaque (`'null'`)**. Beyond service workers, that means no
+  `localStorage`, no IndexedDB in some configurations, and OPFS behaviour that should not be
+  relied on. **The single-file build must keep all state in memory** and must not assume any
+  persistence between page loads.
+**Empirically measured behaviour of a `file://` page** (Chrome for Testing 151, Linux). I tested
+these rather than trusting folklore, and several common claims turned out to be wrong:
+
+| Capability from `file://` | Result |
+|---|---|
+| Inline `<script>` (classic) | ✅ runs |
+| **Inline `<script type="module">`** | ✅ **runs** (the "modules are blocked on file://" claim applies to *external* module files, not inline ones) |
+| `localStorage` | ✅ works |
+| `IndexedDB` | ✅ works |
+| **OPFS** (`navigator.storage.getDirectory()`) | ❌ **`SecurityError`** |
+| **Classic blob-URL `Worker`** | ✅ **works** (`new Worker(URL.createObjectURL(new Blob([src],{type:'text/javascript'})))`) |
+| **`{type:'module'}` blob-URL Worker** | ❌ **fails** |
+| Dynamic `import()` of a blob URL | ✅ works |
+| `fetch('./sibling.wasm')` | ❌ `TypeError: Failed to fetch` — *"URL scheme \"file\" is not supported"* |
+| `fetch('data:application/wasm;base64,…')` | ✅ works |
+| `WebAssembly.instantiate(bytes)` from inlined bytes | ✅ works |
+
+So, concretely:
+
+- **Workers are fine** — but they must be **classic** blob-URL workers, not module workers.
+  Bundle the worker to one self-contained classic-script string.
+- **WASM is fine** — just not via `instantiateStreaming(fetch('x.wasm'))`, which cannot read a
+  sibling file. Two working routes, both verified: base64-embed the module and either
+  `WebAssembly.instantiate(bytes)` directly, or `instantiateStreaming(fetch(dataUrl))`. Cost is
+  ~33% size inflation from base64. `vite-plugin-wasm` exists, though Vite's docs note the *ES
+  Module Integration Proposal for WebAssembly is not supported* natively
   ([vite-plugin-wasm](https://www.npmjs.com/package/vite-plugin-wasm)).
-  **Strong recommendation: for the single-file build, use a pure-JS QR encoder and decoder and
-  ship no WASM at all.** The decode work is the only thing that would want WASM, and a pure-JS
-  decoder at 10 fps on a modern phone is adequate (see §7).
-- **CORS / module scripts.** `<script type="module">` from `file://` is blocked in Chrome by the
-  file-origin rules. The single-file build must emit a **classic script** (`<script>` with no
-  `type=module`), i.e. an IIFE bundle. `vite-plugin-singlefile` handles this by inlining, but
-  verify the output has no `type="module"` and no dynamic `import()`.
-- **`navigator.share` / `canShare`** from `file://`: secure context is satisfied, but expect
-  platform quirks. Keep `<a download>` as the save path in the single-file build.
+  Given ~1 MB of zxing-wasm base64-inflated to ~1.4 MB, this is acceptable for a one-time
+  download — but **a pure-JS decoder is still the safer single-file choice** if size or
+  compatibility matters more than decode headroom.
+- **OPFS is unavailable**, so the single-file build cannot use the staging-buffer architecture
+  from §2.4. It must hold the received file in memory and save via `<a download>`. Another reason
+  to cap the single-file build's max payload lower than the hosted PWA's.
+- **`navigator.share`/`canShare`** are absent on desktop Linux Chromium entirely (verified), so
+  `<a download>` must be the single-file build's save path regardless.
 - Static assets in `public/` are *not* inlined by `vite-plugin-singlefile` — everything must go
   through the bundler as an import.
 
@@ -769,9 +808,19 @@ if Chromium ships it.**
 3. **Consider inverting deliberately.** Some cameras handle a light-on-dark QR poorly; standard
    dark-on-light is the safe default and what every decoder is tuned for. Offer an invert toggle
    only as a troubleshooting option.
-4. **Avoid OLED aggressive dimming**: sustained full-white on OLED phones triggers automatic
-   brightness roll-off after a minute or two. A QR is roughly 50 % black by area which helps, but
-   don't add a large solid-white border beyond the required quiet zone on OLED.
+4. **⚠️ On OLED senders, a mostly-white page actively works against you.** The Automatic Brightness
+   Limiter scales peak luminance down as average picture level rises:
+   [TFTCentral](https://tftcentral.co.uk/articles/oled-dimming-confusion-apl-abl-asbl-tpc-and-gsr-explained)
+   measures an LG 42C2 at **717 nits at 1% APL falling to 152 nits at 100% APL**, and notes
+   *"there is no way to disable ABL."* So the "flood the screen with white" instinct can cost you
+   **~4× peak brightness** on an OLED phone. A QR is ~50% dark by area, which is roughly the worst
+   case for this tradeoff. **Keep the white surround to the required quiet zone plus a small
+   margin — do not add a large white border on OLED.** (This is an inference from panel-level ABL
+   measurements; I found no direct measurement of ABL against animated QR. Worth measuring.)
+   Related: [DXOMARK](https://www.dxomark.com/flicker-the-display-affliction/) measures OLED PWM
+   dimming at ~50–500 Hz (Galaxy S20 Ultra 241 Hz, OnePlus 8 Pro 481 Hz) versus ≥1000 Hz for LCD,
+   with duty cycles as low as 10% at minimum brightness — **a dim OLED sender is doubly bad**,
+   because PWM flicker widens the effective tearing window discussed in §4.5.
 
 ### 4.3 Fullscreen API — iPhone cannot do it
 
@@ -835,10 +884,26 @@ low-contrast grey-on-grey, which is worse than a clean inversion).
   Invert handling of web pages is reported to be inconsistent
   ([AppleVis](https://www.applevis.com/forum/low-vision-accessibility-apple-products/smart-invert-colors-feature-10134)).
   Classic Invert will invert us regardless.
-  **Mitigation that actually works: make the decoder inversion-tolerant.** ZXing-family decoders
-  can be run against both the frame and its inverse; doing so costs one extra pass and makes the
-  whole class of problem disappear. Also add a manual "colours look wrong?" invert toggle on the
-  sender.
+
+  **⚠️ The obvious mitigation — "just run the decoder against both polarities" — costs about half
+  your throughput, so do not enable it by default.** [jsQR's README](https://github.com/cozmo/jsQR)
+  states `inversionAttempts` *"defaults to `attemptBoth` for backwards compatibility but **causes a
+  ~50% performance hit**"*; [ZXing-C++](https://github.com/zxing-cpp/zxing-cpp/blob/master/core/src/ReaderOptions.h)
+  likewise defaults `tryInvert`, `tryHarder`, `tryRotate`, `tryDownscale` all to true, and all are
+  costly. qr-stream already exploits this asymmetry: `'attemptBoth'` only for camera input,
+  `'dontInvert'` when it controls the source, for a *"~50% speedup"*.
+
+  Field evidence that inverted codes genuinely fail, from Foundation's own forum: *"unable to scan
+  in dark mode, but it worked instantly in light mode"*
+  ([community.foundation.xyz](https://community.foundation.xyz/t/qr-code-scanning-issues/1001)).
+
+  **Correct policy: render dark-on-light, always; decode with `inversionAttempts: 'dontInvert'`
+  and `tryInvert`/`tryRotate` disabled** — that is free throughput. Then handle the OS-inversion
+  case as an *escape hatch*, not a default: detect a sustained stretch of zero decodes and offer a
+  "colours look wrong?" toggle that flips the sender's rendering and/or enables dual-polarity
+  decoding on the receiver, accepting the throughput cost only when it is actually needed.
+  (ISO/IEC 18004 does permit *"reflectance reversal (light symbols on dark backgrounds)"*, so
+  inverted codes are legal — just slower and less reliable in practice.)
 - Also worth suppressing: `filter`/`backdrop-filter` inherited from a theme, CSS transitions on
   the QR element (a fading cross-dissolve between frames is fatal — see below), and any
   `image-rendering` smoothing. Set `image-rendering: pixelated` on the canvas so module edges
@@ -860,6 +925,23 @@ Caveats:
 - All browsers throttle background tabs to ~1 Hz or pause them, so measurement is meaningless if
   the tab is not visible — and, more importantly, **a backgrounded sender stops transmitting**.
   Detect `visibilitychange` and pause/warn.
+
+**The frame-rate ceiling has a name and a number: `display_fps ≤ camera_capture_fps / 2`.**
+LightSync (MobiCom 2013) derived it from the rolling-shutter mixing problem — a camera runs at
+*"15–30 fps in practice, variable"*, received frames are a mixture of *"Single frame / 2-frame mix
+/ 3-frame mix / 4-frame mixes"*, and for a conventional whole-frame-or-nothing system throughput
+*"peaks at ~half the camera rate, drops to 0 at higher display rates"*; of display rates 2C, C and
+C/2, *"**C/2 — The only decodable**"*
+([authors' slides](https://slidetodoc.com/light-sync-unsynchronized-visual-communication-over-screencamera-links/);
+⚠️ the [ACM paper](https://dl.acm.org/doi/abs/10.1145/2500423.2500437) is paywalled — verify before
+relying on the exact wording). So a 30 fps camera caps you at **15 fps display**. This independently
+explains divan's measured 6–7 fps optimum and decimen's "≥2 refresh cycles per frame" rule, and it
+matches my own tearing measurement in the box above.
+
+**Corollary — never set the receiver's sample period equal to the sender's display period.**
+Sparrow ships `QR_SAMPLE_PERIOD_MILLIS = 200` against a 200 ms display period: two unsynchronised
+5 Hz clocks, which guarantees a beat frequency and periodic misses. Sample as fast as the camera
+delivers (`requestVideoFrameCallback`) and let the fountain absorb the duplicates.
 
 **Sync.** The rule that matters: **drive frame flips from `requestAnimationFrame`, never from
 `setInterval`/`setTimeout`.** `setInterval(fn, 100)` on a 60 Hz display produces a 6-frame /
@@ -887,19 +969,461 @@ integer number of vsyncs is displayed for a *constant* duration, which maximises
 chance of catching a whole, stable frame. Given a measured refresh `R`, pick
 `hold = round(R / targetFps)` and show each QR for exactly `hold` vsyncs.
 
-Two more display-side rules:
-- **No transitions, no cross-fades, no CSS animation on the QR element.** Draw the new frame in
-  one synchronous `putImageData`/`drawImage` inside the rAF callback.
-- **Consider inserting a short blank/marker frame** between data frames if tearing proves to be a
-  problem. It costs throughput but eliminates half-and-half captures. Measure before adopting.
+#### Measured: what a torn frame actually costs
+
+I simulated rolling-shutter tearing directly — composite the top *f* % of QR frame A with the
+bottom (100−*f*) % of frame B, as happens when the sender flips mid-camera-scan — and decoded the
+result (two v20 codes, 4 px/module, jsQR):
+
+| tear position | decodes as |
+|---|---|
+| 0% / 10% | FRAME-B |
+| **25%** | **no decode** |
+| **50%** | **no decode** |
+| **75%** | **no decode** |
+| 90% / 100% | FRAME-A |
+
+Two conclusions:
+
+1. **A torn frame is lost, not corrupted.** Across the whole middle band the decode simply fails —
+   QR's format/ECC checks reject the hybrid rather than emitting wrong bytes. That is the safe
+   failure mode, and it means tearing costs throughput but never integrity. (Still checksum each
+   frame's payload: this is a guarantee about *QR*, not about a hostile sender.)
+2. **Tearing is expensive.** Only a tear within ~10% of the top or bottom edge leaves a decodable
+   code; roughly **80% of tear positions destroy the frame.**
+
+This suggests an explanation for the ~20% frame loss that divan measured and that every project
+since has budgeted for: the loss is plausibly dominated by **rolling-shutter tearing, not decode
+difficulty**. If the camera's sensor readout takes `T_read` and each QR is displayed for
+`T_frame`, the fraction of captures that straddle a flip is roughly `T_read / T_frame`. With a
+typical 10–30 ms readout: at 10 fps (100 ms/frame) that's **10–30% torn**, at 30 fps (33 ms/frame)
+it approaches **30–90% torn**. That is very likely the real reason high display rates stop paying
+off — and it is a *geometric* effect, not a decoder-speed one, so a faster decoder cannot rescue it.
+
+Practical consequences:
+
+- **Displaying each frame for longer is worth more than it looks**, because tear loss falls
+  roughly linearly with frame duration. This argues for the conservative end of the fps range
+  unless you are measuring otherwise.
+- **No transitions, no cross-fades, no CSS animation on the QR element.** Draw each new frame in
+  one synchronous `drawImage`/`putImageData` inside the rAF callback — a dissolve turns *every*
+  captured frame into a torn one.
+- A short blank/marker frame between data frames would eliminate half-and-half captures at a
+  direct throughput cost. Given the above, this is worth *measuring* on real hardware rather than
+  assuming either way.
+- **Make this a test case** (§7.9, Tier 2): tearing is easy to simulate and easy to forget.
 
 ---
 
 ## 5. UX patterns for animated-QR transfer
 
-*(Section populated from dedicated prior-art research; see subsections.)*
+Findings below come from reading shipped source and spec text, not READMEs, wherever a file is
+cited.
 
-<!--SECTION5-->
+**Terminology correction:** BC-UR's fountain mode is **rateless**, not "rate-limited" —
+`grep` over the whole [BlockchainCommons/Research](https://github.com/BlockchainCommons/Research)
+repo returns zero hits for "rate limited". Separately, `crypto-request`
+([bcr-2021-001](https://github.com/BlockchainCommons/Research/blob/master/papers/bcr-2021-001-request.md))
+is a UR *payload type* for asking a device for data — not an encoding mode, and unrelated to
+fountain codes.
+
+### 5.1 Five findings that should shape qrbeam's UX
+
+1. **The entire hardware-wallet ecosystem runs animated QR at 3–5 fps** — Keystone 3 at 200 ms,
+   Sparrow at 200 ms, the BBQr spec recommending 250 ms, Envoy at 3 fps. Browser projects doing
+   the same physics run 24–30 fps. Wallets are 30–60× slower than the channel allows because they
+   optimise for a 240 px embedded screen and guaranteed reliability. **Do not anchor on wallet
+   frame rates.**
+2. **The "stuck at 99%" bug is in the reference implementation**, and every wallet that shows a
+   percentage inherits it (§5.5).
+3. **There are two distinct progress bugs with opposite shapes** — a clamped fudge factor, and a
+   back-loaded solve cascade. Both are fixed by the same rule: count **frames collected**, not
+   blocks solved.
+4. **Senders show nothing.** Sparrow, Keystone and Passport display a bare looping QR with no
+   progress, no frame counter, no loop count. Confirmed by reading the source. "Loop 3 of ∞" does
+   not exist anywhere.
+5. **The chunk-index grid is shipped** in Coldcard Q's firmware and in qifi/qrs, and Blockchain
+   Commons' URDemo has the best fountain-aware variant.
+
+### 5.2 What the sender actually shows (parameters read from source)
+
+| Implementation | Frame interval | Fragment size | QR / ECC |
+|---|---|---|---|
+| **Keystone 3** | `TIMER_UPDATE_INTERVAL 200` → **5 fps** | `FRAGMENT_MAX_LENGTH_DEFAULT = 200` B | 294 px / 420 px fullscreen on 480×800 ([gui_animating_qrcode.h](https://github.com/KeystoneHQ/keystone3-firmware/blob/master/src/ui/gui_components/gui_animating_qrcode.h)) |
+| **Sparrow** | `ANIMATION_PERIOD_MILLIS = 200d` → **5 fps** | UR 400 (Normal) / 80 (Low); BBQr 2000 / 1000 | ZXing default L, `MARGIN=2` ([QRDisplayDialog.java](https://github.com/sparrowwallet/sparrow/blob/master/src/main/java/com/sparrowwallet/sparrow/control/QRDisplayDialog.java)) |
+| **BBQr spec (Coinkite)** | *"250ms frame rate is recommended"* → **4 fps** | v27 = 1062 B, v40 = 2144 B | *"we recommend always using level 'L'… we are not printing these codes, and only showing them on a perfect LCD screen"* ([bbqr.org](https://bbqr.org/BBQr.html)) |
+| **Foundation Envoy** | `refreshRate = 3` / `5` | `maxFragmentLength = 100` | — |
+| **SeedSigner** | camera `framerate: 6`, 480×480 | UR density Low/Med/High = **10 / 30 / 120** B | — |
+| **URKit / URUI (BC reference)** | `defaultInterval = 1.0/10` → **10 fps**, user-adjustable 1–20 | 100–700 B in demos | — |
+
+I read Sparrow's `QRDisplayDialog` construction directly: an `ImageView` in a bordered `StackPane`
+plus buttons (`Close`, `Scan QR`, `Change Density`, `Use Legacy Encoding`, `Show BBQr`). **No frame
+counter, no progress, no loop count.** Keystone 3 simply `lv_qrcode_update()`s on a 200 ms timer.
+
+What senders *do* offer instead of progress is **live tuning**:
+
+- **Sparrow: scroll wheel over the QR changes speed** — `deltaY > 0` → `duration × 1.1`, else
+  `× 0.9`, clamped 100–2000 ms (2.5–10 fps). Live, and completely undiscoverable.
+- **Passport: d-pad** — up/down = screen brightness, left/right = QR density
+  ([docs.foundation.xyz](https://docs.foundation.xyz/troubleshooting/passport/)).
+- **Keystone: a size slider** — *"Please readjust the QR code size with the slide bar below the QR
+  code if you are experiencing any difficulties scanning"* plus a tappable "Difficulty scanning?"
+  link, and tap-for-fullscreen.
+- **URDemo: explicit faster/slower buttons**, `min(fps+1, 20)` / `max(fps-1, 1.0)`.
+
+The one sender anywhere that shows `i/N` is
+[airgapped-qr-code-transfer](https://github.com/mohankumarelec/airgapped-qr-code-transfer)
+(*"Transfering Chunk {i}/{total_chunks}"*) — and it can only do that because it is a plain
+sequential loop with **no fountain**.
+
+### 5.3 What the receiver shows — five patterns, in increasing order of quality
+
+**(1) Bare percentage — Foundation Passport.**
+[scan_qr_page.py](https://github.com/Foundation-Devices/passport2/blob/main/ports/stm32/boards/Passport/modules/pages/scan_qr_page.py):
+`label = 'Scanning...' if p == 0 else '{}%'.format(p)`. Docs frame the intended reading: *"As long
+as you see the % progress slowly increasing… this means Passport is scanning and processing."*
+
+**(2) Bare percentage — MetaMask Mobile.** `"Scanning… NN%"` over a viewfinder frame, via
+`Math.ceil(urDecoder.getProgress() * 100)`.
+
+**(3) Bare fill bar, no number — Sparrow.** `ProgressBar` bound to `percentComplete`. The
+user-facing instruction lives in Blockstream's docs: *"The progress bar will fill up as you
+successfully scan new frames… **If the progress bar is not updating, change Jade's angle or
+distance** from the QR until you find the optimal placement"*
+([help.blockstream.com](https://help.blockstream.com/hc/en-us/articles/11855365467033-Use-Jade-QR-Scan-with-Sparrow)).
+
+**(4) ★ Per-part index grid — Coldcard Q.** From
+[`lcd_display.py draw_bbqr_progress()`](https://github.com/Coldcard/firmware/blob/master/shared/lcd_display.py):
+
+```python
+for i in range(hdr.num_parts):
+    if i in got_parts:               pat.append(str(i+1))    # got it
+    elif corrupt and i == hdr.which: pat.append('X'*wl)      # seen but corrupt
+    else:                            pat.append('-'*wl)      # not yet received
+self.text(None, -2, 'Keep scanning more...' if count < hdr.num_parts else 'Got all parts!')
+self.text(None, -1, '%s: %d of %d parts' % (hdr.file_label(), count, hdr.num_parts), dark=True)
+self.progress_bar(count / hdr.num_parts)
+```
+
+The screen literally reads `1  2  -  4  X  6` above *"Keep scanning more…"* above *"PSBT: 4 of 6
+parts"* above a fill bar. Three states per chunk (**got / missing / corrupt**). Honest exact counts
+are possible only because BBQr is **fixed-rate**.
+
+**(5) ★ Fountain-aware fragment bar — Blockchain Commons URDemo.** The best design for a rateless
+stream, and directly applicable to qrbeam. Three states (`.off`, `.on`, `.highlighted`) in
+[URFragmentBar.swift](https://github.com/BlockchainCommons/URUI/blob/master/Sources/URUI/URFragmentBar.swift):
+
+```swift
+// receiver — URScanState.swift
+if urDecoder.receivedFragmentIndexes.contains(i) { return .highlighted }
+else { return urDecoder.lastFragmentIndexes.contains(i) ? .on : .off }
+
+// sender — URDisplayState.swift: the SAME bar shows which fragments are XOR'd into the current frame
+fragmentStates = (0 ..< seqLen).map { encoder.lastFragmentIndexes.contains($0) ? .on : .off }
+```
+
+The [URDemo README](https://github.com/BlockchainCommons/URDemo) describes the effect:
+
+> **Sending screen.** A LifeHash displays a hash of the message being sent for easy recognition on
+> the receiving side. **The blue bar beneath the animated QR code shows the segments mixed into the
+> currently displayed part.**
+>
+> **Receiving screen.** … **The blue bar beneath the viewfinder lights up in white to signify the
+> complete parts received so far, and also shows in light blue the fragments mixed in to the last
+> received part.**
+>
+> **Proper distance and framing.** … **you should try to make the sending QR code fill as much of
+> the viewfinder as possible.**
+
+It also shows a **LifeHash on both devices** that the user compares by eye — a zero-bandwidth
+integrity check across an air gap, and a genuinely clever pattern.
+
+**(6) ★ Per-frame green/grey dot — SeedSigner.** From
+[scan_screens.py](https://github.com/SeedSigner/seedsigner/blob/dev/src/seedsigner/gui/screens/scan_screens.py):
+`FRAME__ADDED_PART` → green, `FRAME__REPEATED_PART` → grey, `FRAME__MISS` → no dot. A 10 px dot
+drawn per captured frame. **This is the single best *aiming* primitive found** — it responds
+instantly, unlike a percentage, so the user can hunt for the right distance in real time.
+
+### 5.4 Why ratelessness changes the UX (spec text)
+
+The definitive no-back-channel statement,
+[bcr-2020-005-ur.md](https://github.com/BlockchainCommons/Research/blob/master/papers/bcr-2020-005-ur.md):
+
+> But this approach has a serious drawback: **as the sender does not know which parts the receiver
+> has successfully read and which it still needs**, if any of the codes in the series is missed by
+> the receiver, the entire sequence will need to be repeated.
+
+And [bcr-2024-001-multipart-ur.md](https://github.com/BlockchainCommons/Research/blob/master/papers/bcr-2024-001-multipart-ur.md)
+on stalling:
+
+> **When a code is missed, the receiver must wait for the entire sequence to cycle through before
+> getting another chance…** In a rateless system, each code is somewhat independent… **any
+> sufficiently large set of codes can be used to reconstruct the entire message**… **This property
+> significantly reduces the likelihood of stalling.**
+>
+> *Fountain codes* are … named by analogy to a water fountain: the flow is continuous and
+> effectively never-ending, but you only need to take a relatively tiny amount to get a drink.
+
+UX consequences:
+
+- **The receiver joins mid-stream.** No handshake, no "press start together."
+- **No retransmit request is needed.** ~K·(1+ε) distinct frames in any order. Observed ε in the
+  wild: **1.15** and **1.18** (decimen), **1.75** (BC-UR's fudge factor — not a real ε), **20%**
+  (RaptorQR repair rate, and txqr's assumed loss).
+- **Sender and receiver frame rates need not match** — no negotiation, no clock sync.
+- **You lose "N".** You cannot honestly say "frame 3 of 17" because there is no 17. Every fountain
+  sender substitutes *stream parameters* for progress.
+
+Two structural details worth stealing: MUR is a **hybrid** — parts `1..seqLen` are fixed-rate plain
+fragments, `seqLen+1..∞` are rateless XOR mixes, so a clean channel gets the optimal fast path
+*and* a lossy one degrades gracefully. And MUR does **not** use a robust soliton distribution; its
+`DegreeChooser` uses a **harmonic series** `(1/1, 1/2, … 1/seqLen)` because *"it biases the
+selection towards lower degrees, which is crucial because degree-1 parts are essential in decoding
+higher-degree mixed parts."*
+
+AirGap's changelog has the clearest consumer-facing statement of the benefit
+([v3.8.0](https://support.airgap.it/CHANGELOG-VAULT/)): *"if a single QR code is missed during
+scanning, it can be recovered by scanning a couple additional QRs, instead of waiting for the
+missed QR to appear again."*
+
+### 5.5 The two progress bugs — with source
+
+**Bug 1: BC-UR's hard-coded 99% ceiling.** From
+[ngraveio/bc-ur `FountainDecoder.ts`](https://github.com/ngraveio/bc-ur/blob/main/src/classes/FountainDecoder.ts):
+
+```ts
+// We multiply the expectedPartCount by `1.75` as a way to compensate for the fact
+// that `this.processedPartsCount` also tracks the duplicate parts that have been processed.
+return Math.min(0.99, this.processedPartsCount / (expectedPartCount * 1.75));
+```
+
+It **cannot** reach 100% until `done` flips — the root of SeedSigner's *"stuck-at-99%-progress
+misery"*. Note there are two functions with different semantics: `estimatedPercentComplete()`
+(above) and `getProgress()` = `simpleBlocks.length / expectedPartCount`, which counts only degree-1
+parts and undershoots badly. MetaMask uses the latter, Sparrow the former.
+
+SeedSigner's fix ([fountain_decoder.py](https://github.com/SeedSigner/seedsigner/blob/dev/src/seedsigner/helpers/ur2/fountain_decoder.py))
+gives partial credit for indices inside mixed frames, weighted by mix degree — with a warning
+worth heeding:
+
+```python
+mixed_score += min(score, 0.75)   # don't let an index in a mixed/XOR frame achieve equal
+                                  # weight as a fully decoded frame. Also if the ceiling is
+                                  # too high, can potentially see your reported progress
+                                  # percentage DECREASE during a decode.
+```
+
+**A naive partial-credit scheme can make the bar go backwards.**
+
+**Bug 2: LT's back-loaded solve.** decimen: *"LT peeling back-loads its solve cascade, so
+blocks-solved looks stalled and then teleports to done."* Its fix is
+`min(0.99, framesNew / (k * 1.18))`. qrs independently applies a `* 0.66` damping factor. Both
+converge on: **count frames in, not blocks out.**
+
+**What these bugs cost in the field.** Casa's 2024 hardware-signing report
+([blog.casa.io](https://blog.casa.io/bitcoin-multisig-hardware-signing-performance-2024/)):
+
+> *"Scanning large PSBTs with SeedSigner was **excruciating**. For a 100 input 2-of-3 PSBT it would
+> **get to 99% after 8 minutes and then hang**, likely because it had missed a few frames. **It took
+> a total of 14 minutes**… And on the extreme end, **it took me 48 minutes to scan the 100 input
+> 3-of-5 PSBT data**."*
+
+That is a fixed-rate stall compounded by a dishonest progress bar — both avoidable, and a precise
+description of the failure qrbeam must not reproduce. SeedSigner's v0.8.0 fix was shipped as
+*"Much better animated QR scanning progress estimation calcs: **no more stuck-at-99%-progress
+misery!**"*
+
+### 5.6 Closing the loop — does anyone use a reverse channel?
+
+Yes, three distinct designs, and the answer for qrbeam is "probably not, but know why".
+
+**(1) Sequential handoff (ubiquitous, but not feedback).** Every PSBT round trip is bidirectional
+in that each device shows QRs to the other, but each leg is an independent one-shot transfer with
+no ACK inside it. **This does not help** — it is two one-way transfers, not flow control.
+
+**(2) ★ True per-chunk ACK duplex — [LucaIaco/QRFileTransfer](https://github.com/LucaIaco/QRFileTransfer).**
+Both devices run a camera *and* a display simultaneously:
+
+> The first QR image displayed by the Sender is providing the meta info… **The Receiver replies
+> displaying a QR image to notify the Sender to start**… **For each QR Image recognized by the
+> Receiver's camera… it will "reply" to the Sender by displaying another QR image with the hash
+> (SHA-256) of the decoded file chunk.** The Sender will detect the hash… and proceed with the next
+> chunk. If not, it will display a new QR image… carrying over again the pending chunk.
+
+This is textbook **stop-and-wait ARQ over light** — the slowest possible design, since every chunk
+costs a full round trip through two camera pipelines. Its preconditions require both devices fixed
+and facing each other. **This is why fountain coding won.**
+
+**(3) ★ Selective-repeat via visual ACK — Ping Identity patents.**
+[US10509932B2](https://patents.google.com/patent/US10509932B2/en) (filed 2017-10-14; continued as
+US11062106, US11544487), *"Large data transfer using visual codes with feedback confirmation"*.
+The receiver displays a feedback code whose payload is a **bitmap of received blocks** — *"Each bit
+in the second portion corresponds to a different display block… in the group"* — and the sender
+*"may remove those visual codes from the series"* and terminate automatically. This is exactly the
+"I have 1–40, resend 12 and 31" mechanism. ⚠️ **It is patented** — a real consideration before
+building it.
+
+**(4)** [tony-xlh/QRTransfer](https://github.com/tony-xlh/QRTransfer) does ACK-and-skip too, but
+requires a licensed Dynamsoft SDK.
+
+**What senders show: nothing, and no loop counter exists anywhere.** A targeted search found zero
+instances of "loop 3 of ∞", elapsed-loop counts, or ETA on any sender. The state of the art is
+wallets showing a bare loop plus tuning controls; decimen showing a static spec line plus the
+honest sentence *"The stream loops forever — stop when the receiver says done"*; and URDemo's
+fragment bar, which conveys *composition*, not progress. **This is a genuine gap, not an oversight
+to copy** — the sender fundamentally cannot know, and the honest designs say so out loud.
+
+### 5.7 "Hold steady for four minutes" — the ergonomics literature
+
+Every instruction I could find, verbatim:
+
+| Source | Instruction |
+|---|---|
+| [Passport troubleshooting](https://docs.foundation.xyz/troubleshooting/passport/) | *"Slowly adjust the distance…"* · *"Adjust the brightness of the screen being scanned"* · *"Ensure there is no glare from direct sunlight"* · *"try dimming your laptop screen, as excessive brightness can create glare"* |
+| [Jade + Sparrow](https://help.blockstream.com/hc/en-us/articles/11855365467033-Use-Jade-QR-Scan-with-Sparrow) | *"If the progress bar is not updating, change Jade's angle or distance…"* |
+| [URDemo](https://github.com/BlockchainCommons/URDemo) | *"make the sending QR code fill as much of the viewfinder as possible"* |
+| [libcimbar](https://github.com/sz3/libcimbar/blob/master/PERFORMANCE.md) | *"take up as much of the display as possible (**trust the guide brackets**)"* · *"keep the camera angle straight-on"* · *"screen brightness on the sender is good, but **ambient light is better**"* |
+| [decimen](https://github.com/bashalarmistalt/decimen-optical-transfer) | *"**Hold the phone steady, or better, prop it against something. Camera autofocus hunting from hand tremor is the #1 throughput killer.**"* |
+| [Keystone](https://support.keyst.one/getting-started/setting-up-keystone-new) | *"If a transaction is large, the number of QR codes shown will increase. Please keep scanning until the whole process is finished."* |
+
+**Nobody ships the words "hold steady" prominently.** decimen is the only project that names
+autofocus hunting as the dominant failure mode, and only in a README. **This is a real gap qrbeam
+can fill.**
+
+**Quantified: propping the device is worth ~40–45%.**
+[ChromaCode (MobiCom '18)](https://www.cs.purdue.edu/homes/chunyi/pubs/mobicom18-zhang.pdf)
+measured fixed camera at 777 kbps raw / **120 kbps goodput** versus hand-held at 627 kbps raw /
+**70 kbps goodput** — a ~40% goodput loss purely from holding the device. decimen's self-reported
+numbers agree (~128 KB/s handheld → ~186 KB/s propped, +45%). Combined with §6.2's finding that
+blur costs a factor of two in density, **"prop it against something" is the single
+highest-leverage sentence in the app.**
+
+**Refresh straddling** (the temporal, not spatial, failure — see §4.5 for my measurements):
+libcimbar ships a **`shakycam`** option *"to allow the receiver to detect/discard 'in between'
+frames as part of the scan step,"* and decimen mitigates with **"each frame must own at least 2
+refresh cycles of the display"** (hence 24 fps on a 60 Hz panel, 2.5 cycles of margin).
+
+**Density ceilings observed in the field — v40 is a trap:**
+- BBQr spec: *"Avoid very high versions (too dense). Better to have a more lower-rez QR codes."*
+- [qr-backup issue #26](https://github.com/za3k/qr-backup/issues/26): v25+ECC H reliable on a 2018
+  Android; **v40 unusable when printed.**
+- decimen: v27 is *"a safe middle ground"*; v40 *"works phone-to-phone at close range"* only.
+
+**Coldcard Q's auto-sizing policy is the best-engineered version of this heuristic**
+([bbqr.py](https://github.com/Coldcard/firmware/blob/master/shared/bbqr.py)) — note the explicit
+integer-pixel reasoning, which corroborates my §6.2 measurement:
+
+```python
+CHARS_PER_VERSION = [
+    (15, 758),    # 77px x 3: 77*3 = 231px tall
+    (25, 1853),   # 117px, doubled: 234px tall
+    (40, 4296),   # 177px tall, shown 1:1 pixels -- phones can scan fine
+]
+# pick the least-dense version that yields <= 12 frames; v40 only for huge payloads
+```
+
+That is: **pick the lowest QR version whose part count stays under a threshold, rendered at an
+integer pixel multiple.** Also from BBQr, a small real UX note: *"It is visually jarring to have
+the final QR be a different version (resolution) than the other ones"* — **pad the last fragment.**
+
+**Autofocus and minimum focus distance — worse than intuition suggests.** Phone main-camera MFD
+*regressed* as sensors grew: *"iPhone 14 Pro is approximately 8", compared to ~6" on the 13 Pro and
+~4.5" on the 12 Pro"* ([MacRumors](https://forums.macrumors.com/threads/autofocus-issues.2362288/)),
+and Apple Support states *"it may not focus closer than **12 inches**"*
+([discussions.apple.com](https://discussions.apple.com/thread/255576130)). A flat, uniformly-lit
+screen is also the pathological autofocus case — *"a dim, flat, or low-detail subject gives the
+camera too little information and **it keeps searching**"*
+([witchflow.com](https://witchflow.com/webcam-autofocus-keeps-hunting/)) — and a QR whose entire
+content changes 10× per second is a continuously moving contrast target.
+
+**You cannot fix this from the browser.** `focusMode`/`focusDistance` are Chrome-Android-only;
+*"iOS Safari does not expose focus constraints"*
+([Dynamsoft](https://www.dynamsoft.com/codepool/camera-focus-control-on-web.html)), and MDN's
+[`MediaTrackSettings`](https://developer.mozilla.org/en-US/docs/Web/API/MediaTrackSettings)
+standardises none of them. **Design consequence: render the QR large so the user can stand back
+past the MFD, rather than expecting them to move closer.** Rule of thumb ~10:1 distance-to-code-size
+with a hard floor around 20 cm.
+
+**Hand tremor sets the stability floor.** Physiological tremor is **8–12 Hz**
+([ScienceDirect](https://www.sciencedirect.com/science/article/pii/S2467981X1930023X),
+[Nature Sci Rep](https://www.nature.com/articles/s41598-022-21310-4)) — *faster* than a 10 fps
+animation, and its amplitude grows with fatigue, so **a long transfer gets harder as it runs.**
+That is the physical justification for both "prop the phone" and "warn above ~60 s".
+
+**A quantitative basis for a "move closer" prompt.** Google ML Kit specifies *"The smallest
+meaningful unit of the barcode should be **at least 2 pixels wide**"*
+([ML Kit docs](https://developers.google.com/ml-kit/vision/barcode-scanning/android)) — which
+independently corroborates my measured 2 px/module floor at zero blur (§6.2). Derived: a v20 code
+is 97 modules + 2×4 quiet = 105 across, so ≥210 px in the captured image, i.e. **≥29% of frame
+height at 720p** at the absolute floor, or **44–58%** at the 3–4 px/module you actually want.
+
+**Paper-backup projects** (qr-backup, paperback, PaperBack, Optar) are worth one lesson each:
+qr-backup's restore UX is a **missing-index list** rather than a percentage
+(`"Missing {count}/{total} codes: {list}"`, and `"Read duplicate code: IDENTICAL"` / `"DIVERGES"`);
+and PaperBack's rule that *"optimal resolution is about 3 times the dot density"* is the same 3×
+oversampling requirement my §6.2 measurement found independently.
+
+### 5.8 Live guidance — the platforms do it, the QR tools don't
+
+The "tell the user what to fix" pattern **is** shipped, just not by animated-QR projects:
+
+- **Apple ships literal "Slow Down".**
+  [`DataScannerViewController.isGuidanceEnabled`](https://developer.apple.com/documentation/visionkit/datascannerviewcontroller/isguidanceenabled):
+  *"**The guidance text, such as 'Slow Down,' appears over the live video.**"*
+- **Google ML Kit ships auto-zoom** — *"when all barcodes within the view are too distant for
+  decoding,"* it tells the app to *"adjust the camera's zoom ratio to the recommended setting."*
+- **txqr designed the human-in-the-loop version** and it is exactly right for a no-back-channel
+  system: the receiver *"can display a message '**please decrease FPS on sender**', and continue
+  receiving the same file, even if the frame size had changed."* The message goes to the *human*,
+  who is the back-channel.
+- **Casa explicitly asked for a framing reticle** and nobody ships one: *"you don't have a great
+  idea what the actual boundaries are of what the camera is seeing… a potential simple UX
+  improvement here would be to have the laser project either an outline of a box or a cross."*
+
+**⚠️ No animated-QR tool auto-adapts sender fps from decode success.** Every one surveyed (txqr,
+RaptorQR, Sparrow, BlueWallet, Specter-DIY, Coldcard, qrs) exposes manual controls only. Combined
+with `requestVideoFrameCallback`'s `presentedFrames` (which
+[MDN](https://developer.mozilla.org/en-US/docs/Web/API/HTMLVideoElement/requestVideoFrameCallback)
+notes *"can be used to detect whether frames were missed"*), qrbeam can measure the true capture
+rate and **tell the user what fps to set on the sender**. That is unbuilt territory and cheap.
+
+### 5.9 An unaddressed risk: photosensitivity
+
+A full-screen animated QR at ≥4 fps is a >3-flashes-per-second, full-screen, high-contrast
+stimulus. [WCAG 2.2 SC 2.3.1](https://www.w3.org/WAI/WCAG22/Understanding/three-flashes-or-below-threshold.html)
+sets the threshold at three flashes per second over >25% of any 10° visual field, with an exemption
+for *"a fine, balanced, pattern such as… an alternating checkerboard pattern with 'squares' smaller
+than 0.1 degree."* A QR is ~50% dark modules, so average luminance barely changes frame to frame
+and it **probably** clears the threshold — but **I found zero literature applying WCAG to animated
+QR.** Run PEAT against real recorded output, and ship a pause/step control regardless. Cheap
+insurance on a genuinely unexamined risk.
+
+### 5.10 Gaps — where the prior art has nothing to copy
+
+- **No animated-QR tool gives live "too far / too close / too fast" feedback**, despite Apple and
+  Google both shipping the primitive at the platform level (§5.8). libcimbar's static guide
+  brackets and SeedSigner's green/grey dot are the closest. **This is qrbeam's clearest opportunity
+  to beat the state of the art.**
+- **No vendor recommends a phone stand or tripod** for animated QR — zero results — despite
+  propping being worth ~40–45% (§5.7).
+- **No published endurance-time figure** for holding a phone at a screen. The
+  [Consumed Endurance](https://dl.acm.org/doi/10.1145/2556288.2557130) framework exists; nobody has
+  reported the value for this pose.
+- **No study of animated QR and photosensitive epilepsy** (§5.9).
+- **No measurement of LTPO/VRR panels interfering with animated QR.** ⚠️ Worth flagging as a risk:
+  variable-refresh panels drop to 1–10 Hz on static content, and a 10 fps `requestAnimationFrame`
+  loop on a panel that has decided to run at 10 Hz has zero timing margin.
+- **No vendor distance figure in cm/inches** for animated QR — only "slowly adjust the distance."
+- **No published rolling-shutter readout times (ms)** for specific phone cameras in citable form.
+- **No sender anywhere displays a loop counter, elapsed loops, or an ETA.**
+- AirGap Vault's frame rate, fragment size and receiver UI: not found.
+- Coldcard Q's display frame interval: not found (the sizing policy is in `bbqr.py`; the BBQr
+  spec's 250 ms is suggestive but not the source constant).
+- "Strata" screen-camera communication **appears not to exist** — absent from ChromaCode's
+  related-work survey, which covers COBRA, LightSync, RDCode, ARTcode, PixNet, InFrame/InFrame++,
+  HiLight, TextureCode, ImplicitCode and Uber-in-Light. Likely a misremembered name.
+- `qrcp`, `qr-filetransfer`, `qrTransfer` and qrtransfer.io are **WiFi/HTTP transfers where the QR
+  only carries a URL** — not optical, and relevant only as name collisions.
 
 ---
 
@@ -979,8 +1503,67 @@ Corroboration that density is the failure mode:
   webcam's resolution is lower than a printer's resolution… If you print a denser backup, some
   computers won't be able to restore it via webcam."*
 
-**Implication for qrbeam: QR version must be a runtime-adaptive parameter.** Start at v20–v27 and
-push higher only when sustained decode success justifies it. Never hard-code v40.
+#### Measured: the decode threshold depends on blur, *not* on QR version
+
+The literature gap above ("no published measurement") is small enough to close directly, so I ran
+it. Method: render each QR at an exact integer pixels-per-module with a 4-module quiet zone,
+apply a box blur of radius *r* px to simulate optical softness / motion blur, decode with jsQR.
+Byte-mode payloads at EC level L, so the versions are the real ones.
+
+| blur radius | 2 px/module | 3 px/module | 4 px/module | 5 px/module | 6 px/module |
+|---|---|---|---|---|---|
+| 0 px (perfect) | ✅ | ✅ | ✅ | ✅ | ✅ |
+| 1 px | ❌ | ✅ | ✅ | ✅ | ✅ |
+| 2 px | ❌ | ❌ | ❌ | ✅ | ✅ |
+| 3 px | ❌ | ❌ | ❌ | ❌ | ✅ |
+
+**Every QR version behaved identically** — v10 (57 modules), v15 (77), v20 (97), v27 (125),
+v33 (149) and v40 (177) all flipped from fail to pass at exactly the same px-per-module threshold
+for a given blur. That is the headline result, and it is a useful one:
+
+> **QR version does not make a code intrinsically harder to decode. Only pixels-per-module and
+> optical sharpness matter.** So you should push density as high as your pixel budget allows —
+> a v40 code at 3 px/module is exactly as decodable as a v10 code at 3 px/module, and carries
+> 11× the payload.
+
+This both **confirms the 3 px/module rule of thumb** (it is exactly right for mildly soft capture)
+and shows how fast it degrades: **5–6 px/module once real motion blur is present.** Practical
+translation for a 1080p receiver:
+
+| QR fills … of frame height | sharp (3 px/mod) | handheld blur (5 px/mod) |
+|---|---|---|
+| 50% (540 px) | 180 modules → **v40** | 108 modules → ~v25 |
+| 33% (360 px) | 120 modules → ~v28 | 72 modules → ~v14 |
+| 25% (270 px) | 90 modules → ~v19 | 54 modules → ~v9 |
+
+**Implication for qrbeam: QR version must be a runtime-adaptive parameter, and the thing to adapt
+on is measured decode success, not distance.** Start at v20–v27 and climb while the receiver is
+succeeding. Never hard-code v40. And since blur costs roughly a factor of two in density, the
+"prop your phone against something" instruction is worth ~4× in throughput — it is the single
+highest-leverage piece of user guidance in the whole app.
+
+**Secondary finding — prefer integer pixels-per-module.** Sweeping fractional scales at v20 with
+no blur, most ratios decoded fine but **3.5 px/module failed** where 3.25 and 3.75 succeeded.
+Fractional module scaling aliases unevenly (some modules get *n* pixels, neighbours get *n+1*),
+and certain ratios land badly. Cheap fix: size the QR canvas to an exact integer multiple of
+(modules + 2×quiet-zone) and let CSS letterbox the remainder, rather than stretching the canvas
+to fill the viewport. Also set `image-rendering: pixelated` so the browser does not resample.
+
+**Caveat:** these are jsQR numbers on synthetic frames with a symmetric box blur. Real cameras add
+perspective, non-uniform focus, rolling shutter, and gamma. Treat the table as a lower bound and
+re-measure with the decoder you ship.
+
+**An anomaly that turned out to be a decoder bug — and a serious one.** In an earlier sweep, one
+version failed to decode at *every* scale including 6 px/module while its neighbours all passed.
+That version was **v23**, and it is a known jsQR data-table typo
+([cozmo/jsQR#251](https://github.com/cozmo/jsQR/issues/251)): jsQR's v23 alignment-pattern centres
+are `[6, 30, 54, 74, 102]` where ISO/IEC 18004 Annex E specifies `[6, 30, 54, **78**, 102]`.
+Versions 21, 22, 24 and 25 are all correct.
+
+**This is uniquely dangerous for qrbeam.** Frame size is chosen from chunk payload size; if a
+chunk size happens to land on version 23, **every single frame fails silently** and the transfer
+simply never completes, with no error to diagnose. On a library with no commits since 2021. This
+alone disqualifies jsQR for production use here — see §7.7.
 
 ### 6.3 Measured rates from the literature
 
@@ -1033,7 +1616,11 @@ bottleneck**."*
 **Decoder choice: `zxing-wasm` ([Sec-ant/zxing-wasm](https://github.com/Sec-ant/zxing-wasm)) in a
 Web Worker, driven by `requestVideoFrameCallback`.** Both decimen and RaptorQR converged on this
 independently. **`BarcodeDetector` is not viable** — WebKit has never shipped it, which eliminates
-every browser on iOS.
+every browser on iOS. It is also *not* universally available on Chromium: the API is gated on an
+underlying platform barcode service, so it is present on Chrome Android but **absent on desktop
+Linux Chromium** — verified directly (`typeof BarcodeDetector === 'undefined'` in Chrome for
+Testing 151 on Linux). Treat it as an optional fast path behind a `'BarcodeDetector' in window`
+check plus a `getSupportedFormats()` check, never as the primary decoder.
 
 **Frame-rate ceiling — three independent rules that agree:**
 
@@ -1124,10 +1711,576 @@ Honestly flagged:
 
 ## 7. Testing strategy
 
-<!--SECTION7-->
+**Everything in §7.1–7.3 below was executed and verified on this machine** (Chrome for Testing
+151.0.7922.34, Linux, Playwright). Where a widely-repeated recipe turned out to be wrong, I've
+said so and given the version that actually runs.
+
+### 7.1 Correction: the Chromium fake-camera flag everyone cites does not work
+
+Nearly every blog post and StackOverflow answer on testing `getUserMedia` says to pass
+**`--use-fake-device-for-media-capture`**. In Chrome 151 that switch **does not exist** and is
+silently ignored — `enumerateDevices()` returns an empty array and `getUserMedia` throws
+`NotFoundError: Requested device not found`.
+
+Grepping the binary for the registered switch names gives the truth:
+
+```
+$ strings chrome | grep -E '^use-(fake|file)-'
+use-fake-codec-for-peer-connection
+use-fake-device-for-media-stream        ← the real one
+use-fake-mjpeg-decode-accelerator
+use-fake-ui-for-digital-identity
+use-fake-ui-for-fedcm
+use-fake-ui-for-media-stream
+use-file-for-fake-audio-capture
+use-file-for-fake-video-capture
+```
+
+Measured side by side:
+
+| Flags | Result |
+|---|---|
+| `--use-fake-device-for-media-capture --use-fake-ui-for-media-stream` | ❌ `NotFoundError`, 0 devices |
+| `--use-fake-device-for-media-stream --use-fake-ui-for-media-stream` | ✅ `fake_device_0`, 640×480 @ 20 fps |
+| `--use-file-for-fake-video-capture=<y4m>` **alone** | ❌ `NotFoundError` |
+| `--use-file-for-fake-video-capture=<y4m>` + `--use-fake-ui-for-media-stream` | ❌ `NotFoundError` |
+| `--use-fake-device-for-media-stream` + `--use-file-for-fake-video-capture=<y4m>` | ✅ plays the file |
+
+**So the file-based capture flag is a *modifier* on the fake device, not a substitute for it.**
+Both are required. The correct incantation:
+
+```js
+const browser = await chromium.launch({
+  args: [
+    '--use-fake-device-for-media-stream',                 // REQUIRED — creates fake_device_0
+    `--use-file-for-fake-video-capture=${absPathToY4m}`,  // REQUIRED to play your own frames
+    '--use-fake-ui-for-media-stream',                     // auto-grant the camera permission
+  ],
+});
+```
+
+(`--use-fake-ui-for-media-stream` auto-accepts the permission prompt; Playwright's
+`context.grantPermissions(['camera'], {origin})` is an alternative for the permission half only —
+it does not conjure a device.)
+
+### 7.2 Verified Y4M behaviour
+
+Measured by encoding 8 frames of distinct luma and sampling the centre pixel:
+
+- **Y4M format that works:** header `YUV4MPEG2 W640 H480 F10:1 Ip A1:1 C420mpeg2\n`, then per
+  frame `FRAME\n` + Y plane (W·H) + U plane (W/2·H/2) + V plane (W/2·H/2).
+- **The stream loops seamlessly and indefinitely.** Observed cycle over 4 s of sampling:
+  `98 130 163 196 228 0 33 65` repeating exactly, with no gap or stall at the wrap.
+  **This is enormously convenient** — it means a fake camera fed a finite QR animation behaves
+  exactly like a real sender looping its frames forever, so late-join and loss-recovery paths get
+  exercised for free.
+- **The header's frame rate is honoured**: `F10:1` produced `track.getSettings().frameRate === 10`.
+  Resolution likewise (640×480). So you control capture fps and size from the Y4M header.
+- Playwright's bundled ffmpeg is a stripped build with no `lavfi`, so generating Y4M with
+  `ffmpeg -f lavfi -i testsrc` fails. **Writing Y4M by hand in Node is trivial** and gives exact
+  frame control, which is what you want anyway.
+
+### 7.3 A working end-to-end optical loopback — verified
+
+I built and ran the full harness. It passes.
+
+**Step 1 — render real QR frames straight into a Y4M** (`qrcode` gives you the module matrix; no
+canvas or PNG round-trip needed):
+
+```js
+import QRCode from 'qrcode';
+const qr = QRCode.create(text, { errorCorrectionLevel: 'L' });
+const { size, data } = qr.modules;          // data[r*size+c] === 1 → dark module
+// rasterise into a Y (luma) plane: 235 = white paper, 16 = black module, 4-module quiet zone
+```
+
+**Step 2 — feed it to Chromium as the camera** with the flags from §7.1.
+
+**Step 3 — decode in-page**, pumped by `requestVideoFrameCallback` so you get exactly one decode
+attempt per delivered camera frame:
+
+```js
+const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
+const v = Object.assign(document.createElement('video'),
+                        { srcObject: stream, muted: true, playsInline: true });
+await v.play();
+const g = Object.assign(document.createElement('canvas'), { width: 640, height: 480 })
+                .getContext('2d', { willReadFrequently: true });
+
+while (collected.size < N) {
+  await new Promise(r => v.requestVideoFrameCallback(r));
+  g.drawImage(v, 0, 0, 640, 480);
+  const img = g.getImageData(0, 0, 640, 480);
+  const r = jsQR(img.data, img.width, img.height);
+  if (r) ingest(r.data);
+}
+```
+
+**Measured results:**
+
+| Test | Frames | Result |
+|---|---|---|
+| 246 B payload, 3 QR frames | 3 | 3/3 collected, **100% decode rate**, payload byte-exact, **622 ms** |
+| 2,460 B payload, 28 QR frames, receiver **joins 700 ms late** | 28 | 28/28 collected, **100% decode rate**, payload byte-exact, **3,672 ms** |
+
+The second test is the important one: the receiver deliberately started sampling ~7 frames into
+the animation, and still reassembled the complete payload **because the Y4M loops** — the missed
+head of the stream came back around. That is precisely the real-world no-back-channel recovery
+behaviour, reproduced in CI in under 4 seconds with no camera and no second device.
+
+Note the effective rate: ~29 rVFC callbacks for 28 unique frames over 3.67 s ≈ 8 fps sustained
+against a 10 fps source — i.e. the harness naturally reproduces the "you don't get every frame"
+condition too.
+
+### 7.4 Independently confirmed, plus the gotchas I did not hit
+
+A separate investigation reproduced the §7.1–7.2 findings independently (same Chromium 151, both
+`chrome-headless-shell` and full Chromium via `channel:'chromium'`) and turned up several further
+traps, all verified by execution:
+
+**Authoritative switch definitions**, from Chromium source rather than blog posts —
+[`media/base/media_switches.cc`](https://github.com/chromium/chromium/blob/main/media/base/media_switches.cc)
+and [`content/public/common/content_switches.cc`](https://github.com/chromium/chromium/blob/main/content/public/common/content_switches.cc).
+Also useful: `--auto-accept-camera-and-microphone-capture` (*"Bypasses the dialog prompting the
+user for permission to capture cameras and microphones. Useful in automatic tests of
+video-conferencing Web applications."*).
+
+**MJPEG fake-capture files are accepted but produce black frames.** `--use-file-for-fake-video-capture`
+dispatches on file extension (`.y4m` → `Y4mFileParser`, `.mjpeg` → `MjpegFileParser`), and the
+MJPEG path opens the device and advertises 640×480@30 but every frame is all-zero — reproduced in
+headless-shell, in full Chromium, and with `--use-fake-mjpeg-decode-accelerator`. **Use Y4M.**
+(This matters because Y4M is raw I420 at `W·H·1.5 + 6` bytes/frame — a 2 s 640×480 @10 fps file is
+~9 MB, vs ~450 KB for the equivalent MJPEG. **Generate Y4M fixtures in a CI pretest step from your
+own encoder; never commit them.** That is better testing anyway, since the fixture then tracks the
+encoder.)
+
+**The `sed 's/C420mpeg2/C420/'` step from 2015-era blog posts is obsolete.** Chromium's
+[`file_video_capture_device.cc`](https://chromium.googlesource.com/chromium/src/+/main/media/capture/video/file_video_capture_device.cc)
+accepts `420`, `420jpeg`, `420mpeg2` and `420paldv` — but note the check is a `CHECK`, i.e. a hard
+crash rather than a graceful error, if you feed it anything else. Same for mixed interlacing.
+Modern ffmpeg emits `C420jpeg`, which is fine.
+
+**Resolution is read from the file, not negotiated.** The factory advertises exactly one supported
+format, so `getUserMedia({video:{width:{exact:1920}}})` against a 640×480 file is satisfied by
+scaling, not by real 1080p pixels. Author the fixture at the resolution you intend to test.
+`track.label` is the absolute file path.
+
+**Permission behaviour differs by binary — a real trap:**
+
+| Binary | `--use-fake-ui-for-media-stream` | Playwright `permissions:['camera']` | Result |
+|---|---|---|---|
+| `chrome-headless-shell` (Playwright's **default** for `headless:true`) | ✅ | — | ✅ works |
+| `chrome-headless-shell` | ❌ | ✅ granted | ❌ `NotSupportedError` |
+| full Chromium (`channel:'chromium'`) | ✅ | — | ✅ works |
+| full Chromium | ❌ | ✅ granted | ✅ works |
+| full Chromium | ❌ | ❌ | ❌ `NotAllowedError` |
+
+The headless shell has no permission machinery and fails with a misleading `NotSupportedError`
+regardless of what you grant. **To test the camera-denied UX — which qrbeam needs, since "camera
+blocked" is a first-class receiver state — you must use `channel: 'chromium'` and omit
+`--use-fake-ui-for-media-stream`.**
+
+**Hot-swapping the fixture mid-stream works** (verified both by overwrite-in-place and by
+unlink-then-copy): the live feed switches without restarting the browser. The replacement must
+have identical dimensions, since width/height/frameRate are latched when the device opens. Handy
+for simulating "the sender restarted with a new payload" mid-transfer.
+
+**The synthetic pattern (`--use-fake-device-for-media-stream` with no file) is useless for decode
+tests** — it draws a rotating pacman sweep and a timestamp on a dark background; measured mean red
+channel 3, zero QR decodes. Use it only for device-enumeration and permission plumbing. Its
+options string is genuinely useful though: `fps=` (clamped 5–60), `device-count=` (0–10), and
+failure injection via `config=get-photo-state-fails|set-photo-options-fails|take-photo-fails`.
+
+### 7.5 The zero-flag alternative: stub `getUserMedia` with `canvas.captureStream()`
+
+This is arguably a better default than §7.3, and it needs **no launch flags at all**. Inject via
+`page.addInitScript()` so it lands before any app code runs:
+
+```js
+Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: {
+  getUserMedia: async () => {
+    const cv = Object.assign(document.createElement('canvas'), {width:640, height:480});
+    window.__srcCanvas = cv;         // the test drives this
+    return cv.captureStream(0);      // 0 fps = frames only on explicit requestFrame()
+  },
+  enumerateDevices: async () => ([{kind:'videoinput', deviceId:'stub', label:'stub cam', groupId:'g'}]),
+}});
+```
+
+Verified working in `chrome-headless-shell` with `args: []`. The app's real path
+(`getUserMedia` → `video.srcObject` → `drawImage` → decode) is fully exercised.
+
+**`captureStream(0)` + `track.requestFrame()` is the key trick**: per
+[MDN](https://developer.mozilla.org/en-US/docs/Web/API/HTMLCanvasElement/captureStream), passing
+`0` captures only on explicit request. That makes the optical channel **frame-exact and
+timing-flake-free** — you can assert "the receiver reconstructs the file after exactly N frames"
+deterministically, which no wall-clock-driven test can do.
+
+**Two-page topology.** `MediaStream` is not transferable across browsing contexts, so you cannot
+pipe a canvas stream between pages. But you can shuttle frames through the Node test process as
+PNG data URLs between two genuinely separate Playwright pages — measured at ~13.5 sender→receiver
+frames/s (25/25 decoded clean, 25/25 decoded degraded, 1.85 s). Separate JS realms and separate
+module instances mean **this is the test that actually proves the same static app interoperates
+with itself**, with no shared state to accidentally cheat through.
+
+**Degradation ladder — measured decode cliffs** (jsQR, ~v6 code at 440 px in a 640×480 frame;
+identical on headless-shell and full Chromium):
+
+| Degradation | Threshold |
+|---|---|
+| Gaussian blur (`ctx.filter='blur(Npx)'`) | ✅ ≤5 px · ❌ ≥6 px |
+| Downscale (distance) | ✅ ≥0.12× · ❌ 0.10× |
+| Rotation | ✅ ≤15° · ❌ ≥30° |
+| Keystone / tilt (strip warp) | ✅ k≤0.1 · ❌ k≥0.2 |
+| Motion blur (8 shifted composites) | ✅ ≤16 px · ❌ ≥28 px |
+| Additive noise | ✅ ~amp 25 · stochastic 40–60 |
+| Specular glare (radial white to α=1.0) | ✅ decoded at **every** level |
+| Combined "realistic phone" (1.5 px blur + 0.45× + 4° + glare) | ✅ decoded |
+
+All achievable in plain canvas 2D except true projective warp — canvas 2D is affine-only, so a
+real homography needs WebGL or an inverse-mapped bilinear sampler. That is worth building: it is
+the most discriminating degradation. **Note the noise row is stochastic** (one run gave
+amp40=fail, amp60=pass) — every degradation test must assert a *rate* over N trials, never a
+single boolean.
+
+Existing corpus worth borrowing: the BoofCV-derived set used in
+[Dynamsoft's benchmark](https://www.dynamsoft.com/codepool/qr-code-reading-benchmark-and-comparison.html)
+(536 images / 1,232 codes, 16 categories including **`monitor`**, `glare`, `perspective`), harness
+at [tony-xlh/barcode-reading-benchmark](https://github.com/tony-xlh/barcode-reading-benchmark).
+
+### 7.6 What does not work — verified dead ends
+
+- **`--use-fake-device-for-media-capture`** — no such switch; fails silently (§7.1).
+- **`--use-file-for-fake-video-capture` alone** — `NotFoundError`; needs the device flag too.
+- **MJPEG fixtures** — black frames in every Chromium configuration tried.
+- **Playwright `permissions` in `chrome-headless-shell`** — `NotSupportedError` regardless.
+- **WebKit fake camera** — does not exist, in Playwright or in Safari. Safari's
+  *Develop ▸ WebRTC ▸ Use Mock Capture Devices* loops a fixed "bip-bop" stream you cannot replace
+  ([WebKit: A Closer Look Into WebRTC](https://webkit.org/blog/7763/a-closer-look-into-webrtc/));
+  tracking issue [playwright#5444](https://github.com/microsoft/playwright/issues/5444).
+- **Firefox custom video** — `media.navigator.streams.fake` + `media.navigator.permission.disabled`
+  give a synthetic coloured box only. There is no Firefox equivalent of the file flag. Fine for
+  permission/enumeration plumbing, useless for decode.
+- **`BarcodeDetector` in Linux CI** — `undefined` in Chromium 151 headless even with
+  `--enable-experimental-web-platform-features` and `--enable-features=ShapeDetection`.
+  [MDN BCD](https://github.com/mdn/browser-compat-data/blob/main/api/BarcodeDetector.json) marks
+  desktop Chrome 88+ `partial_implementation` — *"Supported on ChromeOS and macOS only"*;
+  [Chrome's docs](https://developer.chrome.com/docs/capabilities/shape-detection) say macOS,
+  ChromeOS, Android. Firefox [never](https://bugzil.la/1553738). **You cannot test this API in
+  Linux CI at all.**
+- **v4l2loopback in managed CI** — it is a kernel module: cannot be loaded inside a container,
+  needs `--privileged`, blocked by Secure Boot, and unavailable on GitHub-hosted runners or
+  managed k8s (Mozilla hit exactly this in
+  [bug 1099057](https://bugzilla.mozilla.org/show_bug.cgi?id=1099057)). Critically, **it adds no
+  fidelity over `--use-file-for-fake-video-capture`** — both inject synthetic pixels below the app
+  and neither exercises a lens, sensor, autofocus or exposure loop. OBS Virtual Camera is the same
+  story plus a GUI dependency. **Skip both.**
+- **iOS Simulator camera** — does not exist and cannot be made to.
+  [Apple's Simulator guide](https://developer.apple.com/library/archive/documentation/IDEs/Conceptual/iOS_Simulator_Guide/TestingontheiOSSimulator/TestingontheiOSSimulator.html)
+  lists camera/microphone input as not simulated. Third-party shims (RocketSim, SimulatorCamera)
+  work by linking a framework into *your own app binary* — impossible for Safari or WKWebView.
+  No Xcode release through 26 changes this.
+- **jsQR in production** — abandoned since 2021 and v23 is 100% undecodable (§6.2).
+
+### 7.7 Decoder and encoder choice
+
+| | **zxing-wasm** | rxing-wasm | jsQR | @zxing/library |
+|---|---|---|---|---|
+| Version | 3.1.2 (2026-07) | 0.5.7 | **1.4.0 (2021-04)** | 0.23.0 |
+| Last commit | 2026-07-18 | 2026-07-22 | **2021-08-24** | 2026-04-29 |
+| Decode @1280×720 | **4.1 ms** | 5.3 ms | 23.2 ms | 8.9 ms |
+| Robustness (56 warp/blur cases) | **44 ok / 0 wrong** | 44 / 0 (with hint) | 31 / 0 | 27 / 0 |
+| All 40 QR versions | ✅ | ✅ | ❌ **v23 broken** | — |
+| Node, no DOM | ✅ raw RGBA | ✅ | ✅ | awkward |
+| gzip | 452 KiB | 890 KiB | 56 KiB | 279 KiB |
+
+**Decoder: `zxing-wasm` (`/reader` entry).** Fastest, most robust to exactly the distortions that
+matter here, all 40 versions, no false positives, actively maintained, and it accepts a duck-typed
+`{data, width, height}` RGBA buffer in plain Node with no DOM shim.
+
+⚠️ **`zxing-wasm` fetches its `.wasm` from jsDelivr on first decode by default** — verified by
+blocking `fetch`, which revealed a request to
+`https://fastly.jsdelivr.net/npm/zxing-wasm@3.1.2/dist/reader/zxing_reader.wasm`. **For an
+air-gapped, audit-once-trust-forever app this is a silent correctness bug in the product's core
+claim.** Fix:
+
+```js
+prepareZXingModule({ overrides: { locateFile: () => localWasmUrl }, fireImmediately: true });
+```
+
+…and **add a CI test that blocks all network and asserts a decode still succeeds.** That five-line
+test is what makes the offline claim true rather than aspirational. It should arguably be a
+whole-app test: block the network in Playwright and assert nothing is requested.
+
+If evaluating `rxing-wasm`, **always pass the `PossibleFormats: "QrCode"` hint** — without it, it
+produced a *silently wrong* decode (returned `"19575582"` for an 800-char payload, 5/5
+reproducible). For a rateless decoder, a corrupt block is far worse than a dropped frame.
+
+**Encoder: `qrcode` with `maskPattern` pinned.** Default encoders run ISO penalty scoring across
+all 8 masks, which you do not need when you control both ends. Measured at v20/820 B:
+**2.086 ms → 0.353 ms (2,833 fps), a 5.9× speedup** from that one parameter. Pure JS, ~21 KiB gz,
+no WASM, no CDN — which also makes it the right choice for the single-file build. Draw the module
+matrix yourself with `fillRect`/`putImageData` on an `OffscreenCanvas` in a Worker; never via SVG
+or `toDataURL`.
+
+**Test runner: Vitest with `environment: 'node'`** — the WASM/ESM packages work with zero config,
+whereas Jest needs `--experimental-vm-modules` and `transformIgnorePatterns` surgery.
+
+### 7.8 Real-device options
+
+**Only one product injects video into a *web page's* `getUserMedia` on a real device:**
+
+| Vendor | Web `getUserMedia` injection | Media |
+|---|---|---|
+| **BrowserStack Automate** | **yes** | MP4 ≤50 MB |
+| BrowserStack Live (manual) | yes | still image ≤10 MB |
+| Sauce Labs | **no — explicitly excluded** | still ≤5 MB |
+| LambdaTest / TestingBot / HeadSpin / Kobiton | no (native apps only) | — |
+| AWS Device Farm | **no camera mocking at all** | — |
+
+Everyone except BrowserStack implements injection by instrumenting or re-signing *your app
+binary*, which is structurally impossible when the "app" is Safari. Sauce Labs' "Not Supported"
+list literally begins *"Mobile browsers and pre-installed system apps."*
+
+BrowserStack usage: upload via `POST /automate/upload-media` → `media://<hash>`, then set
+`cameraInjection: true` and `cameraInjectionUrl`. Their docs name *"scanning QR code to your web
+app"* as a use case.
+**Caveats:** Private Beta, Enterprise-tier only; the mechanism is undocumented (on desktop it is
+almost certainly the flags in §7.1); and **their iOS support claim is self-contradictory** — the
+support table lists iOS while the same page's FAQ says *"available only for Android-Chrome,
+Mac-Chrome, and Windows-Chrome"*, and the "Safari 10 on iOS 12+" pairing is nonsense indicating a
+stale table. **Run a paid trial against a real iPhone before architecting around it.** Also note
+BrowserStack devices cannot use their real cameras at all, so injection is the only path there.
+
+**Android emulator is the best self-hosted option:**
+`emulator -camera-back videofile:animated-qr.mp4` — a dedicated video-playback camera backend, no
+host plumbing, deterministic, runs headless (`-no-window`) in Docker with `--device /dev/kvm`
+([docs](https://developer.android.com/studio/run/emulator-commandline)). This is strictly simpler
+than v4l2loopback. (Appium's `mobile: injectEmulatorCameraImage` takes a single base64 PNG — useless
+for animated codes.)
+
+**Real-device behaviours worth encoding as explicit tests:**
+
+- Outside a secure context `navigator.mediaDevices` is **`undefined`** — guard for that, don't
+  just catch a rejection.
+- `<video autoplay playsinline muted>` — all three. Missing `playsinline` is the single most
+  common cause of "getUserMedia is broken on iPhone" reports
+  ([WebKit: New `<video>` Policies for iOS](https://webkit.org/blog/6784/new-video-policies-for-ios/)).
+- **`facingMode:'environment'` is a soft constraint** — a device without a rear camera silently
+  gives you the front one. Use `{ facingMode: { exact: 'environment' } }` and fail loudly.
+- **WKWebView / in-app browsers:** `getUserMedia` exists there only since
+  [iOS 14.3](https://webkit.org/blog/11353/mediarecorder-api/), and only if the host app declared
+  camera usage. Many never did — **your receiver will fail inside Instagram/Twitter in-app
+  browsers and you cannot fix it from the page.** Detect and prompt "Open in Safari."
+- **`torch` yes, `focusMode` no.** WebKit's
+  [`MediaConstraintType.h`](https://github.com/WebKit/WebKit/blob/main/Source/WebCore/platform/mediastream/MediaConstraintType.h)
+  implements `Torch`, `Zoom`, `FocusDistance`, `WhiteBalanceMode` — **`focusMode` is absent**
+  (Chrome-only). Feature-detect via `track.getCapabilities()`.
+- **Low Power Mode throttles `requestAnimationFrame` to 30 fps** on iOS
+  ([WebKit bug 168837](https://bugs.webkit.org/show_bug.cgi?id=168837)), and iOS enables LPM
+  automatically at 20% battery. **If the design assumes 60 Hz sampling it silently halves in the
+  field.** Drive decode from `requestVideoFrameCallback`, keep the sender ≤15 fps so 30 Hz
+  sampling still satisfies Nyquist, and budget for 30 fps.
+
+### 7.9 The layered recommendation
+
+**Tier 1 — Unit, no browser (every commit, milliseconds).** Vitest + `environment: 'node'`.
+`qrcode` encode → RGBA buffer → `zxing-wasm` decode, with the fountain codec round-tripped at the
+byte level under injected loss/reorder/duplication. This is where the codec, header parsing,
+hostile-input validation (§6.7's `totalLen` DoS) and deterministic-soliton agreement live.
+Property-based tests over random payload sizes and loss patterns belong here. **Most of your test
+value is in this tier.** Pin a regression test for **every QR version you actually emit** — that
+is what would have caught the jsQR v23 class of bug.
+
+**Tier 2 — Synthetic-frame decode + degradation ladder (every commit, milliseconds).** Render the
+sender's canvas frames and hand `ImageData` straight to the decoder. Assert **rates, not
+booleans**, across blur / downscale / rotation / keystone / motion blur / noise / glare, using the
+§7.5 harness and thresholds. **Include rolling-shutter tearing** (§4.5) — it is the degradation
+unique to screen-to-camera, absent from every published QR corpus, and demonstrably destroys ~80%
+of torn frames.
+
+**Tier 3 — Stubbed `getUserMedia` via `canvas.captureStream(0)` (every commit, seconds).** §7.5.
+No launch flags. `requestFrame()` makes it frame-exact, so you can assert the rateless property
+directly: *"drop 30% of frames uniformly at random → the file still reconstructs byte-for-byte."*
+This is the workhorse tier.
+
+**Tier 4 — True two-page topology (every commit or nightly, ~2 s per 25 frames).** Two separate
+Playwright pages, frames shuttled as PNG data URLs through Node. Separate JS realms and module
+instances — **this is what proves the same static app interoperates with itself**, with no shared
+state to cheat through.
+
+**Tier 5 — Real media pipeline (nightly, seconds).** §7.1–7.3: `channel:'chromium'` +
+`--use-fake-device-for-media-stream` + `--use-file-for-fake-video-capture=<abs>.y4m`, Y4M generated
+in a pretest step from your own encoder. The only tier exercising Chromium's actual capture stack,
+video decode and constraint negotiation. Run one variant **without**
+`--use-fake-ui-for-media-stream` to assert the `NotAllowedError` UX. Use the fixture hot-swap to
+test "sender restarted mid-transfer". Add the **network-blocked decode test** from §7.7 here.
+
+**Tier 6 — The physical rig (pre-release; the actual acceptance gate).** One phone in a clamp
+pointed at a tablet, plus a manual pass on a real iPhone and Android against a checklist derived
+from §0's blocker table.
+
+**Why Tier 6 is not optional:** every injection mechanism in Tiers 1–5 bypasses the optics
+entirely. The real product risk lives precisely in what injection deletes — moiré between QR
+modules and the display's pixel grid, backlight glare and specular reflection, autofocus hunting
+at close range, exposure oscillation, and rolling-shutter tearing beating against the display
+refresh rate. **Injection validates your decoder; it cannot validate your capture chain.**
+Tiers 1–5 are the fast regression net; the rig is the gate.
+
+**CI wiring:** Tiers 1–3 on every commit. Tier 4 on every commit if the runtime stays under a few
+seconds, else nightly. Tier 5 nightly. Tier 6 gated on release tags. WebKit and Firefox get
+plumbing-only coverage (permissions, enumeration, secure-context guards) since neither can be fed
+custom video.
 
 ---
 
 ## 8. Recommendations for qrbeam
 
-<!--SECTION8-->
+### 8.1 File in / file out, per platform
+
+**In — one drop zone, five listeners behind it.** Build a single `acquireFile(): Promise<File>`
+surface fed by all of:
+
+| Priority | Mechanism | Where it fires |
+|---|---|---|
+| 1 | `share_target` POST intercepted by the SW | Android Chrome, installed only |
+| 2 | `<input type="file">` **with no `accept` attribute** | everywhere — the floor |
+| 3 | `drop` → `DataTransfer.files` | desktop |
+| 4 | `paste` → `clipboardData.files` | desktop, opportunistic |
+| 5 | `showOpenFilePicker()` behind `'showOpenFilePicker' in window` | desktop Chromium only |
+
+Rationale: omit `accept` so iOS offers **Browse → Files** rather than defaulting to Photos —
+picking from Photos silently transcodes HEIC→JPEG and renames to `image.jpg`, which corrupts the
+"transfer this exact file" contract. Never read the whole file: keep the `File` reference (backed
+by disk, ~free) and pull bytes with `Blob.slice()` per frame.
+
+**Out — one "Save" button, two mechanisms, feature-detected in this order:**
+
+```js
+const canShare = navigator.canShare?.({ files: [file] });
+// 1. iOS + Android: share sheet → "Save to Files" / any app
+if (canShare) await navigator.share({ files: [file] });
+// 2. everywhere: anchor download, MUST be inside the click handler
+else downloadViaAnchor(file);
+// 3. desktop Chromium large-file path: stream straight to disk (chosen up-front, before transfer)
+```
+
+Non-negotiables:
+- **Both save paths must run inside a real user gesture.** iOS silently ignores a programmatic
+  blob-anchor click outside a touch handler. Never auto-save on last-chunk-arrival; show a button.
+- Show the `<a download>` button as a **sibling**, not a fallback-after-failure — Safari has a
+  history of degrading `share({files})` into a text share without throwing.
+- Defer `URL.revokeObjectURL()` by a second or two after the click.
+- Tell the user *where the file went* ("Saved to Files → Downloads"); iOS downloads are invisible
+  enough that users assume failure.
+
+**Receive-side buffering — the cross-platform architecture:**
+
+1. Desktop Chromium: `showSaveFilePicker()` **before** the transfer starts, then
+   `writable.write({type:'write', position, data})` as blocks decode. Bounded memory, out-of-order
+   writes handled natively by `position`, atomic move on `close()`.
+2. Everywhere else: stage into **OPFS** (`createSyncAccessHandle()` in a worker), then
+   `getFile()` → `navigator.share`/`<a download>` at the end. OPFS is the one file API that is
+   genuinely cross-browser (Baseline since March 2023; Safari/iOS 15.2+).
+3. Single-file `file://` build: OPFS is unavailable (verified `SecurityError`) — hold in memory
+   and cap the payload accordingly.
+
+Also call `navigator.storage.persist()` at startup to protect the OPFS staging file from
+quota eviction (it does not defeat iOS's 7-day ITP deletion).
+
+### 8.2 PWA approach
+
+- **Ship a hosted PWA as the primary product** and a **`qrbeam-standalone.html` single-file build
+  as a first-class secondary artefact**, linked from the app itself. The single file is the honest
+  answer for the truly air-gapped user, and it is a different build target with different
+  constraints (classic blob workers only, no module workers, no OPFS, base64-inlined WASM or —
+  preferably — pure JS).
+- Service worker: **precache everything, cache-first, hashed cache name per build.** Handle the
+  `share_target` POST *before* the generic GET path. Surface an explicit **"Ready for offline
+  use ✓"** state — for this app, knowing when it is safe to disconnect is a real feature.
+- Manifest: `display: "standalone"`, dark `background_color`/`theme_color`, 192/512/maskable
+  icons, plus the `share_target` block.
+- **On iOS, Add to Home Screen is mandatory, not optional.** Safari deletes service worker
+  registrations and cache after seven days of non-use; Home Screen web apps get their own usage
+  counter and are exempt. Detect iOS-Safari-not-standalone and show a dedicated, illustrated
+  onboarding screen explaining *why* — there is no `beforeinstallprompt` on iOS to lean on.
+- Keep `<meta name="apple-mobile-web-app-capable" content="yes">` alongside the manifest.
+- **Never change the URL path while the camera is live** — WebKit ties the media-capture
+  environment to the top frame document's URL and a `pushState` path change destroys the stream.
+  Use hash routing or no routing on the receive screen.
+- Re-request `getUserMedia` on `visibilitychange`→visible rather than assuming the track survived,
+  and provide an explicit **"Open in Safari"** escape hatch on the receive screen for the iOS
+  standalone camera regressions that recur every few releases.
+- `<video playsinline autoplay muted>` and call `.play()` from the same gesture that requested
+  the camera.
+
+### 8.3 Sender display setup
+
+Ordered by impact:
+
+1. **Wake lock, with re-acquisition.** `navigator.wakeLock.request('screen')` on transfer start,
+   re-acquire on `visibilitychange`→visible, catch rejections. **Works in iOS Home Screen web apps
+   only on iOS 18.4+** — below that, detect and instruct the user to set Auto-Lock to Never.
+2. **Fullscreen where it exists.** `requestFullscreen()` from the "Start" gesture on Android and
+   desktop. **iPhone cannot do this at all** (iPad only) — rely on `display: standalone` +
+   `viewport-fit=cover` + hiding all chrome.
+3. **Defeat colour transforms.** `<meta name="color-scheme" content="only light">` to block
+   Chrome Android's Auto Dark Theme before it can flash; render the QR to a **`<canvas>`** (not
+   CSS-coloured DOM) so pixel data is not remapped; set `image-rendering: pixelated`.
+   iOS Smart Invert cannot be opted out of — instead **make the decoder inversion-tolerant** (try
+   the frame and its inverse), which retires the entire class of problem, and offer a manual
+   invert toggle.
+4. **Brightness is a user instruction, not an API.** No browser can set it. Show a short
+   pre-flight checklist: brightness up, auto-brightness off, Night Shift/True Tone off. Feature-
+   detect the proposed `screen.requestBrightnessIncrease()` so qrbeam improves for free if
+   Chromium ships it — its explainer names QR display as the motivating use case.
+5. **Drive frames from `requestAnimationFrame`, never `setInterval`.** Measure the refresh rate by
+   timing rAF callbacks *while animating*, then quantise the target fps to an integer divisor of
+   it and hold each QR for exactly `round(R / targetFps)` vsyncs. Constant on-screen duration is
+   what lets a rolling-shutter camera catch whole frames. No CSS transitions or cross-fades on the
+   QR element — a dissolve between frames is fatal.
+6. Pause and warn on `visibilitychange`→hidden; a backgrounded sender is throttled to ~1 Hz and is
+   no longer transmitting.
+
+### 8.4 Progress UX with no back-channel
+
+*(See §5 for the prior-art evidence behind these.)*
+
+<!--REC-UX-->
+
+### 8.5 Testing approach
+
+**Recommendation: six tiers (§7.9). The default workhorse is a stubbed `getUserMedia` returning
+`canvas.captureStream(0)` — no browser flags, frame-exact. The real-capture tier uses Chromium's
+file-backed fake camera. Both are verified working; the physical rig remains the acceptance gate.**
+
+| Tier | What | Cadence |
+|---|---|---|
+| 1 | Node unit: codec round-trip, loss injection, hostile input, **a case per emitted QR version** | every commit |
+| 2 | Synthetic-frame decode + degradation ladder incl. **rolling-shutter tearing** (assert rates, not booleans) | every commit |
+| 3 | Stubbed `getUserMedia` → `canvas.captureStream(0)` + `requestFrame()`, **no flags** | every commit |
+| 4 | Two separate Playwright pages, frames shuttled via Node — proves app-to-app interop | commit/nightly |
+| 5 | Real capture stack: `--use-fake-device-for-media-stream` + `--use-file-for-fake-video-capture=<abs>.y4m`, plus a **network-blocked decode test** | nightly |
+| 6 | Physical rig (phone clamped facing a tablet) + manual iPhone/Android checklist | pre-release |
+
+**Traps that will cost a day each if you don't know them:**
+
+- **`--use-fake-device-for-media-capture` — the flag in nearly every tutorial — does not exist.**
+  It is silently ignored; the real name is `--use-fake-device-for-media-**stream**`. And
+  `--use-file-for-fake-video-capture` requires it alongside; it is a modifier, not a substitute.
+- **MJPEG fixtures produce black frames.** Use Y4M, generate it in a pretest step, never commit it.
+- **`chrome-headless-shell` (Playwright's default) has no permission machinery** — camera
+  permission tests need `channel: 'chromium'`.
+- **`zxing-wasm` fetches its `.wasm` from a CDN by default**, silently breaking the offline claim.
+  Pin `locateFile` to a local URL and add a network-blocked CI test.
+- **jsQR cannot decode QR version 23** and is unmaintained since 2021. Use `zxing-wasm`.
+- **`BarcodeDetector` is undefined in Linux CI** and absent from all of iOS — never the primary
+  decoder.
+- Playwright's bundled ffmpeg has no `lavfi`; write Y4M in Node.
+
+**Honest limits:** WebKit cannot fake a camera, Firefox can only produce a synthetic box, and the
+iOS Simulator has no camera at all. So the iOS behaviours that matter most — standalone-PWA camera
+regressions, Smart Invert, the share sheet, wake lock below 18.4, 7-day eviction — are **not
+CI-testable at any price**. BrowserStack Automate is the only device cloud that injects video into
+a web page's `getUserMedia`, and its iOS support claim is internally contradictory; trial it before
+depending on it.
