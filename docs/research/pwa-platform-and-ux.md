@@ -1613,6 +1613,29 @@ libcimbar states the conclusion outright: *"more modern cell CPUs run the decode
 but it turns out that this does not benefit performance much: **the camera is usually the
 bottleneck**."*
 
+**…but that assumes a decent phone.** Per-device decode latency
+([Minhaz Ahmed](https://blog.minhazav.dev/Using-BarcodeDecoder-in-javascript/)):
+
+| Device | ZXing (JS) | Native `BarcodeDetector` |
+|---|---|---|
+| MacBook Pro 16" | 21 ms | 10 ms |
+| Pixel 4 | 56 ms | 23 ms |
+| Pixel 4a | 92 ms | 47 ms |
+| **Low-end Android** | **373 ms (≈2.7 decodes/s)** | — |
+
+That worst case alone justifies shipping a **2–4 fps floor preset** — on a cheap phone the decoder
+*is* the bottleneck, and a 15 fps sender is simply unreadable.
+
+And density interacts with this brutally: *"the frame rate (fps) for 4,000 characters is around
+**0.75 fps**… for devices like the Google Pixel 6 Pro"*
+([arXiv 2506.23004](https://arxiv.org/pdf/2506.23004)). That is a decisive argument against v40 on
+top of the optical one.
+
+Also note **rendering can dominate decoding**: RaptorQR's
+[benchmark.md](https://github.com/infrost/RaptorQR/blob/master/benchmark.md) over a 10 s run
+measured QR **render 4,078 ms** vs **decode 2,699 ms** vs FEC 126 ms. Pre-render a lookahead queue
+(decimen keeps 3) and **skip rather than burst-catch** when behind.
+
 **Decoder choice: `zxing-wasm` ([Sec-ant/zxing-wasm](https://github.com/Sec-ant/zxing-wasm)) in a
 Web Worker, driven by `requestVideoFrameCallback`.** Both decimen and RaptorQR converged on this
 independently. **`BarcodeDetector` is not viable** — WebKit has never shipped it, which eliminates
@@ -2244,9 +2267,61 @@ Ordered by impact:
 
 ### 8.4 Progress UX with no back-channel
 
-*(See §5 for the prior-art evidence behind these.)*
+*(Evidence in §5.)* The governing insight: **the sender genuinely cannot know, and the user is the
+back-channel.** Design for that instead of faking a number.
 
-<!--REC-UX-->
+**Coding first — it determines what the UI can honestly say.** Use a fountain code; the evidence is
+unanimous and quantitative (txqr's own before/after on identical hardware is 2.8×). Budget
+ε ≈ **1.15–1.18**. Put a **self-describing ~20-byte header on every frame** (magic, session id, seq,
+K, block length, total length, hash) so the receiver locks on mid-flight with no handshake and a
+sender restart auto-resets the receiver.
+
+**Sender — show parameters and controls, never fake progress:**
+
+1. **Do not promise "frame 3 of 17."** With a fountain there is no 17. Show a live spec line:
+   `15 fps · 1465 B/frame · v27 · ECC L · 2.1 MB · K=1430`.
+2. **Ship the URDemo fragment bar** — a strip under the QR showing which fragments are XOR'd into
+   the frame currently on screen. It is the only sender-side display anyone has built that conveys
+   something true, and it makes the fountain legible rather than mysterious.
+3. **Ship controls, not readouts.** Every mature tool has speed and density controls, and they are
+   worth more than any counter: an fps slider, a QR-size slider (the user's only lever on the
+   optical link budget), and pause/step. The size slider doubles as the photosensitivity mitigation.
+4. **Two honest sentences:** *"Max screen brightness helps — but avoid glare."* and *"The stream
+   loops forever — stop when the receiver says it's done."*
+
+**Receiver — five things, in order of how much they help:**
+
+1. **A green/grey/no dot per captured frame** (SeedSigner's design): green = decoded and *new*,
+   grey = decoded but duplicate, nothing = no code in view. **This is the highest-value element in
+   the whole UI** because it responds instantly, so the user can hunt for the right distance in
+   real time. A percentage cannot do this.
+2. **Progress = `min(0.99, framesCollected / (K × 1.18))`** — frames *in*, never blocks *solved*,
+   and **never allow it to decrease**. This avoids both the BC-UR 99%-clamp bug and the LT
+   back-loaded-cascade bug (§5.5). Casa measured the cost of getting this wrong at up to 48 minutes.
+3. **Live "new vs duplicate" frame counters.** When new-frame rate collapses to zero but duplicates
+   keep arriving, the user is scanning a stalled or already-complete stream — worth saying so.
+4. **A coverage grid** (qrs/Coldcard style: decoded / redundant / missing). With a hybrid systematic
+   prefix you can show real per-index status for parts `1..seqLen`; with pure LT, show *coverage*
+   rather than per-index state or it will mislead.
+5. **End with hash verification, stated out loud** (`hash verified ✓` / `MISMATCH`), and consider a
+   **visual hash shown on both screens** (URDemo's LifeHash) so the user can confirm identity by eye
+   across the air gap — a zero-bandwidth integrity check.
+
+**Then do the thing nobody has done.** Measure the true capture rate from
+`requestVideoFrameCallback`'s `presentedFrames` and the decode success rate, and **turn the receiver
+into an advisor**: *"move closer — the code should fill at least 40% of the frame"*, *"too fast —
+set the sender to 8 fps"*, *"hold still, or prop the phone against something."* Apple and Google
+both ship this pattern at the platform level ("Slow Down", auto-zoom); no animated-QR tool does.
+Draw a reticle marking the actual decode region — Casa asked for exactly this and nobody ships it.
+
+**Ergonomics copy, which is currently buried in READMEs everywhere and belongs in the UI:**
+*"Prop your phone against something — autofocus hunting from hand tremor is the biggest killer"*
+(worth ~40–45% goodput, §5.7), *"fill the frame with the code"*, and *"good ambient light beats a
+bright screen."* Show the propping advice automatically for any transfer projected over ~60 s.
+
+**And render dark-on-light, upright, always** — with `inversionAttempts: 'dontInvert'` and
+`tryInvert`/`tryRotate` off. That is a free ~2× on decode throughput (§4.4); keep dual-polarity
+decoding as a user-triggered escape hatch for OS colour inversion, not a default.
 
 ### 8.5 Testing approach
 
