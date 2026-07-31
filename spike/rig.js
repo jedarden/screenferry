@@ -13,7 +13,7 @@
  */
 
 import QRCode from 'qrcode';
-import { readBarcodes, prepareZXingModule } from 'zxing-wasm/reader';
+import { readBarcodesFromImageData, getZXingModule } from 'zxing-wasm/reader';
 
 const HEADER = 13;
 
@@ -169,7 +169,7 @@ export class Receiver {
   }
 
   async start({ L, expectPerFrame }) {
-    await prepareZXingModule({ fireImmediately: true });
+    await getZXingModule(); // warm the wasm before the first frame
     this.L = L;
     this.expectPerFrame = expectPerFrame;
     this.running = true;
@@ -192,11 +192,14 @@ export class Receiver {
     const onFrame = async () => {
       if (!this.running) return;
       ctx.drawImage(this.video, 0, 0);
-      const blob = await c.convertToBlob({ type: 'image/png' });
+      const frame = ctx.getImageData(0, 0, c.width, c.height);
       const t = performance.now();
       let results = [];
       try {
-        results = await readBarcodes(blob, { tryHarder: false, formats: ['QRCode'], maxNumberOfSymbols: 64 });
+        // ImageData directly — a PNG encode per frame would dominate the 60 ms budget
+        results = await readBarcodesFromImageData(frame, {
+          tryHarder: false, formats: ['QRCode'], maxNumberOfSymbols: 64,
+        });
       } catch { /* a frame that fails to decode is an erasure, not an error */ }
       this.decodeMs.push(performance.now() - t);
       this.cameraFrames++;

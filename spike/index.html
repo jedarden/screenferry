@@ -142,5 +142,26 @@ $('dump').onclick = async () => {
   $('dump').textContent = 'Copied ✓';
 };
 
-setRole('send');
+// ── URL-driven mode, so tools/devrig.sh can start both ends with no taps ──
+// ?role=send|recv &rung=R2 &mod=4 &cols=4 &rows=3 &fps=12 &auto=1
+const q = new URLSearchParams(location.search);
+if (q.has('rung')) $('rung').value = q.get('rung');
+for (const [k, id] of [['mod','mod'],['cols','cols'],['rows','rows'],['fps','fps']]) {
+  if (q.has(k)) $(id).value = q.get(k);
+}
+setRole(q.get('role') === 'recv' ? 'recv' : 'send');
+
+// Expose live stats so the harness can scrape without OCR-ing a screenshot.
+Object.defineProperty(window, 'sfStats', {
+  get: () => {
+    const src = role === 'send' ? sender : receiver;
+    return src ? { role, config: cfg(), stats: src.stats() } : { role, stats: null };
+  },
+});
+
+if (q.get('auto') === '1') {
+  // A user gesture is not required for getUserMedia when the permission is already
+  // granted, which it is after the first manual grant on this origin.
+  addEventListener('load', () => setTimeout(() => $('go').click(), 400));
+}
 </script>

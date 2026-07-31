@@ -12,3 +12,4 @@ coverage/
 .beads/*.db-wal
 spike/node_modules/
 test-results/
+.certs/
