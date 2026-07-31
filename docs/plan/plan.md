@@ -34,13 +34,14 @@ a retransmission request, because there is no back-channel to request on.
 |---|---|---|---|
 | D1 | **Ship tiled QR, not single QR** | The single largest un-taken win. 15 × v15 QR codes decode from one 1080p frame in 7.8 ms for ~7.8 KB, vs 2953 B for one v40. ~10× for zero new decoder risk. | `beyond-qr` §10 |
 | D2 | **QR v15 @ ECC L, ~15 tiles** | Bounded by the 4 px/module decode cliff, not by symbology density. EC level L because the channel is *erasure*-dominated — redundancy belongs in the fountain code, not the symbol. L→H would cost 57% of payload for nothing. | `qr-encoding`, `beyond-qr` §10 |
-| D3 | **zxing-wasm as decoder** | Only credible option that reads **multiple** symbols per frame (required by D1) *and* returns `bytes: Uint8Array` rather than a mangled UTF-8 string. Apache-2.0. 2.0 ms/1080p frame native. | `browser-qr-scanning`, `beyond-qr` §10 |
+| D3 | **zxing-wasm as decoder, read `.bytes`** | Reads **multiple** symbols per frame (required by D1) and returns real bytes. Verified empirically against all seven candidate libraries with QRs containing every byte value: exact in **100%** of payloads. Also decisive on latency — zxing stays bounded at **9–26 ms** across all conditions where **jsQR hit 1453 ms on one noisy frame**, an unbounded path that would stall the pipeline. Apache-2.0. | `browser-qr-scanning`, `beyond-qr` §10 |
 | D4 | **node-qrcode encoder, mask pattern pinned** | Pinning the mask is a **4.6–8× encode speedup** — a bigger lever than library choice — and was verified safe for our data (uniform best-mask distribution, 8.3% median penalty spread). 1.53 ms/frame at v40. Worker-safe. | `qr-encoding` |
 | D5 | **LT-style fountain + harmonic degree distribution + GF(2) Gaussian elimination decoder** | Independently verified: GE needs **+1.2%** overhead at K=1000 where peeling needs **+180%**. ~300 lines of JS. Beats RaptorQ's 134 KB WASM + patent footnote by ~15 frames — not worth it. | `fountain-codes`, **`sim/`** |
 | D6 | **Harmonic and GE are a coupled pair — never change one alone** | Harmonic + peeling is the worst cell measured, and *degrades* as files grow (+90% at K=50 → +180% at K=1000). BC-UR specifies harmonic; peeling is the naive decoder. That pairing fails only on large files, pointing away from the cause. | **`sim/`** |
 | D7 | **13-byte frame header; K, fragment length and index set all derived, never transmitted** | Indices come from a PRNG seeded on `(seqNum, checksum)` — zero index bytes on the wire. ~1.0% overhead. Steals BC-UR's framing while discarding its decoder. | `fountain-codes` |
 | D8 | **Compress before chunking** (`CompressionStream`, native) | libcimbar does the same with zstd. Free bytes on compressible files; detect and skip on already-compressed input. | `fountain-codes`, `prior-art-libcimbar` |
-| D9 | **Display at ≤ half the camera frame rate** (12–15 fps vs 30 fps camera) | PixNet's rule. Faster produces only torn frames — a *reduction* in goodput. | `beyond-qr` §10 |
+| D9 | **Display at ≤ half the *measured* camera frame rate** | PixNet's rule. Faster produces only torn frames — a *reduction* in goodput. Note "measured", not "requested": see D14. | `beyond-qr` §10 |
+| D14 | **Set `exposureCompensation: min`, and measure delivered fps rather than trusting `getSettings()`** | **A precondition for D9, not an optimisation.** Android delivers **15 fps regardless of what you request, while reporting 30/60**. At 15 fps real, D9's half-rate rule caps the sender at 7.5 fps — halving throughput. `exposureCompensation: min` measured **15.0 → 41.6 fps (2.8×)**, restores the 12–15 fps sender rate, shortens exposure (attacking frame-mixing directly), and leaves AE continuous so **autofocus keeps working**. It is also simply correct for the subject: we are photographing a bright emissive screen, which we want *darker*. | `browser-qr-scanning` §1.4 |
 | D10 | **Every frame DC-balanced** (constant mean luminance) | Stops auto-exposure hunting. Throughput swings **2.4×** purely on the exposure the camera picks. Cheap to implement, large measured win. | `custom-codec`, `beyond-qr` |
 | D11 | **Runtime calibration probe decides luma-vs-colour, not this document** | Two research threads reached *opposite* conclusions (§3.4 below). The probe measures the actual device and adapts. Better than either answer. | `beyond-qr` §6.6 |
 | D12 | **Render dark-on-light, not dual-polarity** | Dual-polarity decoding costs ~50% throughput. OLED ABL also means a mostly-white sender loses ~4× brightness — so "light" must mean a *moderate* background, not full white. | `pwa-platform` |
@@ -109,12 +110,16 @@ it cannot know when the receiver is done. This is not a limitation to work aroun
 ### 3.3 Receiver pipeline
 
 ```
-getUserMedia ──► requestVideoFrameCallback ──► MediaStreamTrackProcessor
+getUserMedia ──► exposureCompensation:min (D14) ──► measure real fps (rVFC, ~1s)
+      │                                                        │
+      └──► requestVideoFrameCallback ──► MediaStreamTrackProcessor
+                                                        │
+                                                 ROI crop (9× win)
                                                         │
                                      ┌──────────────────┴─── Worker pool ───┐
                                      ▼                                      ▼
                               zxing readBarcodes                   [Stage 2: split
-                              (all symbols, bytes)                  R/G/B, stretch,
+                              (all symbols, .bytes)                 R/G/B, stretch,
                                      │                              decode ×3]
                                      ▼
                         packets ──► header parse ──► CRC ──► GE decoder
@@ -126,6 +131,18 @@ getUserMedia ──► requestVideoFrameCallback ──► MediaStreamTrackProce
 Worker-bound throughout: the main thread only paints UI. Decode is the CPU
 bottleneck in Stage 2 (70–145 ms/frame in WASM on a phone for three planes), which
 is precisely why it must not share a thread with rendering.
+
+Three receiver rules that are cheap to implement and expensive to omit:
+
+- **Measure fps, never trust it.** Count `requestVideoFrameCallback` invocations
+  over ~1 s. `getSettings()` reports 30/60 while the camera delivers 15. This
+  measurement also drives the sender-rate figure we show the user.
+- **Crop to the ROI before decoding — a measured 9× speedup.** Once the code
+  region is located, there is no reason to hand zxing the whole 1080p frame.
+- **Never offer a torch button on the scanning screen.** Torch measured a 3.6× fps
+  gain, which makes it tempting, but pointing an LED at a glossy screen creates a
+  specular hotspot that destroys a region of the frame. `exposureCompensation`
+  gets the same mechanism with no glare.
 
 ### 3.4 The luma-vs-colour disagreement, and how it is resolved
 
@@ -251,6 +268,13 @@ Verified constraints that shape the architecture rather than decorate it.
   regressed repeatedly across releases. A `pushState` path change kills a live stream —
   so routing must not touch the path during capture.
 - **No `BarcodeDetector` anywhere on iOS** — fine, we ship zxing-wasm regardless.
+  (It is structurally unusable everywhere, not just on iOS: the spec's
+  `DetectedBarcode` has **no byte member at all**, so it cannot satisfy the
+  binary-safety constraint on any platform.)
+- **Image-capture extensions absent entirely on iOS** — no `exposureCompensation`,
+  so the D14 frame-rate fix **does not apply there**. iOS delivers what it delivers;
+  measure it and set the sender rate from the measurement. This is the main reason
+  the sender rate must be data-driven rather than a constant.
 - **No brightness API on any platform.** Coach the user instead.
 
 ### 6.1 Testing
@@ -285,8 +309,19 @@ Fountain encoder + **GE decoder**, framing, CRC, compression, hashing. No camera
 no UI. Property tests: random files through random loss patterns, always
 byte-exact. Port `sim/fountain_overhead_sim.py` assertions into the test suite so
 D5/D6 stay verified as the code changes.
-**Done when:** a 10 MB file survives 50% random packet loss, byte-exact, and
-measured overhead matches the simulation to within a percent.
+
+**Binary-safety tests must use real compressed payloads at several lengths — never
+ASCII.** Corruption in the rejected libraries was both *content*- and
+*length*-dependent: the same generator round-tripped exactly at 600 bytes and
+corrupted at 256. An ASCII-based test suite marks every library safe, including
+the broken ones. The nastiest case, `@zxing/library.getText()`, returns the
+**correct length** while collapsing all 128 bytes ≥ 0x80 to U+FFFD — so a length
+assertion passes and the file is silently ruined. Assert on bytes, at multiple
+lengths, over the full 0x00–0xFF range.
+
+**Done when:** a 10 MB file survives 50% random packet loss, byte-exact; measured
+overhead matches the simulation to within a percent; and the binary-safety suite
+above passes against the real decoder.
 
 ### Phase 2 — Single-QR optical loop
 Simplest possible modulation. Real `getUserMedia`, real render loop.
