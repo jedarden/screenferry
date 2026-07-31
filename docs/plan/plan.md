@@ -46,6 +46,9 @@ a retransmission request, because there is no back-channel to request on.
 | D11 | **Runtime calibration probe decides luma-vs-colour, not this document** | Two research threads reached *opposite* conclusions (§3.4 below). The probe measures the actual device and adapts. Better than either answer. | `beyond-qr` §6.6 |
 | D12 | **Render dark-on-light, not dual-polarity** | Dual-polarity decoding costs ~50% throughput. OLED ABL also means a mostly-white sender loses ~4× brightness — so "light" must mean a *moderate* background, not full white. | `pwa-platform` |
 | D13 | **Add to Home Screen is mandatory on iOS, not a nicety** | Safari deletes service-worker caches after 7 days of non-use; Home Screen web apps are exempt. An offline-first tool that silently evaporates is worse than one that never claimed to work offline. | `pwa-platform` |
+| D15 | **Fragment length `L` is fixed at session start and never varies — not per profile, not ever** | A fountain packet is defined over K fragments of length L. Change L and K changes, invalidating **every packet already collected**. Profiles may vary tile version, module size, tile count and fps; never L. Easy to violate by accident ("just use bigger fragments for the dense profile"), and the symptom would be baffling. | `link-adaptation-design` |
+| D16 | **Sender emits a simulcast ladder of 2–3 robustness profiles; no negotiation in v1** | Because packets are fungible under a rateless code, the sender never has to *choose* a profile — it emits a mix and lets the channel decide which survive. No back-channel, no measurement, no decision, no oscillation risk. Converts the catastrophic case (mis-guessed fixed profile → **zero** throughput, since 4 px/module is a cliff not a slope) into a merely-slow case. | `link-adaptation-design` |
+| D17 | **Session opens at a conservative beacon profile, re-emitted periodically mid-transfer** | Analogous to WiFi's lowest basic rate. Lets a receiver join late or re-acquire after losing lock without restarting the sender — generalising the late-join recovery already demonstrated in testing. Also the bootstrap any future closed-loop mode would need. | `link-adaptation-design` |
 
 ---
 
@@ -366,10 +369,21 @@ Only after Stages 1–2 are solid, and only after the licensing decision below.
    progress. Options: show nothing on the sender; show elapsed/loop count; or an
    optional two-camera mode where the receiver flashes ACKs back. The last is
    powerful but violates the one-camera baseline — keep it strictly optional.
+   See open question 7.
 5. **Encryption.** Out of scope for v1 per the concept note, but the optical channel
    is uniquely exposed to being *filmed*. Worth revisiting once the transport is real.
 6. **Should the sender ever stop?** Currently it loops forever. A "probably done by
    now" heuristic risks stopping early; never stopping risks the user leaving it on.
+7. **Closed-loop negotiation — deliberately deferred, not forgotten.** A back-channel
+   is physically available in face-to-face geometry (screen and front camera share a
+   face on every device), and would need only ~10–30 bytes in a single static QR the
+   receiver holds on screen. Deferred because: it works only with the *worse* front
+   cameras, cannot work at all in the natural rear-camera scanning posture, needs a
+   conservative bootstrap anyway (so D16/D17 are prerequisites regardless), and
+   closed-loop rate adaptation is famously prone to oscillation against a wobbling
+   hand. D16's ladder captures most of the benefit at zero protocol cost.
+   **Reassess after Phase 3**, with a measurement of how much capacity the ladder
+   actually wastes. See [`../notes/link-adaptation-design.md`](../notes/link-adaptation-design.md).
 
 ---
 
