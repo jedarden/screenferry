@@ -17,6 +17,17 @@ colour crosstalk, optical blur, sensor noise, auto-white-balance error, tone cur
 4:2:0 chroma subsampling, JPEG). Those results are marked **[measured here]** and the
 scripts are described in §9 so they can be re-run.
 
+**Read alongside.** This note covers the *symbology and literature* space. Two sibling
+notes cover adjacent ground and should be read with it — they are not duplicated here:
+- `docs/research/custom-codec-engineering.md` — receiver-side engineering for a custom
+  codec, and the libcimbar existence proof. **§6.6 of this note records a measured
+  disagreement with its §7.2 "put all data in luma" conclusion.**
+- `docs/notes/prior-art-libcimbar.md` — verification of libcimbar's claims and the
+  MPL-2.0 licensing decision.
+- `docs/research/browser-qr-scanning.md`, `qr-encoding-capacity.md`,
+  `fountain-codes-and-protocol.md`, `pwa-platform-and-ux.md` — the browser, QR, protocol
+  and platform threads.
+
 ---
 
 ## 0. TL;DR
@@ -29,8 +40,10 @@ scripts are described in §9 so they can be re-run.
 | Does colour survive a real camera? | Yes — **saturated 8-colour (binary per RGB channel) is as robust as binary black/white** at ≥4 px/module. **[measured here]** |
 | What kills colour? | **Chroma subsampling.** 4:2:0/4:2:2 in the capture path costs colour exactly one step in module size (needs 5 px/module where mono needs 4). **[measured here]** |
 | What kills multi-level grey? | Blur. 4-level luma is *worse* than 8-colour RGB despite carrying fewer bits. **[measured here]** |
-| Realistic browser ceiling | **~15–40 KB/s** mono tiled QR; **~30–60 KB/s** colour-tripled. Not 1–3 KB/s, and not 1 MB/s. |
-| Should qrbeam use QR? | **Yes — but tiled, and with an RGB colour layer as v2.** Do not use JAB Code as the v1 wire format. See §10. |
+| Biggest un-taken win | **Tiling.** 15 QR codes in one 1080p frame = **7 800 B/frame** for 7.8 ms of decode; one v40 = 2953 B. Nobody's animated-QR tool does this. **[measured here]** |
+| Best *shipped* custom codec | **libcimbar** — **106 KB/s sustained**, WASM receiver, on a 2016 Snapdragon 625. MPL-2.0. See `docs/research/custom-codec-engineering.md` §0 and `docs/notes/prior-art-libcimbar.md`. |
+| Realistic browser ceiling | **20–45 KB/s** mono tiled QR; **35–90 KB/s** colour-tripled tiled QR; **~106 KB/s** demonstrated by a custom codec. Not 1–3 KB/s, and not 1 MB/s. |
+| Should qrbeam use QR? | **Yes for v1 — but tiled, and with an RGB colour layer as v2.** Do not use JAB Code as the v1 wire format. See §10. |
 
 ---
 
@@ -110,6 +123,8 @@ Head-to-head, both symbols confined to a 900×900 px patch of the sensor, 3/3 tr
 must be byte-exact, identical camera model (blur σ in *sensor pixels*, noise σ=3,
 tone-curve error):
 
+**Condition A — "sharp": blur σ = 0.8 sensor px, noise σ = 3**
+
 | px/module | QR-L bytes | QR-M bytes | JAB 8-col bytes | JAB 4-col bytes | JAB8 / QR-L |
 |---|---|---|---|---|---|
 | 3 | 2953 (v40) | 2331 (v40) | **0 (fails)** | 0 | — |
@@ -119,9 +134,29 @@ tone-curve error):
 | 8 | 1091 (v23)¹ | 857 (v23)¹ | 2681 (v23) | 1654 (v22) | 2.46× |
 | 10 | 718 (v18)¹ | 560 (v18)¹ | 1774 (v18) | 628 (v12) | 2.47× |
 
+**Condition B — "typical handheld": blur σ = 1.5 sensor px, noise σ = 4**
+
+| px/module | QR-L bytes | QR-M bytes | JAB 8-col bytes | JAB 4-col bytes | JAB8 / QR-L |
+|---|---|---|---|---|---|
+| 3 | 0 | 1989 (v37) | **0** | 0 | — |
+| 4 | **2953 (v40)** | 2331 (v40) | **0** | 0 | **0×** |
+| 5 | **2953 (v40)** | 2331 (v40) | **0** | 0 | **0×** |
+| 6 | 2068 (v33)¹ | 1628 (v33)¹ | 2309 (v21) | 0 | 1.12× |
+| 8 | 1091 (v23)¹ | 857 (v23)¹ | 2681 (v23) | 1788 (v23) | 2.46× |
+| 10 | 718 (v18)¹ | 560 (v18)¹ | 1774 (v18) | 1183 (v18) | 2.47× |
+
+**Condition C — "soft / slight motion": blur σ = 2.5 px, noise σ = 5** — *nothing* decodes
+at ≤5 px/module, QR included. This is the regime where the receiver must be told to move
+closer or hold still; no symbology choice rescues it.
+
 ¹ QR is capped by the 900 px budget at these scales, not by decodability — in a real
-system you would *tile* QR to refill the frame (see §6.3), which removes most of the
-apparent JAB advantage at ≥6 px/module.
+system you would *tile* QR to refill the frame (see §6.3), which removes the apparent
+JAB advantage at ≥6 px/module entirely.
+
+Condition B is the decisive one. **Under ordinary handheld blur, the JAB reference
+decoder produces nothing at all at 4 or 5 px/module, while QR-L delivers its full 2953
+bytes.** JAB only pulls ahead once the camera resolves ≥8 px/module — a much closer,
+steadier hold than qrbeam can assume.
 
 **Verdict on JAB Code for qrbeam.** The symbology is good; the reference decoder is
 research-grade, not a video-rate camera decoder. Using it would mean either (a) accepting
@@ -315,13 +350,30 @@ symbol level instead of stacking a fountain code on top of Reed–Solomon.
   not a grid. You need dense fiducials, not just four corners — which is precisely what
   QR's alignment patterns are, and why removing them is not free.
 
-**Has anyone shipped this?** Not on the open web in a browser. The nearest shipped things
-are the *research* systems in §2 (all native), and print-oriented paper-data formats
-(Twibright Optar, PaperBack) which are explicitly out of qrbeam's scope. The honest
-assessment: a raw grid codec is a real ~1.3–1.6× over a colour-tiled QR design, and it
-costs you a geometry pipeline, a calibration pattern, a synchronisation scheme, and a
-decoder you have to debug against real phone cameras. **It is the v3 upgrade path, not
-the v1 plan.**
+**Has anyone shipped this? Yes — [libcimbar](https://github.com/sz3/libcimbar).**
+"Colour-icon-matrix barcode", MPL-2.0, C++/OpenCV → Emscripten, ~6.2k stars, actively
+maintained. It sustains **852 kbit/s ≈ 106 KB/s** decoding on a 2016 Snapdragon 625, using
+8×8 px cells with a 1 px guard gutter, 4 *icon-shape* bits + 2 *colour* bits per cell,
+RS(155,125), zstd, and **wirehair** fountain codes — the same layering qrbeam's concept
+note sketched. It ships a WASM receiver.
+
+**This is the single most important artefact for qrbeam and it is covered in depth in the
+sibling documents, which should be read alongside this one:**
+- `docs/research/custom-codec-engineering.md` §0 — grid geometry, cell config, per-mode
+  throughput, and the whole receiver-side engineering analysis.
+- `docs/notes/prior-art-libcimbar.md` — verification of the claims against source, and the
+  **MPL-2.0 vs MIT licensing decision** that must be made before any code is written.
+
+That existence proof changes the framing of this section: a raw grid codec is not
+speculative, it is a solved problem with a published implementation whose numbers
+(~106 KB/s) sit right in the middle of the 50–130 KB/s estimate derived independently
+below (§6.5, row (c)). What it still costs you is a geometry pipeline, a calibration
+pattern, a synchronisation scheme, and a decoder to debug against real phone cameras —
+or a licence decision. **It is the v3 upgrade path, not the v1 plan**, but it is a
+*credible* v3, not a research gamble.
+
+Print-oriented paper-data formats (Twibright Optar, PaperBack) are explicitly out of
+qrbeam's scope.
 
 ---
 
@@ -464,15 +516,22 @@ x86-64, whole 1920×1080 greyscale frame:
 | QR v40 (2953 B) in 1080p | **2.0** |
 | QR v40, tryRotate+tryDownscale on | 3.2 |
 | empty 1080p frame (nothing to find) | 0.6 |
-| 3× channel decode (RGB-tripled v30) | 4.9 |
+| 3× channel decode (RGB-tripled v30, single symbol) | 4.9 |
 | **15 tiled QR v15 in one 1080p frame** | **7.8** |
+| 6 tiled QR v20 in 1080p, mono | 3.4 |
+| **6 tiled QR v20 × 3 colour planes** — zxing only | **12.1** |
+| … plus a cheap per-channel min/max contrast stretch | +5.6 |
 | JAB Code v31 (4503 B) in 1080p, reference decoder | **113** |
 
 Rule of thumb for translating: **WASM ≈ 1.5–2.5× native**, and a mid-range phone core
-≈ 2–4× slower than this server core. So multiply by **4–8×**. 15 tiled QR codes →
-**30–60 ms/frame on a phone in WASM**. That fits a 10–15 fps decode loop in a worker.
-JAB Code → **450–900 ms/frame**, i.e. **1–2 fps**. That gap, not the symbology, is what
-decides the recommendation.
+≈ 2–4× slower than this server core. So multiply by **4–8×**:
+
+- 15 tiled mono QR → **30–60 ms/frame** on a phone in WASM ⇒ comfortably 12–15 fps.
+- Tiled QR × 3 colour planes (~18 ms native) → **70–145 ms/frame** ⇒ **7–14 fps**. Tight
+  but workable in a Web Worker; this, not decodability, is what will cap Stage 2.
+- JAB Code → **450–900 ms/frame**, i.e. **1–2 fps**.
+
+That CPU gap, not the symbology's density, is what decides the recommendation.
 
 ### 6.3 Tiling is the biggest single browser-side win, and it is nearly free
 
@@ -496,37 +555,97 @@ finds; the marginal cost of the 15th code is far below the cost of the first.
 | 20 | 5 | 6 | 858 | 6/6 | 5148 | 5.0 |
 | 40 | 5 | 2 | 2953 | 2/2 | 5906 | 16.8 |
 
+(ECC level M costs about 20–25% of the payload for a modest robustness gain — e.g. 15 × v15-M
+= 6180 B/frame vs 7800 B/frame for L. With a fountain code above it, **L is the right
+choice**: qrbeam wants the *erasure* behaviour, and pays for reliability once, at the
+fountain layer, rather than twice.)
+
 Three things fall out:
 1. **4 px/module is the cliff.** At 3 px/module *everything* fails; at 4 px/module
    everything works. The whole design should be built around holding ≥4 sensor pixels per
    module, and the UI should tell the user to move closer when it drops below that.
+   *(The sibling note `pwa-platform-and-ux.md` measured this in a real browser — Chrome for
+   Testing 151 via Playwright with a fake camera — and found **2 px/module sharp,
+   3 px/module at 1 px blur, 5–6 px/module with motion blur**, identical across v10…v40.
+   That is a stronger form of evidence than my simulation and it is one step more
+   optimistic; my σ = 1.5 sensor-px blur is evidently harsher than their "1 px blur", and I
+   require 3/3 byte-exact trials. **Take their thresholds as the real ones and mine as
+   conservative** — the structural conclusion, that the threshold depends on blur and not
+   on QR version, is the same in both.)*
 2. **The optimum is many medium codes, not one big one.** ~7.6–7.8 KB/frame at versions
    10–25; a single v40 gets only 5.9 KB/frame. Smaller symbols also fail *independently* —
    which, with a fountain code, converts a total frame loss into a partial one.
 3. **Cost is flat.** 15 codes cost 7.8 ms, one code costs 2.0 ms. Tiling is close to free.
 
-### 6.4 Defensible browser throughput estimates
+**The geometry chain, so the sender side is not forgotten.** "4 px/module" is a *camera*
+constraint. There is a separate *display* constraint: render each module over **≥2–3
+physical display pixels**, otherwise the display's own subpixel structure aliases against
+the sensor grid and produces moiré. The 15 × v15 configuration needs
+5 × 81 = 405 modules across; at 2 display px/module that is an 810 px-wide render area,
+which any phone or laptop screen has. So the binding constraint really is the camera:
+the sender's code area must fill roughly 1620 × 972 of the receiver's 1920 × 1080 frame.
+In practice that means *"hold the phone so the coloured square fills the viewfinder"* —
+which is exactly the instruction the UI should give.
+
+### 6.4 Tiling × colour: the actual best browser-implementable number
+
+Same experiment, but each tile carries **three** independent QR symbols, one per RGB
+channel. Payload per 1920×1080 camera frame, all planes byte-exact [measured here]:
+
+| QR ver | px/module | tiles | B/plane | planes ok | **B/frame (4:4:4)** | | planes ok | **B/frame (4:2:0)** |
+|---|---|---|---|---|---|---|---|---|
+| **10** | **4** | 28 | 271 | 81/84 | **21 951** | | 0/84 | **0** |
+| 15 | 4 | 15 | 520 | 40/45 | 20 800 | | 0/45 | 0 |
+| 20 | 4 | 8 | 858 | 24/24 | 20 592 | | 0/24 | 0 |
+| 25 | 4 | 6 | 1273 | 17/18 | 21 641 | | 0/18 | 0 |
+| 10 | 5 | 18 | 271 | 49/54 | 13 279 | | 51/54 | 13 821 |
+| 15 | 5 | 8 | 520 | 24/24 | 12 480 | | 24/24 | 12 480 |
+| **20** | **5** | 6 | 858 | 18/18 | 15 444 | | 18/18 | **15 444** |
+| 25 | 5 | 3 | 1273 | 9/9 | 11 457 | | 9/9 | 11 457 |
+| 20 | 6 | 3 | 858 | 9/9 | 7 722 | | 9/9 | 7 722 |
+
+**Against the 7800 B/frame monochrome best:**
+- **4:4:4 (clean RGB frames): 21 951 B/frame = 2.81× mono** — essentially the full 3×,
+  minus a couple of dropped planes.
+- **4:2:0 (real camera pipeline): 15 444 B/frame = 1.98× mono** — exactly the 1.9×
+  predicted from the module-size penalty in §1.3.
+
+Note also that in the 4:4:4 rows several configurations lose 3–5 planes out of 84 while
+still returning most of the payload. **That is the erasure behaviour qrbeam wants**: a
+partially-decoded colour frame is a partially-delivered frame, not a lost one.
+
+### 6.5 Defensible browser throughput estimates
 
 Assumptions: 1080p30 camera, sender's code area fills most of the frame, receiver holds
 still-ish, **8–12 decodable frames per second** (§5: camera at 2× display rate, minus
 autofocus/exposure hunting and torn frames), and a **2–3× derate** from the clean
 simulation above for perspective, rolling-shutter shear, glare and hand motion.
 
-| # | Scheme | Bytes/frame (measured, clean) | Realistic bytes/frame | Decoded fps | **Realistic goodput** |
+| # | Scheme | Bytes/frame (measured, simulated camera) | Realistic B/frame | Decoded fps | **Realistic goodput** |
 |---|---|---|---|---|---|
 | **(a)** | **Plain QR, one code per frame** (what everyone ships today) | 2953 (v40) | 800–1500 | 6–10 | **1–9 KB/s** — matches TXQR's measured "best 9 KB/s, typically 1–2 KB/s" |
-| **(a′)** | **Tiled mono QR**, v10–v20, 4 px/module, zxing-wasm in a worker | 7800 | 2500–4000 | 8–12 | **20–45 KB/s** |
-| **(b)** | **Colour-channel-tripled tiled QR** (3 QR planes in R/G/B) | ~3× (a′) at 4:4:4; ~1.9× at 4:2:0 | 4500–7500 | 8–12 | **35–85 KB/s** |
-| **(c)** | **Custom colour grid codec** (own geometry + RaptorQ over 8-colour cells, layered luma/chroma) | ~1.3–1.6× (b) | 6000–11000 | 8–12 | **50–130 KB/s** |
+| **(a′)** | **Tiled mono QR**, v10–v20 @ 4 px/module, zxing-wasm in a worker | **7 800** | 2500–4000 | 8–12 | **20–45 KB/s** |
+| **(b)** | **Colour-channel-tripled tiled QR** (3 QR planes in R/G/B) | **15 444** @ 4:2:0; **21 951** @ 4:4:4 | 5000–8000 | 7–12 (decode-CPU-bound) | **35–90 KB/s** |
+| **(c)** | **Custom grid codec** (own geometry + fountain code over multi-bit cells) | ~1.3–1.6× (b) | 6500–12 000 | 7–12 | **50–130 KB/s** est. — and **libcimbar measures 106 KB/s**, right in the middle of it |
 | **(d)** | **Lab SOTA, phone→phone** (SoftLight, TETRIS) | — | — | — | **~35–40 KB/s** (293–324 kb/s) |
 | **(d′)** | **Lab SOTA, DSLR + 30" monitor** (PixNet) | — | — | — | **~1.5 MB/s** nominal (12 Mb/s) — *not reproducible on a phone, in a browser, or in real time* |
 
-**Sanity check:** (a′) and (b) straddle the published phone-to-phone SOTA (d). That is the
-right answer — a browser using a stock QR decoder *should* land near a decade of
-purpose-built native research systems, because both are limited by the same physics
-(camera resolution × usable frame rate), and the browser's handicap (post-ISP frames,
-canvas readback, WASM) is roughly offset by 2026 hardware being far better than 2016
-hardware. If an estimate had come out at 1 MB/s, it would have been wrong.
+**Sanity check:** (a′) and (b) straddle the published phone-to-phone SOTA (d), and (c) is
+confirmed by libcimbar's measured 106 KB/s. That is the right answer — a browser using a
+stock QR decoder *should* land near a decade of purpose-built native research systems,
+because both are limited by the same physics (camera resolution × usable frame rate), and
+the browser's handicap (post-ISP frames, canvas readback, WASM) is roughly offset by 2026
+hardware being far better than 2016 hardware. If an estimate had come out at 1 MB/s, it
+would have been wrong.
+
+**Reconciling with the QR thread's headline.** `docs/notes/prior-art-libcimbar.md` cites the
+QR research thread's figure as **~18.5 KB/s (v27, EC-L, 15 fps)** — one code per frame.
+That is the same physics as row (a′) reached by a different route: a single v27 (1264 B)
+at an optimistic 15 decodable fps, versus 15 tiled v15 codes (7800 B) at a more realistic
+8–12 fps. **Tiling buys margin rather than raw peak**: it hits a similar or better rate at
+*half* the frame rate, which is exactly what you want on a channel where frame rate is the
+fragile term (torn frames, autofocus hunting) and frame *area* is the robust one. It also
+degrades gracefully — losing 4 of 15 tiles costs 27% of a frame, not 100% of it.
 
 **Where the estimates could be wrong.** All my per-frame numbers come from a *simulated*
 camera. The simulation models blur, noise, crosstalk, AWB error, tone curve, chroma
@@ -534,6 +653,55 @@ subsampling and JPEG, but not: rolling-shutter shear, real lens distortion, glar
 reflection off the sender's screen, PWM backlight banding, or the sender's own display
 subpixel structure. Those are all *loss* terms. Treat (a′)/(b)/(c) as **upper-middle
 estimates**, and verify on real hardware before promising a number in the UI.
+
+### 6.6 A disagreement with `custom-codec-engineering.md` that needs settling
+
+The sibling research note `docs/research/custom-codec-engineering.md` reaches the opposite
+conclusion on colour. Its §7.2 argues **"put all data in luma — luma-only beats colour by
+~1.95× in bits per camera pixel"**, on the reasoning that chroma is quarter-resolution
+twice over (Bayer CFA, then Chrome's NV12/I420 conversion) and therefore a colour cell
+needs to be **2× larger in each axis** than a luma cell.
+
+That note is explicit that its number is **[DERIVED], not measured**, and states plainly:
+*"no study directly measuring 4:2:0's effect on a colour barcode appears to exist. …That is
+a genuine gap."* **The experiments in §1.3, §4 and §6.4 of this document measure exactly
+that gap**, and they land differently:
+
+| | `custom-codec-engineering.md` §7.2 (derived) | this document (measured) |
+|---|---|---|
+| Colour cell size penalty under 4:2:0 | **2× linear (4× area)** | **1.25× linear (1.56× area)** — mono works at 4 px/module, colour at 5 |
+| Net effect | luma-only wins ~1.95× | RGB-tripled tiled QR wins **1.98×** (15 444 vs 7 800 B/frame) |
+
+**Why the gap.** Chroma decimation is a *low-pass filter*, not a deletion. A binary chroma
+pattern at 5 luma px/module presents **2.5 chroma samples per module**, comfortably above
+Nyquist; at 4 px/module it presents exactly 2.0, right at Nyquist — which is precisely
+where the measurement shows it break. The "2× larger in each axis" rule over-corrects by
+assuming you need to re-establish the *original* sampling density rather than merely stay
+above Nyquist in the decimated grid.
+
+**Where the sibling note is right, and where my measurement is weak.**
+- Its point that **AWB warps colour in three non-monotonic dimensions** is correct and my
+  simulation understates it: I modelled AWB as a per-channel gain N(1, 0.03), which is the
+  *easy* case. A real per-frame 3×3 matrix — which you cannot lock on iOS — is harder.
+  A per-frame in-band colour reference (the sibling note's §3.2 reference columns, or JAB
+  Code's embedded palette) is the correct mitigation and it is not optional.
+- Its §7.2 arithmetic assumes **"luma only: 8 levels (3 bits)"**. §4 of this document
+  measures 8-level luma as **unusable**: 21.18% symbol error at 5 px/cell and 4.18% at
+  6 px/cell under ordinary handheld blur, versus **0.00%** for saturated 8-colour at 4
+  px/cell. If 8-level luma actually needs 7–8 px/cell to be clean, the arithmetic inverts.
+- **libcimbar itself does not go luma-only.** Its shipping default is 4 icon bits **+ 2
+  colour bits**, and its *deprecated* 8-colour mode (3 colour bits) benchmarked
+  **faster** — 943 vs 852 kbit/s. A project that measured this on real hardware chose to
+  spend 2 of its 6 bits per cell on colour.
+
+**How to settle it.** One instrumented run on the target device, not more argument:
+display a calibration frame carrying (i) a binary luma checkerboard, (ii) a binary chroma
+checkerboard, and (iii) an 8-level luma ramp, each at 3, 4, 5, 6 and 8 px/module; capture
+via `getUserMedia`; measure recovered contrast and per-level separation for each. That
+directly yields the device's real luma and chroma cut-off pitches and settles which
+modulation to use — and it is cheap enough to run at session start and **adapt**, rather
+than being decided once in a document. Recommendation: build that probe first, and treat
+both this note and §7.2 as hypotheses until it runs.
 
 ---
 
@@ -577,8 +745,8 @@ Bits/cell is the *raw* modulation density; "goodput" is what the source demonstr
 | Scheme | bits/cell | Demonstrated goodput (hardware) | Browser? | Open impl | License |
 |---|---|---|---|---|---|
 | **QR (mono), 1 code/frame** | 1 | 9 KB/s best, 1–2 KB/s typical (TXQR, phone) | **Yes, today** | zxing-wasm, jsQR | Apache-2.0 / MIT |
-| **QR (mono), tiled 8–28/frame** | 1 | 7.8 KB/frame measured ⇒ **20–45 KB/s est.** | **Yes** | zxing-wasm (`read_barcodes`) | Apache-2.0 |
-| **RGB-channel-tripled QR** | 3 | 3× mono at 4:4:4; **1.9× at 4:2:0** [measured here] ⇒ 35–85 KB/s est. | **Yes** — 3 stock decodes/frame | zxing-wasm ×3; trivial encoder | Apache-2.0 |
+| **QR (mono), tiled 8–28/frame** | 1 | **7 800 B/frame** measured ⇒ **20–45 KB/s est.** | **Yes** | zxing-wasm (`read_barcodes`) | Apache-2.0 |
+| **RGB-channel-tripled tiled QR** | 3 | **21 951 B/frame @ 4:4:4 (2.81× mono); 15 444 @ 4:2:0 (1.98×)** [measured here] ⇒ 35–90 KB/s est. | **Yes** — 3 stock decodes/frame | zxing-wasm ×3; trivial encoder | Apache-2.0 |
 | **JAB Code, 8-colour** | 3 | 4772 B/symbol; **2.41× QR/module**; but needs ≥5 px/module and **113 ms/frame** decode | **Hard** — needs a new decoder | jabcode (C), JABCodeJS (stale) | **MIT** (since 2026-04-17) |
 | JAB Code, 4-colour | 2 | 3181 B/symbol; 1.6× QR/module | Hard | same | MIT |
 | Aztec | 1 | 1914 B max; 0.89× QR/module but **no quiet zone** | Yes | zxing-wasm | Apache-2.0 |
@@ -586,7 +754,10 @@ Bits/cell is the *raw* modulation density; "goodput" is what the source demonstr
 | Han Xin | 1 | 3261 B max; 0.97× QR/module | Partly (zint encodes) | zint | BSD-3 |
 | PDF417 / MaxiCode | 1 | ≪ QR | Yes | zxing-wasm | Apache-2.0 |
 | HCCB / Microsoft Tag | 2–3 | 3500 char/in² (print, lab) | No | none maintained | proprietary, **service dead 2015** |
-| Custom 8-colour grid + RaptorQ | 3 | — (est. 50–130 KB/s) | **Hard but possible** | none | you write it |
+| **libcimbar** (icon-shape + colour grid) | **6** (4 shape + 2 colour) | **852 kb/s ≈ 106 KB/s sustained**, 4.69 MB in 44 s, **Snapdragon 625 (2016), 4 threads** | **Yes — ships a WASM receiver** | <https://github.com/sz3/libcimbar> | **MPL-2.0** (file-level copyleft — see `docs/notes/prior-art-libcimbar.md`) |
+| libcimbar mode 8C (deprecated) | 7 | 943 kb/s ≈ 118 KB/s | Yes | same | MPL-2.0 |
+| libcimbar mode S (beta) | 4, 5×5 px cells | "safely >1 Mbit/s" (WIP) | Yes | same | MPL-2.0 |
+| Custom 8-colour grid + RaptorQ, written from scratch | 3 | — (est. 50–130 KB/s) | **Hard but possible** | none | you write it |
 | **PixNet** (2-D OFDM) | 1 (green only) | **12 Mb/s @ 10 m** (30" LCD → 24 MP DSLR, nominal) | **No** — needs FFT over a machine-vision frame + DSLR | none public | — |
 | COBRA | ~2.3 (5 colours) | 64–98% frame decode (phone→phone) | No | none public | — |
 | RDCode | colour | ≥2× COBRA, 10% error rate | No | none public | — |
@@ -634,15 +805,21 @@ a throughput figure.
 
 ### Should qrbeam use QR at all?
 
-**Yes — QR stays the wire format, but the current plan under-uses it by ~10×.**
+**Yes for v1 — and the current plan under-uses QR by roughly 10×. But QR is not the
+long-term answer, and the note should say so plainly:** libcimbar demonstrates ~106 KB/s
+with a custom grid codec and a WASM receiver, which is 2–5× anything QR can reach. The
+honest position is *"QR is the right thing to ship first, and the wrong thing to ship
+forever."*
 
-The reason is not that QR is the densest symbology (JAB Code is 2.4× denser per module,
-and a custom colour grid would be denser still). It is that **on this channel the binding
+The case for QR **now** is not that it is the densest symbology (JAB Code is 2.4× denser
+per module, and libcimbar's grid is denser still). It is that **on this channel the binding
 constraint is not symbology density — it is decoder robustness and decoder CPU**, and QR
-wins both by an enormous margin:
+wins both by an enormous margin, at zero implementation risk:
 
-- zxing-cpp decodes QR at **3 px/module**; the JAB reference decoder cannot decode at 3
-  px/module *even on a clean synthetic image*, and needs 5 px/module in practice.
+- Under ordinary handheld blur, zxing-cpp decodes QR at **4 px/module** (and at 3 px/module
+  when the image is sharp); the JAB reference decoder cannot decode at 3 px/module *even on
+  a clean synthetic image*, and under the same handheld blur produces **nothing at all** at
+  4 or 5 px/module — it needs 6–8.
 - zxing-cpp costs **2.0 ms** per 1080p frame; the JAB reference decoder costs **113 ms**.
   In WASM on a phone that is the difference between 15 fps and 1 fps.
 - zxing-wasm returns `bytes: Uint8Array`, satisfying the concept note's non-negotiable
@@ -652,7 +829,10 @@ wins both by an enormous margin:
   A colour symbology with a single LDPC block over the whole symbol does *not* give you
   that cleanly.
 
-The 10× that is being left on the table is **tiling** and then **colour**.
+The 10× that is being left on the table *within QR* is **tiling** and then **colour** —
+both of which use a stock, well-tested decoder and can ship without inventing anything.
+Beyond that, the next 2–3× requires leaving QR behind, and libcimbar shows what that
+looks like.
 
 ### Staged recommendation
 
@@ -676,30 +856,41 @@ The 10× that is being left on the table is **tiling** and then **colour**.
 
 **Stage 2 — the colour layer. RGB-channel-tripled tiled QR.**
 - Render **three independent tiled QR grids**, one into each of R, G and B. The receiver
-  splits channels, normalises each (2nd/98th percentile stretch), and runs the *same*
+  splits channels, applies a cheap per-channel contrast stretch, and runs the *same*
   zxing decoder three times. No new symbology, no new decoder, no new failure mode —
   each plane is an independent erasure channel and the fountain code absorbs the rest.
-- Cost: 3× decode CPU (measured 4.9 ms native for 3 planes at v30; ~20–40 ms in WASM on a
-  phone — still inside a 12 fps budget in a worker).
-- **Measure the chroma penalty on the target device first.** The gain is 3× if you get
-  4:4:4 frames and ~1.9× if the path is 4:2:0. Detect it at runtime by sending a
-  calibration frame with a fine chroma checkerboard and measuring the recovered contrast;
-  then pick the module size accordingly (4 px/module mono, 5 px/module colour).
+- Cost: measured **12.1 ms** native for zxing over 3 tiled planes of a 1080p frame, plus
+  ~5.6 ms for a cheap per-channel min/max contrast stretch ⇒ ~18 ms native ⇒
+  **70–145 ms/frame in WASM on a phone.** This is the binding constraint on Stage 2, not
+  decodability — budget for **7–12 fps**, and keep it in a Web Worker.
+  (Do *not* use a percentile-based stretch: measured at 59 ms native for three 1080p
+  planes, it costs more than the decode itself. Min/max over a decimated sample is enough.)
+- **Measure the chroma penalty on the target device first.** Measured: **2.81× at 4:4:4,
+  1.98× at 4:2:0.** Detect it at runtime by sending a calibration frame with a fine chroma
+  checkerboard and measuring the recovered contrast; then pick the module size accordingly
+  (**4 px/module mono, 5 px/module colour**).
 - Prefer **saturated primaries** (the RGB corners of the cube). §4 shows those are as
   robust as black/white at ≥4 px/module. Do *not* use intermediate levels.
-- **Expected: 35–85 KB/s.**
+- **Expected: 35–90 KB/s.**
 
-**Stage 3 — optional, only if measurement justifies it. Custom colour grid codec.**
-- Drop QR entirely: an explicit fiducial border + dense alignment dots, homography +
-  per-cell sampling, an **8-colour saturated constellation**, and **RaptorQ directly over
-  the symbol stream** (no inner Reed–Solomon). This is the SoftLight architecture with
-  2026 hardware.
-- Under 4:2:0 use the **layered luma/chroma** design from §4.5: 1 bit/cell of luma at the
-  fine pitch, 2 bits/cell of chroma at 2× coarser pitch ⇒ 1.5 bits per fine cell with no
-  chroma-resolution violation.
+**Stage 3 — the custom grid codec. Do not design this from scratch; start from libcimbar.**
+- **libcimbar already demonstrates 106 KB/s with a WASM receiver on 2016 hardware**
+  (§3, and `docs/research/custom-codec-engineering.md` §0). That is the target and the
+  reference design. The remaining decisions are (i) the **MPL-2.0 vs MIT licence question**
+  laid out in `docs/notes/prior-art-libcimbar.md`, and (ii) how much of it to port versus
+  re-derive.
+- If writing fresh: explicit fiducial border + dense alignment dots, homography + per-cell
+  sampling, a **saturated multi-bit constellation**, and a **rateless code directly over the
+  symbol stream** (no inner Reed–Solomon). This is the SoftLight architecture with 2026
+  hardware — and libcimbar is what it looks like when built.
+- Under 4:2:0, if the device probe (§6.6) confirms the chroma cut-off, use the **layered
+  luma/chroma** design from §4, finding 5: 1 bit/cell of luma at the fine pitch, 2 bits/cell
+  of chroma at 2× coarser pitch ⇒ 1.5 bits per fine cell with no chroma-resolution
+  violation. Note libcimbar's shipped split (4 shape bits + 2 colour bits) is a real-world
+  instance of exactly this layering.
 - **Expected: 50–130 KB/s**, at the cost of owning a geometry pipeline and a decoder you
-  must debug against dozens of real phone cameras. Only worth it if Stage 2 measurements
-  show the ISP is not already the limit.
+  must debug against dozens of real phone cameras, or a licence decision. Only worth it if
+  Stage 2 measurements show the ISP is not already the limit.
 
 ### Things to explicitly *not* do
 
