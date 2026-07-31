@@ -82,7 +82,7 @@ def main():
     print("Distribution: harmonic Pr(d) ~ 1/d, truncated at the cap.\n")
     print(f"{'K':>6} {'cap':>6} {'mean d':>8} {'mean ovh':>10} {'p50':>8} {'p99':>8} {'fails':>6}")
 
-    for K in (256, 512, 1024):
+    for K in (256, 512, 768, 1024):
         base = None
         for cap in caps:
             hi = K if cap is None else min(cap, K)

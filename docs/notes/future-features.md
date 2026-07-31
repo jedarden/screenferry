@@ -53,7 +53,7 @@ Very little, which is why it stayed a finalist through the kill pass:
    but all of it reads wrong with several.
 2. **Repair codes must union.** If receiver A is missing blocks {5, 9} and B is
    missing {17}, the sender takes the union of every code entered. Small change to
-   the §6.2 repair mechanism, and the only protocol-level work.
+   the §8.2 repair mechanism, and the only protocol-level work.
 3. **Slightly more generous dwell.** With several receivers the worst channel
    dominates, so the D16 ladder should skew a little more conservative.
 
@@ -71,7 +71,7 @@ Very little, which is why it stayed a finalist through the kill pass:
 
 It is a genuine differentiator — AirDrop and Nearby Share cannot broadcast to a
 room — and the marginal cost is low. But it is **almost entirely UI work for a use
-case nobody has asked for yet**, and the plan already carries 24 decisions, 10 open
+case nobody has asked for yet**, and the plan already carries 26 decisions, 10 open
 questions, and zero lines of code. It earns its place only once the one-to-one path
 actually works end to end.
 
