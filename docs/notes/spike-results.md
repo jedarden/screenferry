@@ -172,3 +172,118 @@ change confidence and priority:
 - With/without `exposureCompensation` comparison
 - On-device GE benchmark
 - Everything under §13.2 conditions, ≥ 5 trials, median reported
+
+---
+
+# S3 — density sweep: what actually limits throughput
+
+Run after the question "is there something denser than QR?" — the answer turned out
+to be no, or at least not yet, and the measurements say why.
+
+## The correction that reframes everything
+
+**The 4 px/module cliff is measured in CAMERA pixels, not screen pixels.** The plan
+and the rig both used "module px" to mean screen pixels, and the two differ by the
+ratio of capture width to the screen's width in frame.
+
+The Pixel 6 was capturing **1080×1920 portrait** while the sender's screen is
+**1920×1080 landscape**, so the screen's long axis landed on the camera's *short*
+axis: 1080 / 1920 = **0.5625×**. Four screen px/module was therefore **2.25 camera
+px/module — well below the cliff.**
+
+That single fact explains the 48–78% erasure from S2. We were not measuring a
+symbology limit. We were measuring a sampling limit.
+
+## The cliff, measured
+
+Capture resolution swept at fixed geometry (R2, 4 screen px/module, 15 tiles, sender 3 fps):
+
+| Capture | Camera px/module | Camera fps | Decode p50 | Erasure | Goodput | Frames w/ zero |
+|---|---|---|---|---|---|---|
+| 720×1280 | **1.50** | 8.9 | 33 ms | **100%** | 0.0 KB/s | **100%** |
+| 1080×1920 | **2.25** | 4.4 | 22 ms | 78% | **4.0 KB/s** | 1% |
+| 1440×2560 | **3.00** | 2.5 | 42 ms | 88% | 2.1 KB/s | 2% |
+| 2160×3840 | **4.50** | 1.1 | 194 ms | — | 3.4 KB/s | **0%** |
+
+Two things are visible and neither is about QR:
+
+1. **It is a cliff, not a slope.** At 1.5 camera px/module *nothing* decodes — 100%
+   erasure, every frame empty. At 2.25 it works badly. The research's characterisation
+   is confirmed on real hardware.
+2. **Raising capture resolution does not help by itself.** Decode is O(pixels), so 4K
+   bought optical health (zero empty frames) and paid for it with 194 ms decode and
+   1.1 fps — net *worse* goodput. There is a knee, and at this geometry it sits near
+   1080×1920.
+
+`byteMismatches: 0` in every run, including the 100%-erasure one. The erasure channel
+property holds even when the channel delivers nothing at all.
+
+## The free 1.78× nobody is taking
+
+The phone is physically **portrait** while the screen is **landscape**, so 44% of the
+sensor images nothing useful. Physically rotating the phone 90° puts the screen's long
+axis on the camera's long axis: **1.78× more camera pixels on the code, at identical
+decode cost.** That is a bigger win than any symbology change on the table, and it
+costs nothing.
+
+Verified negative: setting Android's `user_rotation` to landscape does **not** do it —
+capture stayed 1080×1920 and camera px/module stayed 2.25. The sensor mapping follows
+the device body, not the UI orientation. This needs a physical rotation (or a mount).
+
+## QR is denser per pixel than libcimbar
+
+Worth recording because it contradicts the framing the plan inherited:
+
+| Scheme | Bits per screen px² |
+|---|---|
+| libcimbar, 6 bits/cell over 9×9 px | 0.0741 |
+| **QR v16-L at 3 px/module** | **0.0794** |
+| QR v16-L at 2 px/module | 0.1786 |
+
+**libcimbar's 106 KB/s is not a density win — it is a frame-rate win.** It sustains
+~11 decoded frames/s where we manage 2–4. That reorders the plan's Stage 2/Stage 3
+argument: the custom codec's value is decode *speed* per bit, not bits per pixel.
+
+## What 1 Mbps needs
+
+125 KB/s, from the measured constraints. Requires camera px/module ≥ 4 *and* enough
+bits/frame *and* enough frame rate:
+
+| Configuration | Cam px/module | KB/frame | Sender fps needed |
+|---|---|---|---|
+| portrait @ 4 screen px/mod (today) | 2.25 ✗ | 8.6 | 14.6 |
+| **landscape @ 4 screen px/mod** | **4.00 ✓** | 8.6 | 14.6 |
+| landscape @ 3 screen px/mod | 3.00 ✗ | 16.0 | 7.8 |
+| **landscape 4K @ 2 screen px/mod** | **4.00 ✓** | **37.8** | **3.3** |
+| landscape 4K @ 3 screen px/mod | 6.00 ✓ | 16.0 | 7.8 |
+
+The bottom row is the interesting one: **at 4K landscape and 2 screen px/module, 1 Mbps
+needs only 3.3 sender fps** — slower than the 6.7 fps the 2015 bench laptop already
+manages. The density is not the problem.
+
+What stands between here and there, in order of value:
+
+1. **Physically rotate the phone to landscape** — 1.78×, free, no code.
+2. **Tight ROI crop to the screen quad** — at 4K the screen is a fraction of the frame;
+   decoding only it keeps px/module high *and* pixel count bounded. This is what makes
+   4K affordable, and the current ROI (35% margin, full-frame rescans) is far too loose.
+3. **Decode in a worker pool** (§6.2) — decode currently gates camera fps directly.
+4. **D4's pinned mask on the sender** — needed to hold ≥ 8 fps on modest hardware.
+5. **Only then** revisit colour or a custom codec, against a receiver that is not
+   CPU-starved.
+
+**1 Mbps is roughly libcimbar's demonstrated 850 kbps, so it sits at the edge of what
+commodity hardware has ever shown.** Nothing measured here says it is unreachable, and
+nothing measured here says a denser symbology is the way to reach it.
+
+## Revised answer to "is there something denser than QR?"
+
+Not usefully, at this stage. The measured limits are, in order:
+
+1. camera px/module (below the cliff — fixable free, by rotation)
+2. decode CPU (fixable with a worker pool and a tight ROI)
+3. sender encode CPU (fixable with D4's pinned mask)
+4. …and only then symbology density
+
+Items 1–3 are worth roughly 10× between them and require no new decoder. Symbology is
+the last lever to pull, not the first.

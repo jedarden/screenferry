@@ -141,12 +141,18 @@ $('go').onclick = async () => {
     await $('cam').play();
     const expect = c.cols * c.rows * RUNGS[c.rung].packets;
     receiver = new Receiver($('cam'));
-    await receiver.start({ L, expectPerFrame: expect });
+    const cap = (q.get('cap') || '').split('x').map(Number);
+    await receiver.start({ L, expectPerFrame: expect, captureW: cap[0], captureH: cap[1] });
     timer = setInterval(() => {
       const s = receiver.stats();
       $('headline').textContent = `${n(s.goodputBytesPerSec / 1024)} KB/s goodput`;
       $('headline').className = 'big ' + (s.goodputBytesPerSec / 1024 >= 20 ? 'ok' : s.goodputBytesPerSec / 1024 >= 10 ? 'warn' : 'bad');
       $('rxstats').innerHTML =
+        row('capture', s.capture ? s.capture.join('x') : '-') +
+        row('camera px/module', (() => {
+          const cw = s.capture ? Math.max(...s.capture) : 0;
+          return cw ? (c.modulePx * cw / 1920).toFixed(2) : '-';
+        })(), s.capture && (c.modulePx * Math.max(...s.capture) / 1920) < 4 ? 'bad' : 'ok') +
         row('camera fps', n(s.cameraFps, 1), s.cameraFps < 20 ? 'warn' : 'ok') +
         row('exposureCompensation applied', s.exposureApplied, s.exposureApplied ? 'ok' : 'warn') +
         row('unique packets', s.uniquePackets.toLocaleString()) +

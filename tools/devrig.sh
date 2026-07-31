@@ -30,8 +30,8 @@ mkdir -p "$OUT"
 url() { # role rung mod cols rows fps
   # fit=1 hides the page chrome so the sender uses the whole screen; the page then
   # clamps the grid to what actually fits and renders the canvas 1:1.
-  printf '%s?role=%s&rung=%s&mod=%s&cols=%s&rows=%s&fps=%s&fit=1&auto=1' \
-    "$BASE" "$1" "${2:-R2}" "${3:-4}" "${4:-8}" "${5:-8}" "${6:-12}"
+  printf '%s?role=%s&rung=%s&mod=%s&cols=%s&rows=%s&fps=%s&cap=%s&fit=1&auto=1' \
+    "$BASE" "$1" "${2:-R2}" "${3:-4}" "${4:-8}" "${5:-8}" "${6:-12}" "${SF_CAP:-}"
 }
 
 cmd_cert() {

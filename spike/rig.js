@@ -172,7 +172,7 @@ export class Receiver {
     this.t0 = performance.now();
   }
 
-  async start({ L, expectPerFrame }) {
+  async start({ L, expectPerFrame, captureW, captureH }) {
     await getZXingModule(); // warm the wasm before the first frame
     this.L = L;
     this.expectPerFrame = expectPerFrame;
@@ -189,6 +189,18 @@ export class Receiver {
         this.exposureApplied = true;
       } catch { this.exposureApplied = false; }
     }
+
+    // Re-request capture at the widest the device offers if asked. On a Pixel 6 the
+    // default is 1080 on the SHORT edge, so a 1920px-wide sender screen lands on
+    // 1080 camera px -- 0.56x -- putting 4 screen px/module at 2.25 CAMERA px/module,
+    // below the 4 px cliff. This is the single biggest lever measured so far.
+    if (captureW) {
+      try {
+        await track.applyConstraints({ width: { ideal: captureW }, height: { ideal: captureH } });
+        await new Promise((r) => setTimeout(r, 800));
+      } catch { /* device refused; fall through with whatever we have */ }
+    }
+    this.capture = [this.video.videoWidth, this.video.videoHeight];
 
     const c = new OffscreenCanvas(this.video.videoWidth, this.video.videoHeight);
     const ctx = c.getContext('2d', { willReadFrequently: true });
@@ -284,6 +296,7 @@ export class Receiver {
       corruptTiles: this.corruptTiles,
       byteMismatches: this.inexact,               // MUST be 0 — binary safety (I10)
       exposureApplied: this.exposureApplied ?? false,
+      capture: this.capture ?? null,
     };
   }
 }
