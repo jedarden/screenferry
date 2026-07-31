@@ -54,7 +54,7 @@ matter — the next one is just as useful.
 
 ## Status
 
-**Research complete. Plan written. No application code yet.**
+**Research complete. Phase 1 core codec built (22 tests green). Phase 0 harness and Phase 0.5 spike both partial** — see [`docs/plan/plan.md`](docs/plan/plan.md) §17.2.
 
 - [`docs/plan/plan.md`](docs/plan/plan.md) — the complete application plan
 - [`docs/notes/`](docs/notes/) — design decisions and constraints specific to screenferry

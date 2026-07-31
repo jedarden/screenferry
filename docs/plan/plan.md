@@ -4,8 +4,9 @@ Single source of truth for what screenferry is, how it is built, and in what ord
 Constraints it must satisfy live in [`../notes/concept.md`](../notes/concept.md); the
 evidence behind every number lives in [`../research/`](../research/).
 
-**Status:** research complete (8 threads), plan reviewed and corrected, no application
-code yet.
+**Status:** research complete (9 threads). **Phase 0 partial, Phase 0.5 partial, Phase 1 built**
+(22 tests green) — see §17 for exactly what is and is not done. Phase 0's exit criteria are
+**not** met: see §17.2.
 
 ### Revision history
 
@@ -15,6 +16,8 @@ code yet.
 | 2026-07-31 | Link adaptation folded in (D16–D18) | `link-adaptation.md` |
 | 2026-07-31 | **Rewritten around the multi-GB objective** — block layer, streaming, resume | — |
 | 2026-07-31 | Ideation run: 7 roadmap items adopted (§17) | `ideas-ledger.md` |
+| 2026-07-31 | **Phase 0.5 spike run (S1/S2/S3 + thermal)**; §2 units, R11, D27, E17 split, §13.1 measured column, §6.4 ROI caveat, Stage 3 reframed as frame-rate. First measurements from real hardware | `../notes/spike-results.md` |
+| 2026-07-31 | **Phases 0 (partial) and 1 built** — `src/core/`, 22 tests, gate G7 live | — |
 | 2026-07-31 | **Re-review corrections** — §3.1 formula was 2× wrong (fixed); L reverted 507 → 256 B because 507 broke D16's conservative rung (§3.1.1); D18 split into D18a/b/c with the erasure band restored to 20–30%; I6 split; module layout added; numbers now emitted by the model and diffed in CI (G7) | `sim/ge_cost_model.py` (rewritten), `sim/degree_cap_sim.py` (K=768) |
 | 2026-07-31 | **Plan review corrections** — D19 re-derived (K 16,384 → 768; see §3.1), degree cap added (D25), K made device-measured (D26), dwell/erasure inconsistency fixed, and §2/§5/§6/§9–§14/§16/§18 added | `sim/ge_cost_model.py`, `sim/degree_cap_sim.py` |
 
@@ -84,6 +87,10 @@ plan they mean exactly this:
 | **Beacon** | A special frame carrying file-level metadata instead of payload (D17, §7.2). |
 | **Profile** | A modulation configuration: QR version, module pixel size, tile count. Several coexist per frame (D16). |
 | **Dwell** | How many packets the sender emits for one block before advancing (§8.1). |
+| **Screen px** | A pixel on the *sender's display*. What the renderer controls. |
+| **Camera px** | A pixel in the *receiver's captured frame*. What the decoder actually sees. |
+| **px/module** | **Always CAMERA px per module unless explicitly written "screen px/module".** The 4 px/module decode cliff is a *camera*-pixel figure. Conflating the two put every S2/S3 optical run below the cliff — see `../notes/spike-results.md` §S3. |
+| **Magnification** | `camera_px_per_module = screen_px_per_module × M`, where `M` = (capture width across the code region) / (code region width in screen px). A 1920-px-wide landscape code region filling a 1080-px-wide portrait capture gives **M = 0.5625**, so 4 screen px/module is only **2.25 camera px/module**. |
 | **Erasure** | A packet that did not arrive or failed validation. Never a corrupted packet — those are discarded, not used. |
 | **Stage** | A modulation generation: 1 = tiled mono QR, 2 = + RGB tripling, 3 = custom grid codec. |
 | **Pass** | One complete traversal of every block by the sender. |
@@ -234,6 +241,7 @@ sub-minute and is why smaller blocks are affordable.
 | # | Decision | Rationale | Source |
 |---|---|---|---|
 | **D19** | **Block layer: independent 192.0 KB blocks, K = 768, L = 256 B** | GE cost is bound by *time*, not memory (§3.1). K = 768 keeps pace at Stage 3's 106 KB/s (114.6 MB/s needed, **1.74x margin**) within a conservative 200 MB/s phone-JS budget; matrix is 72.0 KB and the block-layer working set 264.0 KB, flat regardless of file size. K_max is 1152; 768 is deliberate conservatism per D26. **L is set by the conservative ladder rung** (S3.1.1), not the nominal one. What RFC 6330 calls source blocks. | §3.1, `sim/ge_cost_model.py` |
+| **D27** | **The receiver duty-cycles under thermal pressure; multi-GB is framed as multi-session** | Measured: a Pixel 6 hit 70 °C and its throttling threshold in **20–30 minutes**, against a §1.1 objective of 27 h–4 days of *continuous* decoding. Duty-cycling is **nearly free on this channel** — a skipped frame is an erasure the fountain code already absorbs (D5) — so 50% duty roughly halves heat for roughly half the rate, and **finishes** where 100% duty may not. Drop decode *resolution* before dropping frames (superlinearly cheaper). No web API exposes SoC temperature, so sustained fps decline is the proxy (E17b). | `spike-results`, R11 |
 | **D25** | **Cap fountain degree at d ≤ 64** | Cuts encoder XOR **7.9×** at the adopted K = 768 (mean degree 106.3 → 13.5): 6.1 MB/s → 0.8 MB/s at 225 packets/s. D6 forbids changing the distribution on faith, so it was **simulated**: at the adopted **K = 768** the cap costs **+1.6 points** (1.34% → 2.97% mean, p99 4.2%), and +1.9 pts at K = 1024. There is a cliff below it — cap 32 costs +4.9 pts with a bad p99, cap 16 costs **+55 pts**. 64 is the right side of the cliff with margin. | `sim/degree_cap_sim.py` |
 | **D26** | **K is chosen by the SENDER at session start and MUST be conservative** | Decode cost lands on the receiver, whose CPU the sender cannot know (no back-channel). So the sender MUST assume the weaker device. K = 768 is the default floor; a sender-side setting MAY raise it when the user knows the receiver is a desktop. The receiver derives K from the beacon and MUST refuse a stream whose K exceeds what it benchmarked locally. | §3.1 |
 | **D20** | **Stream both ends; never materialise the file** | Multi-GB `ArrayBuffer` is not allocatable. `File.slice()` sender-side, OPFS receiver-side. | §3.2 |
@@ -242,7 +250,7 @@ sub-minute and is why smaller blocks are affordable.
 | **D23** | **Estimate time before the user commits; refuse or warn at defined thresholds** | Thresholds are numeric (§13.1), not "a threshold". Estimate from *measured* rate once acquired. | §1.1 |
 | **D24** | **Frames generated on demand and discarded; nothing pre-rendered** | The LT stream is endless — no finite frame set exists. One pass over 4 GB is ~550,000 frames = **4.2 TB** as `ImageData`. On-demand encode costs ~7% of one core. PRNG-derived indices make the sender **stateless**: frame *N* generates without replaying 1…*N*−1, which is what makes resume and repair nearly free. | §6.3.1 |
 | D1 | **Tiled QR, not single QR** | 15 × v15 QR decode from one 1080p frame in 7.8 ms for ~7.8 KB, vs 2953 B for one v40. ~10× for zero new decoder risk. | `beyond-qr` §10 |
-| D2 | **QR v15 @ ECC L, ~15 tiles** | Bounded by the 4 px/module cliff, not symbology density. EC L because the channel is erasure-dominated — redundancy belongs in the fountain code. L→H would cost 57% of payload for nothing. | `qr-encoding` |
+| D2 | **QR v15 @ ECC L, ~15 tiles** | Bounded by the 4 **camera** px/module cliff (§2 — *not* screen px), not symbology density. EC L because the channel is erasure-dominated — redundancy belongs in the fountain code. L→H would cost 57% of payload for nothing. | `qr-encoding` |
 | D3 | **zxing-wasm decoder, read `.bytes`** | Only credible multi-symbol decoder that returns real bytes — verified against 7 libraries with every byte value: exact in 100% of payloads. Bounded 9–26 ms where jsQR hit 1453 ms. Apache-2.0. | `browser-qr-scanning` |
 | D4 | **node-qrcode encoder, mask pinned** | Pinning the mask is a 4.6–8× encode speedup — a bigger lever than library choice. Worker-safe. | `qr-encoding` |
 | D5 | **LT fountain + harmonic distribution + GF(2) Gaussian elimination** | GE needs +1.2% overhead at K=1000 where peeling needs +180%. ~300 lines. **Re-measured at the adopted K = 768**: +1.34% mean / +2.5% p99 uncapped, +2.97% / +4.2% with D25's cap — inside §13.1's budget. See §18 R1 for the RaptorQ trigger. | `fountain-codes`, `sim/` |
@@ -251,14 +259,14 @@ sub-minute and is why smaller blocks are affordable.
 | D8 | **Compress before blocking, to a staging file** | `CompressionStream` is native and streaming. Compress to OPFS first, then cut into fixed blocks — keeps K constant and derivable. Skip on already-compressed input (sample-detect). Staging MUST be wiped (§12, T4). | `fountain-codes` |
 | D9 | **Display at ≤ half the *measured* camera fps** | PixNet's rule. Faster produces only torn frames. | `beyond-qr` |
 | D10 | **Every frame DC-balanced** | Stops auto-exposure hunting; throughput swings 2.4× on exposure. Also part of the photosensitivity mitigation (§20.1). | `custom-codec` |
-| D11 | **A runtime calibration probe decides luma-vs-colour, not this document** | Two research threads reached opposite conclusions (§6.5). The probe measures the device. | `beyond-qr` §6.6 |
+| D11 | **A runtime calibration probe decides luma-vs-colour, not this document** | Two research threads reached opposite conclusions (§6.6). The probe measures the device. | `beyond-qr` §6.6 |
 | D12 | **Dark-on-light, not dual-polarity** | Dual-polarity costs ~50% throughput. OLED ABL means mostly-white loses ~4× brightness — "light" means *moderate*. | `pwa-platform` |
 | D13 | **Add to Home Screen is mandatory on iOS** | Safari deletes service-worker caches after 7 days; Home Screen apps are exempt. | `pwa-platform` |
 | D14 | **`exposureCompensation: min`; measure delivered fps, never trust `getSettings()`** | A precondition for D9. Android delivers 15 fps while reporting 30/60; the fix measured 15.0 → 41.6 fps. Absent on iOS — hence "measured". | `browser-qr-scanning` §1.4 |
 | D15 | **Fragment length `L` is fixed for the session — not per profile, not ever** | Change L and K changes, invalidating every packet already collected. | `link-adaptation-design` |
 | D16 | **Sender mixes 2–4 robustness profiles *within every frame*; no negotiation in v1** | Packets are fungible, so the sender never has to choose. **Probing is free** — a probe tile that succeeds delivers real payload. Mixed within a frame so profiles cannot alias against camera fps. | `link-adaptation` |
 | D17 | **Conservative beacon profile, re-emitted periodically** | WiFi's lowest basic rate. Enables late join and re-acquisition. Carries all file metadata (D21). | `link-adaptation-design` |
-| D18a | **Phase 3: the ladder runs at FIXED weights. No control loop.** | OLLA is closed-loop and its error signal (`pxPerModule`) is a **receiver-side** metric, but only the sender can change rungs and D16 says no negotiation in v1. A controller with no observable cannot run. The research places fixed-weight ladders at T2/Phase 3 and weight adaptation at T4/Phase 5; an earlier revision collapsed the two. | `link-adaptation` §10 |
+| D18a | **Phase 3: the ladder runs at FIXED weights. No control loop.** | OLLA is closed-loop and its error signal (`cameraPxPerModule`) is a **receiver-side** metric, but only the sender can change rungs and D16 says no negotiation in v1. A controller with no observable cannot run. The research places fixed-weight ladders at T2/Phase 3 and weight adaptation at T4/Phase 5; an earlier revision collapsed the two. | `link-adaptation` §10 |
 | D18b | **Phase 5: adapt ladder weights from LOCAL metrics only — OLLA structure, 1:9 up/down asymmetry, ~1 s window, 2 s dwell, immediate hard step-down** | Closed-loop density control oscillates; profile selection stays a **stateless lookup** so there is no state machine to get stuck in. "Local" means the sender's own signals (frame timing, accelerometer à la COBRA), never receiver feedback. | `link-adaptation` §10.3 |
 | D18c | **Assume 20–30% residual erasure. This is an ASSUMPTION about the channel, not a controlled target.** | Nothing in v1 observes erasure (D18a), so calling it a "target" was wrong. 20–30% is the evidence base's figure; driving it lower would mean the ladder is too conservative and throughput is being left unused. Dwell is sized to survive the **top** of the band (§8.1), and the repair code (§8.2) covers the tail beyond it. | `link-adaptation` §9.3 |
 
@@ -390,6 +398,32 @@ directly without replaying 1…*N*−1. That is what makes resume and repair nea
 **Implementation:** worker generator → ring buffer (depth 3) → main thread paints via
 `rAF`. Deeper buffering is wasted memory (I7).
 
+#### 6.3.2 Shape the code region to the CAMERA, not the screen
+
+Measured, and worth ~4–5× on its own. The receiver's camera has a fixed aspect and a fixed
+pixel count; the sender's screen has a different one. What matters is **camera px per module**
+(§2), and that is set by how much of the capture the code region fills.
+
+A 1920×1080 landscape code region imaged by a portrait 1080×1920 capture yields **M = 0.5625** —
+so 4 screen px/module is only 2.25 camera px/module, below the cliff. Rendering the *same*
+payload into a **portrait-shaped region** inverts this:
+
+| Code region on screen | M | Camera px/module @ 2 screen px | Tiles | KB/frame |
+|---|---|---|---|---|
+| 1920×1080 (naive: fill the screen) | 0.56 | 1.13 — **far below cliff** | 15 | 8.6 |
+| 1080×1080 square | 1.00 | 2.00 — below cliff | 9 | 5.2 |
+| **540×960 portrait** | **2.00** | **4.00 — above cliff** | 15 | **8.6** |
+
+Same tile count and same bytes per frame as the naive layout, but *above* the cliff instead of
+below it — so yield goes from roughly a fifth to near-total. **The sender MUST size the code
+region to the receiver's capture aspect, not to its own display.** Since there is no
+back-channel, it cannot know that aspect: expose it as a user-visible setting (portrait /
+landscape receiver) defaulting to portrait, which is how phones are held.
+
+Verified negative: forcing the *receiver's* OS orientation does not help — sensor mapping
+follows the device body, not the UI. This is a **sender-side layout fix**, not a receiver
+setting.
+
 ### 6.4 Receiver pipeline
 
 ```
@@ -397,7 +431,7 @@ getUserMedia ──► exposureCompensation:min (D14) ──► measure real fps
       │
       └──► requestVideoFrameCallback ──► MediaStreamTrackProcessor*
                                                 │
-                                         ROI crop (9× win)
+                              ROI crop (conditional — see §6.4)
                                                 │
                               ┌─────────────────┴──── Worker pool ────┐
                               ▼                                       ▼
@@ -425,7 +459,19 @@ Three rules that are cheap to implement and expensive to omit:
 
 - **Measure fps, never trust it.** `getSettings()` reports 30/60 while the camera
   delivers 15.
-- **Crop to ROI before decoding** — measured 9× speedup.
+- **Crop to ROI before decoding — but the 9× is conditional.** Measured 8.6× (56.9 → 6.6 ms)
+  *when the code occupies part of the frame*. Once the grid fills the frame — which is what
+  you want for camera px/module — **the ROI is the frame and the win evaporates** (69 ms).
+  ROI is a recovery mechanism for being too far away, not a throughput optimisation at the
+  right distance. **Except at high capture resolution**, where a tight quad-crop is what keeps
+  camera px/module high *and* pixel count bounded at once — there it is load-bearing, and must
+  be far tighter than the spike's 35%-margin version.
+- **Select capture resolution deliberately — it is a first-class tunable.** Measured knee:
+  720p → 100% erasure (1.5 camera px/module, nothing decodes); 1080p → best goodput; 4K →
+  zero empty frames but 194 ms decode and 1.1 fps, net *worse*. Decode is O(pixels), so more
+  resolution is not free. `getUserMedia` defaults are **not** adequate: a Pixel 6 defaults to
+  1080 on the *short* edge.
+- **Shape the code region to the camera, not the screen (sender-side, §6.3.2).**
 - **Never offer a torch button.** It measured a 3.6× fps gain, which makes it tempting,
   but an LED on a glossy screen creates a specular hotspot that destroys a region of the
   frame. `exposureCompensation` gets the same mechanism without glare.
@@ -482,7 +528,7 @@ exactly one implementation.
 This is deliberate: requiring them would constrain static hosting for no gain. Any future
 use of `SharedArrayBuffer` is a hosting decision, not just a code change.
 
-### 6.5 The luma-vs-colour disagreement, and how it is resolved
+### 6.6 The luma-vs-colour disagreement, and how it is resolved
 
 | | `custom-codec-engineering.md` §7.2 | `beyond-qr-optical-channels.md` §6.6 |
 |---|---|---|
@@ -569,7 +615,7 @@ type RecvSession = {
   complete: Uint8Array;                   // block bitmap — the resume token
   active: { blockIndex: number; pivots: Map<number, GERow>; rank: number } | null;  // I5
   out: FileSystemWritableFileStream;      // OPFS
-  stats: { fps: number; pxPerModule: number; packetsPerSec: number; eta: number };
+  stats: { fps: number; cameraPxPerModule: number; packetsPerSec: number; eta: number };
 };
 ```
 
@@ -739,7 +785,8 @@ stated limitation, not an oversight — see §18 R8.
 | E14 | **Filename with path separators or control bytes** | Sanitise on export (§12, T2). Never write an attacker-chosen path. |
 | E15 | **Decompression fails at the end** | All blocks verified but the gzip stream is invalid → `E-DECOMPRESS`; keep the compressed artefact so nothing is lost. |
 | E16 | **Worker crash mid-block** | Restart the worker, discard the active block only, keep the bitmap. |
-| E17 | **Thermal throttling over hours** | Detect via sustained fps decline; step the ladder down (D18) and tell the user. |
+| E17a | **Sender-side thermal throttling** | Observed: the bench laptop decayed 6.7 → 2.4 fps over two minutes. Locally observable, so D18b's local step-down applies. |
+| E17b | **Receiver-side thermal throttling** | Observed at **70 °C / throttling threshold within 20–30 minutes**. D18a's rule bites: fps decline is a *receiver* observation, the ladder is a *sender* control, and there is no back-channel — so "step the ladder down" is **structurally impossible** here. Mitigate locally instead: **duty-cycle (D27)** and drop decode resolution. |
 | E18 | **Resume offered for a file the user no longer has** (sender side) | `streamId` mismatch on re-selection → offer a fresh transfer, do not silently restart. |
 
 ---
@@ -754,7 +801,7 @@ now, before Phase 5 designs any UI — after that, taxonomies get retrofitted to
 | Code | Meaning | User-facing |
 |---|---|---|
 | `E-NO-SIGNAL` | No decodable tiles at all | "Point the camera at the sending screen." |
-| `E-TOO-FAR` | px/module < 4 | "Move closer — the code is too small to read." |
+| `E-TOO-FAR` | **camera** px/module < 4 (§2) | "Move closer — the code is too small to read." |
 | `E-TOO-CLOSE` | Symbol exceeds frame, or below min focus | "Move back a little." |
 | `E-BLUR` | Sharpness metric below threshold | "Hold steady." |
 | `E-DARK` | Insufficient exposure | "Too dark — raise the sender's screen brightness." |
@@ -822,9 +869,9 @@ one; physical device compromise.
 | Throughput, A3 phone→phone | **≥ 3 KB/s** sustained | Phase 3; miss triggers §18 R4 |
 | Block-layer working set | **≤ 1 MB**, any file size (I6a) | Phase 1 |
 | Whole-receiver peak | **≤ 64 MB**, ≤ 4 in-flight `VideoFrame`s (I6b) | Phase 3 |
-| GE sustained XOR need | **≤ 200 MB/s** at the fastest supported stage (modelled: 114.6 MB/s, 1.74× margin) | Phase 1 measurement + G7 |
-| Per-camera-frame decode | **≤ 60 ms** p99 (leaves headroom at 15 fps) | Phase 3 |
-| Encode + render per frame | **≤ 20 ms** p99 | Phase 3 |
+| GE sustained XOR need | **≤ 200 MB/s** at the fastest supported stage (modelled 114.6 MB/s, 1.74× margin) — **measured 3,260 MB/s desktop / ~815 MB/s est. phone; the budget was ~16× pessimistic.** R1 provisionally closed, pending an on-device run *while thermally throttled* | Phase 1 + G7 |
+| Per-camera-frame decode | **≤ 60 ms** p99 (leaves headroom at 15 fps) — **measured 67–69 ms p50 full-frame, 194 ms at 4K, 6.6 ms with a tight ROI. p50 already exceeds the p99 budget**; the fixes (worker pool §6.2, tight ROI §6.4) are unimplemented, so this is violated by the instrument, not yet by the design | Phase 3 |
+| Encode + render per frame | **≤ 20 ms** p99 — **measured ~150 ms** (6.7 fps against 12 requested) on a 2015 laptop with D4's pinned mask unimplemented | Phase 3 |
 | Time-to-first-packet after aim | **≤ 3 s** p50 | Phase 5 |
 | Reception overhead vs K | **≤ +5%** mean, **≤ +12%** p99 (measured: +2.97% / +4.2%) | Phase 1, `sim/` |
 | **Warn threshold** (D23) | estimated duration **> 30 min** → explicit confirm | Phase 4 |
@@ -933,9 +980,17 @@ tell what they are running).
 | — | Single QR (what most projects do) | 1–9 KB/s | handheld, matches TXQR |
 | **1** | **Tiled monochrome QR** | **20–45 KB/s** | tripod, laptop→phone |
 | **2** | **+ RGB channel tripling** | **35–90 KB/s** | tripod |
-| **3** | **libcimbar-derived codec** | **~106 KB/s** | libcimbar's published figure, monitor→phone |
+| **3** | **libcimbar-derived codec** | **~106 KB/s** | libcimbar's published figure, monitor→phone. **Its advantage is frame rate, not density** — see below |
 | — | Phone-to-phone research SOTA | ~40 KB/s | lab, mounted |
 | — | All-time lab record (PixNet) | 12 Mb/s | **30" LCD + 24 MP DSLR — not comparable** |
+
+**Stage 3's rationale is decode speed, not density.** Recomputed from the published geometry:
+libcimbar packs 6 bits into a 9×9 px cell = **0.0741 bits per screen px²**, while QR v16-L at
+3 screen px/module is **0.0794** — *QR is denser per pixel.* libcimbar's 106 KB/s comes from
+sustaining ~11 decoded frames/s where the rig managed 2–4. So the custom codec's value is
+**bits per unit of decode CPU**, not bits per pixel, and the ordering follows: fix decode
+throughput first (worker pool, tight ROI, capture resolution, D27), and treat symbology as the
+**last** lever, not the first. This de-urgentises R7 and §19 Q1.
 
 **The dominant risk is geometry, not software.** Cell size is set by how many *camera
 pixels* the sender's screen occupies:
@@ -1006,15 +1061,39 @@ independently once Phase 0 lands.
 
 | Phase | Entry | Exit |
 |---|---|---|
-| **0 — Repo and harness** | — | Builds, deploys, version footer present, stub-camera tier runs, G1–G3 and **G7** green, **module layout (§6.5) and dependency pins committed**, and a throwaway end-to-end spike (one tiny file through a no-op modulation) proves the seams line up |
-| **0.5 — Spike: measure the channel** | Phase 0 exit | S1–S4 run and recorded in `docs/notes/spike-results.md`; §13.1's forecast rows replaced with measured figures or the relevant §18 risk triggered. **Gates Phase 1 because it sets K, L, dwell and the rung ladder.** See `spike/README.md` |
-| **1 — Core codec, headless** | Phase 0.5 exit | 10 MB file survives 50% loss byte-exact; overhead within `sim/` bounds; synthetic 4 GB at flat ≤ 8 MB (A5); GE keeps pace at K=768 measured on a real phone; G1–G5 green |
+| **0 — Repo and harness** ⚠️ *partial* | — | Builds, deploys, version footer present, stub-camera tier runs, G1–G3 and **G7** green, **module layout (§6.5) and dependency pins committed**, and a throwaway end-to-end spike (one tiny file through a no-op modulation) proves the seams line up |
+| **0.5 — Spike** ⚠️ *partial* | Phase 0 exit | S1–S4 run and recorded in `docs/notes/spike-results.md`; §13.1's forecast rows replaced with measured figures or the relevant §18 risk triggered. **Gates Phase 1 because it sets K, L, dwell and the rung ladder.** See `spike/README.md` |
+| **1 — Core codec, headless** ✅ *built, 22 tests* | Phase 0.5 exit | 10 MB file survives 50% loss byte-exact; overhead within `sim/` bounds; synthetic 4 GB at flat ≤ 1 MB (A5 / I6a); GE keeps pace at K=768 measured on a real phone; G1–G5 green |
 | **2 — Single-QR optical loop — the walking skeleton** | Phase 1 exit | A1 passes at any speed on two real devices. **This is the first demonstrable end-to-end transfer**; Phase 0's spike is a seam check, not a product |
 | **3 — Tiling + fixed-weight ladder (D18a)** | Phase 2 exit | A1 ≥ 20 KB/s, A2, A3, A4 pass on T-physical-rig; G6 green |
 | **4 — Large-file machinery** | Phase 3 exit | A5, A6, A7, A10 pass; quota pre-flight refuses correctly; repair code round-trips |
 | **5 — The app + local ladder adaptation (D18b)** | Phase 4 exit | A8, A9 pass; every §11 error code has a user-facing string and is reachable; iOS manual pass; non-technical user completes a transfer unaided |
 | **6 — Calibration probe + colour** | Phase 5 exit | Probe reports device cutoffs; colour enabled only where it measurably wins; A1 improves or colour stays off |
 | **7 — Custom codec** | Phase 6 exit **and** the §19 Q1 licensing decision recorded | Stage 3 beats Stage 2 on T-physical-rig |
+
+### 17.2 Where the phases actually stand — and the gates that were skipped
+
+Recorded honestly, because a gate that reads green and is not is how Phase 3 inherits Phase 0's
+debt (PIVOT-CAUSES PH-2).
+
+| Phase | Claimed | Reality |
+|---|---|---|
+| 0 | partial | **Exit criteria NOT met.** `npm run build` fails (no `index.html`, no `src/app.ts`); no version footer (`bf-13h` open); no stub-camera tier; **no lint config**, so G1 cannot pass; G2 (no-network assertion) and G3 (bundle budget, SRI) unimplemented. **G7 is green.** `npm run gate` currently runs typecheck + tests + G7 — a subset of G1 plus G7. |
+| 0.5 | partial | S1, S2, S3 and the thermal observation done. **Outstanding:** phone→phone (R4), rung sweep, a distance sweep under §13.2 conditions, an on-device GE run, and the long-run thermal profile. Its exit criterion — "§13.1's forecast rows replaced with measured figures" — is now met for three rows (§13.1). |
+| 1 | built | `src/core/` complete for framing, PRNG, LT encode, GE decode, block layer. 22 tests green. **Entered on a partial Phase 0.5**, so K, L, dwell and the rung ladder shipped unchanged from their modelled values. |
+
+**Two gate defects to close before Phase 2:**
+
+1. **Phase 0's harness must be built or §17 amended.** Do not leave the discrepancy implicit.
+2. **The A5 memory assertion is a smoke test, not the invariant.** `test/codec.test.ts` checks a
+   heap *trend* with 64 MB of slack across 40 blocks (7.9 MB), which cannot detect a 40 MB
+   working set and does not approach I6a's ≤ 1 MB over 21,800 blocks.
+
+**Process gap this exposes.** `spike-results.md` ended with a section titled "Plan changes this
+justifies" listing five; none was applied until a review caught it. §14.6 requires the plan be
+updated "if any decision changed" — but a **measurement** is not a **decision**, so nothing
+triggered. **Rule: any spike or hardware measurement MUST be folded into §13.1, §18 and the
+revision history in the same commit that records it.** Owner: whoever runs the measurement.
 
 ### 17.1 Phase 0.5 — why a spike, and why here
 
@@ -1030,7 +1109,7 @@ framing layer that Phase 1 writes:
 | Erasure 20–30% | **assumption** (D18c states this) | dwell = 1.6 K (§8.1) |
 | 4 px/module cliff | other devices | D2, §3.1.1's rungs, `bf-1g0` |
 | Delivered fps | a Pixel 6, not ours | D9, D14 |
-| 200 MB/s JS XOR | **unmeasured guess** | D19's K = 768 |
+| 200 MB/s JS XOR | ~~unmeasured guess~~ **measured: 3,260 MB/s desktop (S1)** | D19's K = 768 |
 
 It is cheap *precisely because* it skips everything this plan carefully designs: no
 fountain code, no blocks, no compression, no resume, no OPFS, no UI. Sequential
@@ -1065,7 +1144,7 @@ coaching ≈ 1500 — **Phase 5 is the largest single phase**, which the phase o
 | # | Risk | Likelihood | Impact | Mitigation | Trigger → fallback |
 |---|---|---|---|---|---|
 | **R1** | **GE still too slow at K=768 on real phones** | ~~Medium~~ **Low** | High — blocks Phase 1 | Cost model + conservative K (D19/D26). **S1 measured 3,260 MB/s desktop = 7.1× margin at Stage 3 after a ÷4 phone factor; provisionally closed pending an on-device re-run** | Measured need > budget → drop to K=512 (2.88× margin), then re-open D5 against wirehair/RaptorQ (whose linear-time decode is what libcimbar uses) |
-| **R2** | **4 px/module cliff makes handheld use impractical** | Medium | High | Aim reticle + coach (`bf-1g0`), ladder (D16) | A2 fails → mandate a stand in the UI and reposition as a mounted-device tool |
+| **R2** | **4 camera px/module cliff makes handheld use impractical** | Medium | High | Aim reticle + coach (`bf-1g0`), ladder (D16) | A2 fails → mandate a stand in the UI and reposition as a mounted-device tool |
 | **R3** | **Stage 1 measures far below 20 KB/s** | Medium | High — undermines the multi-GB objective | Tiling (D1) is the measured 10× | < 10 KB/s → cap the advertised file size, move Stage 2 earlier |
 | **R4** | **Phone→phone unusable at 54 cells** | **High** | Medium | Separate profile with bigger modules | A3 fails → document phone→phone as a small-file-only mode |
 | **R5** | **iOS cannot export multi-GB** | **High** | Medium | Detect and cap up front | `share()` fails > 1 GB → iOS is receive-capped, stated at file selection |
@@ -1074,8 +1153,44 @@ coaching ≈ 1500 — **Phase 5 is the largest single phase**, which the phase o
 | **R8** | **No way to learn real-world performance** (no telemetry by design) | **High** | Low | Accepted; T-physical-rig substitutes | If field failures are suspected → voluntary copyable benchmark string (ledger, currently cut) |
 | **R9** | **Multi-hour transfers die to backgrounding / sleep / thermal** | **High** | Medium | E8, E17, wake lock, resume (D22) | Resume proves insufficient → reduce block size further so less is lost |
 | **R10** | **A wire-version bump strands cached receivers** | Medium | Medium | §16.3 one-way-door rule | Skew observed → extend the soak period before bumping |
+| **R11** | **Thermal throttling makes long transfers self-defeating** | **High** (observed first session) | **High** — attacks the multi-GB objective directly | Duty-cycling (D27), decode-resolution drop, resume (D22). Self-reinforcing loop: SoC slows → decode slower → camera fps falls → erasure rises → transfer lengthens → more heat | Sustained fps decline > 30% from a cool start → drop duty cycle and **tell the user**, rather than silently running hot and slow. If duty-cycling cannot hold the rate, reframe multi-GB as a multi-session workflow (§1.1) |
 
 ---
+
+## 18.1 Anti-patterns — mistakes this project has already made
+
+Every entry below was made *in this repo* and cost real time. They are collected here because
+each was previously buried in the narrative of the section that fixed it, where an implementer
+starting a later phase would never encounter it.
+
+| # | Anti-pattern | What it looked like | Guard |
+|---|---|---|---|
+| **AP1** | **A unit-free "px/module"** | Every optical run sat at 2.25 camera px/module while the config said "4". Presented as a symbology limit; was a sampling limit. | §2 defines screen px and camera px. Never write "px/module" unqualified. |
+| **AP2** | **The ROI ratchet** | A frame where only two tiles decoded shrank the crop to those two; every later frame then saw only that region and could never recover. Erasure 91%, goodput **worse than no cropping**, and it presents as an *optical* fault. | Wide margin (≥35%) **plus a forced full-frame rescan every N frames**. An ROI that can only shrink is a bug. |
+| **AP3** | **Sizing K from GE's memory term** | K = 16,384 gave a 32 MB matrix (fine) and needed 4.5 GB/s of XOR (23× over). | K is bound by *time*, not memory (§3.1). Faster wire rate makes decode **harder**. |
+| **AP4** | **Setting L from the nominal ladder rung** | L = 507 made the conservative rung carry **zero** packets, destroying the ladder's only guarantee. | L is set by the **smallest** rung (§3.1.1); `params.ts` throws at import if a rung cannot hold a whole packet. |
+| **AP5** | **Running the sender faster than D9 allows** | 2.8× over the half-camera-fps rule → 78% erasure. Looked like poor optics. | D9 is a constraint to satisfy, not a dial to maximise. |
+| **AP6** | **Narrowing the erasure band instead of raising dwell** | Contradicted the evidence base and cost throughput for no arithmetic reason. | Raise dwell; the band is an assumption about the channel (D18c), not a target. |
+| **AP7** | **Trusting `getSettings()` / requested capture** | Reports 30/60 fps while delivering 15; defaults to 1080 on the *short* edge. | Measure delivered fps and actual capture dimensions (D14, §6.4). |
+| **AP8** | **`--use-fake-device-for-media-capture`** | Does not exist. It is `--use-fake-device-for-media-**stream**`. | §14.1. |
+| **AP9** | **Never offering a torch button** | 3.6× fps gain makes it tempting; an LED on glossy glass destroys a region of the frame. | §6.4. |
+| **AP10** | **Writing a comment that asserts a file exists** | `prng.ts` claimed `test/fixtures/vectors.json` pinned the wire format. It did not exist. | Generate the artifact in the same commit as the claim (§14.3). |
+
+## 18.2 Proof obligations
+
+Each load-bearing assumption, what must be true, and what would invalidate it. This exists
+because the project has a documented history of confident-and-wrong (AP1, AP3, AP4, plus a
+2× formula error), and G7 only makes *one* class of claim executable.
+
+| Assumption | Holds iff | Invalidating evidence | Fallback |
+|---|---|---|---|
+| D19's K = 768 | phone GE ≥ 114.6 MB/s sustained **while thermally throttled** | on-device benchmark under load | K → 512 (2.88× margin), then re-open D5 vs wirehair (R1) |
+| S1's ÷4 phone factor | desktop-to-phone JS gap ≤ 4× | on-device `ge-bench.mjs` | recompute K from the measured figure |
+| D18c's 20–30% erasure | erasure under §13.2 conditions stays ≤ 30% | measured 48% (non-qualifying conditions) | repair code (§8.2) becomes the primary path, not the tail (R9) |
+| The 4 camera px/module cliff | zxing needs ≥ 4 camera px/module under handheld blur | S3 distance sweep under §13.2 conditions | re-derive the rung ladder from the measured cliff |
+| D1's ~10× tiling gain | holds on hardware, not just simulated camera paths | rung sweep on the rig | drop to fewer, larger tiles |
+| D27's duty-cycle economics | 50% duty ≈ 50% heat and completes | long-run thermal profile | multi-session framing (§1.1), or cap the supported file size |
+| Stage 3's value | decode CPU/bit beats QR's | prototype against a worker-pool QR baseline | stay at Stage 2 |
 
 ## 19. Open questions
 
@@ -1165,11 +1280,12 @@ near-term half — robust cross-session resume — has no such tension and ships
 | [`sim/fountain_overhead_sim.py`](../research/sim/fountain_overhead_sim.py) | Independent verification of D5/D6 |
 | [`sim/ge_cost_model.py`](../research/sim/ge_cost_model.py) | **D19's K, re-derived against decode time** |
 | [`sim/degree_cap_sim.py`](../research/sim/degree_cap_sim.py) | **D25's degree cap, verified per D6** |
-| [`spike/README.md`](../../spike/README.md) | **Phase 0.5 protocol, kill criteria, and S1's measured GE result** |
+| [`spike/README.md`](../../spike/README.md) | Phase 0.5 protocol and pre-registered kill criteria. **Slated for deletion once results land — the results themselves live in `spike-results.md`, which is the durable reference** |
 | [`beyond-qr-optical-channels.md`](../research/beyond-qr-optical-channels.md) | Tiling, colour tripling, screen-camera SOTA, JAB Code rejection |
 | [`custom-codec-engineering.md`](../research/custom-codec-engineering.md) | libcimbar geometry, GPU pipeline, calibration, camera ISP effects |
 | [`pwa-platform-and-ux.md`](../research/pwa-platform-and-ux.md) | iOS blockers, file I/O, PWA, testing tiers |
 | [`link-adaptation.md`](../research/link-adaptation.md) | Rate-adaptation prior art, bidirectional precedent, OLLA damping |
+| [`../notes/spike-results.md`](../notes/spike-results.md) | **The only measured-on-hardware numbers in the repo** — S1 GE throughput, S2 optical loop, S3 density sweep, the thermal finding |
 | [`../notes/concept.md`](../notes/concept.md) | The channel's properties and the constraints they force |
 | [`../notes/link-adaptation-design.md`](../notes/link-adaptation-design.md) | The three tiers, why probing is free, why negotiation is deferred |
 | [`../notes/prior-art-libcimbar.md`](../notes/prior-art-libcimbar.md) | The 106 KB/s verification + licensing |
