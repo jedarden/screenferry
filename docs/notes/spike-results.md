@@ -143,7 +143,7 @@ one D9-compliant run erasure fell to 48% and is still falling as conditions impr
 What it does establish is that **erasure is the number to watch**, and that D18c
 cannot be left as an assumption. Re-test after: sender in a worker with a pinned mask,
 receiver with a worker pool, tripod mounting, and proper lighting. If erasure is still
-above 35% under §13.2 conditions, R9's fallback applies — the repair code becomes the
+above 35% under §13.2 conditions, R12's fallback applies — the repair code becomes the
 primary recovery path, not the tail.
 
 ---

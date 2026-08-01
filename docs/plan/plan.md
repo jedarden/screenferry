@@ -420,9 +420,16 @@ region to the receiver's capture aspect, not to its own display.** Since there i
 back-channel, it cannot know that aspect: expose it as a user-visible setting (portrait /
 landscape receiver) defaulting to portrait, which is how phones are held.
 
-Verified negative: forcing the *receiver's* OS orientation does not help — sensor mapping
-follows the device body, not the UI. This is a **sender-side layout fix**, not a receiver
-setting.
+**Two routes to the same M, and the receiver-side one is better.** Physically holding the
+receiver in landscape puts the screen's long axis on the camera's long axis — **1.78×, free,
+and it does not require halving screen px/module the way the portrait-region layout does.**
+That makes it the *preferred* route; the sender-side portrait region is the fallback for when
+the receiver cannot be turned.
+
+Verified negative: forcing the receiver's *OS* orientation does not help — sensor mapping
+follows the device body, not the UI. So this is **coaching, not configuration**: the receiver
+UI must tell the user to turn the phone sideways (§11 `E-ORIENTATION`, and in `bf-1g0`'s
+scope), and Phase 3's ≥ 20 KB/s gate depends on it.
 
 ### 6.4 Receiver pipeline
 
@@ -516,12 +523,28 @@ exactly one implementation.
 
 | Dependency | Pin | If unavailable |
 |---|---|---|
-| `zxing-wasm` | exact version + SRI on the `.wasm` | Fatal on the receiver — surface `E-WASM-LOAD`; the sender still works |
+| `zxing-wasm` | exact version + SRI on the `.wasm`. **MUST call `setZXingModuleOverrides({ locateFile })` pointing at a bundle-local, service-worker-precached `.wasm`.** See the warning below | Fatal on the receiver — surface `E-WASM-LOAD`; the sender still works |
 | `node-qrcode` | exact version | Fatal on the sender; the receiver still works |
 | `CompressionStream` | platform | Skip compression (D8 is already conditional) |
 | `MediaStreamTrackProcessor` | platform | Fall back to `requestVideoFrameCallback` + `drawImage` — MUST be implemented, it is not Chromium-only |
 | OPFS | platform | Refuse large files; cap at in-memory size and say so |
 | Wake Lock | platform | Warn before a long transfer (`E-WAKELOCK-LOST`) |
+
+> ### ⚠️ `zxing-wasm` fetches its WASM from a CDN by default — this voids the entire premise
+>
+> Verified in the installed package: `dist/es/core-*.js` hard-codes
+> `https://fastly.jsdelivr.net/npm/zxing-wasm@<ver>/dist/…` and fetches the `.wasm`
+> **lazily on the first decode call**, not at page load. Shipping the default means the
+> receiver:
+>
+> 1. makes a **third-party network request mid-session** — voiding T7, concept.md
+>    constraint 1, and the README's "provably no exfiltration";
+> 2. **fails completely in airplane mode** — i.e. in the flagship air-gapped use case (A8);
+> 3. **executes remotely-fetched WASM** — precisely the supply-chain surface T5 exists for.
+>
+> The `.wasm` MUST be bundled, precached by the service worker, and located via
+> `setZXingModuleOverrides`. §14.4's assertion covers this, and it is a **Phase 2 entry
+> criterion** because Phase 2 is the first phase that loads a decoder.
 
 **Cross-origin isolation.** The pipeline uses transferable `VideoFrame`s and
 `ArrayBuffer`s, **not** `SharedArrayBuffer` — so COOP/COEP headers are **not** required.
@@ -569,11 +592,21 @@ colour reference is **not optional** for Stage 2.
 
 `K`, `L` and the index set remain **derived, never transmitted** (I3).
 
-**CRC-8 false-accept budget.** At K = 768, a block sees ~800–1000 packets; CRC-8's 1/256
-residual means ~3–4 packets per block could pass a corrupt `fcrc`. QR's own Reed–Solomon
-makes an undetected symbol error rare in the first place, so this is a second line of
-defence — but it is **not zero**, which is why I9 exists: a block that reaches rank K and
-fails its hash MUST be discarded entirely and re-collected (error `E-BLOCK-HASH`, §11).
+**`fcrc` covers bytes 0–11 only — the header, NOT the payload.** This is deliberate: CRC-8
+over 269 bytes would be weak anyway, and the header is what must be trusted before a packet
+is routed to a block. But the consequence must be stated plainly:
+
+> **A packet whose header is intact and whose 256-byte payload is corrupted passes `fcrc`
+> unconditionally and poisons the GE matrix.** `fcrc` is a routing guard, not an integrity
+> check.
+
+Payload integrity therefore rests on exactly two things: QR's own Reed–Solomon (which makes
+an undetected symbol error rare, but not impossible) and **the per-block hash (§7.6), which
+is the sole application-layer check on payload bytes.** That is why I9 is a MUST: a block
+that reaches rank K and fails its hash is discarded entirely and re-collected
+(`E-BLOCK-HASH`, §11, E12). A test MUST corrupt a payload byte and assert the block hash
+catches it — corrupting only header bytes, as the current suite does, cannot detect this
+class at all.
 
 ### 7.2 Beacon frame (D17/D21)
 
@@ -590,10 +623,35 @@ it can interpret any payload packet:
 | `degreeCap` | 1 | D25; receiver MUST use the same cap |
 | `flags` | 1 | compressed / hash alg / colour profile |
 | `blockHashLen` | 1 | Per-block hash truncation length |
-| `wholeFileHash` | 0 or 32 | Optional; may be omitted on very large files |
+| `wholeFileHash` | 32 | **Mandatory.** concept.md constraint 4 makes byte-exact reconstruction non-negotiable and names this as the verification. An earlier revision made it optional "on very large files" — i.e. dropped the guarantee exactly where E5 (source mutated during a 10-hour read) is most likely and the stakes are highest. Computed by streaming the reassembled file through an incremental WASM hasher (§3.3); the cost is one extra read, not one extra copy |
 | `filename`, `mimeType` | var | Length-prefixed UTF-8, **sanitised** (§12, T2) |
 
 The receiver shows "acquiring…" until its first beacon.
+
+### 7.6 The block-hash manifest — how per-block hashes reach the receiver
+
+I9, E12, §6.4, §8.3 and §7.4 all depend on per-block hashes, and §7.1 establishes they are
+the *only* application-layer check on payload bytes. Nothing in the wire format carried
+them: the 13-byte header has no room, and the beacon carries only `blockHashLen`.
+
+**A 4 GB file has 21,845 blocks. Even 4-byte hashes are 87 KB — far beyond a beacon.**
+
+**Resolution: hashes travel as a manifest, fountain-coded like any other block.**
+
+| Property | Value |
+|---|---|
+| Transport | A dedicated **manifest stream**, `blockIndex = 0xFFFFFF`, distinguished by `PacketFlags.Manifest` |
+| Contents | `blockCount × blockHashLen` truncated hashes, in block order |
+| `blockHashLen` | **4 bytes.** Per-block false accept 2⁻³², ~5×10⁻⁶ across 21,845 blocks — comfortably below the whole-file hash's job |
+| Coding | Its own `K_manifest = ceil(blockCount × 4 / L)`, same LT encoder, same GE decoder |
+| Cadence | Interleaved with payload on the same schedule as the beacon (D17), so a late joiner acquires it without waiting a pass |
+| Before it arrives | Completed blocks are written to OPFS but **not marked in the bitmap**; they are verified retroactively once the manifest decodes. The receiver reports "verifying…" rather than claiming completion |
+
+**Why not append the hash to each block's payload:** it would make the payload
+`blockSize + 4`, breaking `blockSize = K·L` and therefore D19's entire arithmetic and G7.
+
+**Sizing sanity:** 21,845 × 4 B = 87 KB ⇒ `K_manifest` = 342 fragments — one third of a
+normal block, decodable well inside the first pass.
 
 ### 7.3 Session state
 
@@ -807,6 +865,7 @@ now, before Phase 5 designs any UI — after that, taxonomies get retrofitted to
 | `E-DARK` | Insufficient exposure | "Too dark — raise the sender's screen brightness." |
 | `E-GLARE` | Saturated region over the code | "Tilt to avoid the reflection." |
 | `E-FOCUS-HUNT` | Focus oscillating | "Tap the screen to lock focus." |
+| `E-ORIENTATION` | Receiver held portrait against a landscape code region (M < 1) | "Turn your phone sideways — it nearly doubles the detail the camera sees." |
 | `E-SENDER-STALLED` | Identical frames repeating | "The sending device seems paused." |
 | `E-TORN` | Torn-frame rate high | "Lower the sender's frame rate." |
 
@@ -939,7 +998,9 @@ Ship as fixtures, because they are what a third-party implementation would need:
 
 ### 14.4 The no-network assertion
 
-CI MUST fail the build if the running app issues **any** network request after load
+CI MUST fail the build if the running app issues **any** network request after load —
+including the lazy WASM fetch described in §6.5, which is the most likely violation and
+does not occur until the first decode, so **the assertion must exercise a decode**
 (intercept `fetch`/`XHR`/`WebSocket`/`EventSource`/`Image`; fail on any call). This is the
 executable form of T7 and of concept.md constraint 1.
 
@@ -984,13 +1045,26 @@ tell what they are running).
 | — | Phone-to-phone research SOTA | ~40 KB/s | lab, mounted |
 | — | All-time lab record (PixNet) | 12 Mb/s | **30" LCD + 24 MP DSLR — not comparable** |
 
-**Stage 3's rationale is decode speed, not density.** Recomputed from the published geometry:
-libcimbar packs 6 bits into a 9×9 px cell = **0.0741 bits per screen px²**, while QR v16-L at
-3 screen px/module is **0.0794** — *QR is denser per pixel.* libcimbar's 106 KB/s comes from
-sustaining ~11 decoded frames/s where the rig managed 2–4. So the custom codec's value is
-**bits per unit of decode CPU**, not bits per pixel, and the ordering follows: fix decode
-throughput first (worker pool, tight ROI, capture resolution, D27), and treat symbology as the
-**last** lever, not the first. This de-urgentises R7 and §19 Q1.
+**Stage 3's rationale — corrected.** An earlier revision of this section claimed *"QR is denser
+per pixel than libcimbar"* (0.0794 vs 0.0741 bits/screen px²) and used it to push symbology to
+last place. **That comparison was invalid, and in exactly the way AP1 warns about:** the 0.0794
+figure is QR v16-L at **3** screen px/module, below this plan's own ≥ 4 camera px/module decode
+floor. Compared at a size that actually decodes:
+
+| Scheme | Bits per screen px² (at its decode floor) |
+|---|---|
+| QR v16-L @ **4** px/module | **0.0447** |
+| libcimbar, 6 bits over 9×9 px | **0.0741** |
+| *(QR v16-L @ 3 px/module — below the floor, not comparable)* | *0.0794* |
+
+**libcimbar is ~1.66× denser per pixel at a decodable cell size**, and it also sustains ~11
+decoded frames/s where the rig managed 2–4. So its advantage is **both** density and frame
+rate, and Stage 3 is *more* attractive than the corrected-away version suggested — not less.
+
+What survives from that reasoning: **decode CPU per bit is the metric that matters**, and the
+cheap decode-side wins (worker pool, tight ROI, capture resolution, D27) come first because
+they are cheap, not because symbology is worthless. **R7 (MPL-2.0 licensing) and §19 Q1 are
+therefore NOT de-urgentised** — they gate Phase 7 and Phase 7 is worth reaching.
 
 **The dominant risk is geometry, not software.** Cell size is set by how many *camera
 pixels* the sender's screen occupies:
@@ -1063,7 +1137,7 @@ independently once Phase 0 lands.
 |---|---|---|
 | **0 — Repo and harness** ⚠️ *partial* | — | Builds, deploys, version footer present, stub-camera tier runs, G1–G3 and **G7** green, **module layout (§6.5) and dependency pins committed**, and a throwaway end-to-end spike (one tiny file through a no-op modulation) proves the seams line up |
 | **0.5 — Spike** ⚠️ *partial* | Phase 0 exit | S1–S4 run and recorded in `docs/notes/spike-results.md`; §13.1's forecast rows replaced with measured figures or the relevant §18 risk triggered. **Gates Phase 1 because it sets K, L, dwell and the rung ladder.** See `spike/README.md` |
-| **1 — Core codec, headless** ✅ *built, 22 tests* | Phase 0.5 exit | 10 MB file survives 50% loss byte-exact; overhead within `sim/` bounds; synthetic 4 GB at flat ≤ 1 MB (A5 / I6a); GE keeps pace at K=768 measured on a real phone; G1–G5 green |
+| **1 — Core codec, headless** ⚠️ *built, gates unmet* | Phase 0.5 exit | 10 MB file survives 50% loss byte-exact; overhead within `sim/` bounds; synthetic 4 GB at flat ≤ 1 MB (A5 / I6a); GE keeps pace at K=768 measured on a real phone; G1–G5 green |
 | **2 — Single-QR optical loop — the walking skeleton** | Phase 1 exit | A1 passes at any speed on two real devices. **This is the first demonstrable end-to-end transfer**; Phase 0's spike is a seam check, not a product |
 | **3 — Tiling + fixed-weight ladder (D18a)** | Phase 2 exit | A1 ≥ 20 KB/s, A2, A3, A4 pass on T-physical-rig; G6 green |
 | **4 — Large-file machinery** | Phase 3 exit | A5, A6, A7, A10 pass; quota pre-flight refuses correctly; repair code round-trips |
@@ -1080,12 +1154,16 @@ debt (PIVOT-CAUSES PH-2).
 |---|---|---|
 | 0 | partial | **Exit criteria NOT met.** `npm run build` fails (no `index.html`, no `src/app.ts`); no version footer (`bf-13h` open); no stub-camera tier; **no lint config**, so G1 cannot pass; G2 (no-network assertion) and G3 (bundle budget, SRI) unimplemented. **G7 is green.** `npm run gate` currently runs typecheck + tests + G7 — a subset of G1 plus G7. |
 | 0.5 | partial | S1, S2, S3 and the thermal observation done. **Outstanding:** phone→phone (R4), rung sweep, a distance sweep under §13.2 conditions, an on-device GE run, and the long-run thermal profile. Its exit criterion — "§13.1's forecast rows replaced with measured figures" — is now met for three rows (§13.1). |
-| 1 | built | `src/core/` complete for framing, PRNG, LT encode, GE decode, block layer. 22 tests green. **Entered on a partial Phase 0.5**, so K, L, dwell and the rung ladder shipped unchanged from their modelled values. |
+| 1 | built, **exit criteria NOT met** | `src/core/` has framing, PRNG, LT encode, GE decode, block layer; 22 tests green. **Unmet:** G1–G3 (inherited from Phase 0); the A5 memory assertion is a smoke test, not I6a; the **on-device GE run** required by "GE keeps pace at K=768 measured on a real phone" has not happened. **Not yet written** (listed in §6.5): `frame/beacon.ts`, `frame/repair-code.ts`, `hash/block-hash.ts`, `hash/stream-id.ts`, `block/schedule.ts`. **I3's golden vector `test/fixtures/vectors.json` does not exist** (AP10 is live, not paid-for). Entered on a partial 0.5, so K, L, dwell and the rung ladder shipped at their modelled values. |
 
-**Two gate defects to close before Phase 2:**
+**Gate defects to close before Phase 2:**
+
+0. **The `zxing-wasm` CDN default (§6.5) must be overridden and the `.wasm` precached** — as
+   shipped it would make a network request mid-session and fail offline entirely.
 
 1. **Phase 0's harness must be built or §17 amended.** Do not leave the discrepancy implicit.
-2. **The A5 memory assertion is a smoke test, not the invariant.** `test/codec.test.ts` checks a
+2. **The on-device GE benchmark has not run**, and D26/T1 both cite a "locally benchmarked max" that no component produces (§16.4 owns it).
+3. **The A5 memory assertion is a smoke test, not the invariant.** `test/codec.test.ts` checks a
    heap *trend* with 64 MB of slack across 40 blocks (7.9 MB), which cannot detect a 40 MB
    working set and does not approach I6a's ≤ 1 MB over 21,800 blocks.
 
@@ -1153,6 +1231,7 @@ coaching ≈ 1500 — **Phase 5 is the largest single phase**, which the phase o
 | **R8** | **No way to learn real-world performance** (no telemetry by design) | **High** | Low | Accepted; T-physical-rig substitutes | If field failures are suspected → voluntary copyable benchmark string (ledger, currently cut) |
 | **R9** | **Multi-hour transfers die to backgrounding / sleep / thermal** | **High** | Medium | E8, E17, wake lock, resume (D22) | Resume proves insufficient → reduce block size further so less is lost |
 | **R10** | **A wire-version bump strands cached receivers** | Medium | Medium | §16.3 one-way-door rule | Skew observed → extend the soak period before bumping |
+| **R12** | **Residual erasure exceeds the assumed 20–30% band** | **High** — measured 48% (non-qualifying conditions) | **High** — D18c, the §8.1 dwell budget and every §13.1 throughput figure rest on this band | Raise dwell; promote the repair code (§8.2). Note v1 cannot *observe* erasure (D18a), so this is an assumption, not a controlled quantity | Erasure > 35% under §13.2 conditions → the **repair code becomes the primary recovery path, not the tail**, and dwell is re-derived from the measured band |
 | **R11** | **Thermal throttling makes long transfers self-defeating** | **High** (observed first session) | **High** — attacks the multi-GB objective directly | Duty-cycling (D27), decode-resolution drop, resume (D22). Self-reinforcing loop: SoC slows → decode slower → camera fps falls → erasure rises → transfer lengthens → more heat | Sustained fps decline > 30% from a cool start → drop duty cycle and **tell the user**, rather than silently running hot and slow. If duty-cycling cannot hold the rate, reframe multi-GB as a multi-session workflow (§1.1) |
 
 ---
@@ -1186,7 +1265,7 @@ because the project has a documented history of confident-and-wrong (AP1, AP3, A
 |---|---|---|---|
 | D19's K = 768 | phone GE ≥ 114.6 MB/s sustained **while thermally throttled** | on-device benchmark under load | K → 512 (2.88× margin), then re-open D5 vs wirehair (R1) |
 | S1's ÷4 phone factor | desktop-to-phone JS gap ≤ 4× | on-device `ge-bench.mjs` | recompute K from the measured figure |
-| D18c's 20–30% erasure | erasure under §13.2 conditions stays ≤ 30% | measured 48% (non-qualifying conditions) | repair code (§8.2) becomes the primary path, not the tail (R9) |
+| D18c's 20–30% erasure | erasure under §13.2 conditions stays ≤ 30% | measured 48% (non-qualifying conditions) | repair code (§8.2) becomes the primary path, not the tail (R12) |
 | The 4 camera px/module cliff | zxing needs ≥ 4 camera px/module under handheld blur | S3 distance sweep under §13.2 conditions | re-derive the rung ladder from the measured cliff |
 | D1's ~10× tiling gain | holds on hardware, not just simulated camera paths | rung sweep on the rig | drop to fewer, larger tiles |
 | D27's duty-cycle economics | 50% duty ≈ 50% heat and completes | long-run thermal profile | multi-session framing (§1.1), or cap the supported file size |
