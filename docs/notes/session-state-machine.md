@@ -106,14 +106,19 @@ type ReceivingState = {
   streamId: number,                    // locked, never changes
   meta: BeaconMeta,                    // immutable after beacon
   complete: Uint8Array,               // block bitmap
-  active: {                           // current block being decoded
+  writtenBlocks: Uint8Array,         // bitmap tracking blocks written to OPFS
+  active: {                           // current payload block being decoded
     blockIndex: number,
     pivots: Map<number, GERow>,
     rank: number,
     consecutiveHigher: number,        // count of consecutive packets with higher blockIndex
     switchThreshold: number          // N consecutive packets to trigger block switch (default 32)
-  } | null,                           // null = between blocks
-  out: FileSystemWritableFileStream,
+  } | null,                           // null = between payload blocks
+  manifestActive: {                  // manifest block being decoded (bf-28b: I5 resolution)
+    pivots: Map<number, GERow>,
+    rank: number,
+  } | null,                           // null = no manifest block active
+  out: FileSystemWritableFileStream | null,
   manifest: BlockHashManifest | null,  // from §7.6
   stats: {
     fps: number,
@@ -145,8 +150,33 @@ type ReceivingState = {
 **Invariants:**
 - `streamId` is **immutable** once locked (A9: wrong stream rejected)
 - `meta` is **immutable** (gates all decode parameters)
-- Exactly one block GE-active at a time (I5)
+- Exactly one **payload** block is GE-active at a time; the manifest stream has its own separate GE context (I5, bf-28b)
 - Block writes to OPFS are **atomic** (hash verification first)
+
+---
+
+### I5 Resolution: Dual GE Contexts (bf-28b)
+
+**Why two separate GE contexts:**
+
+The manifest (§7.6) requires its own GE context running concurrently with payload blocks because:
+1. The manifest is fountain-coded with K=768 (same as payload blocks)
+2. Manifest blocks are **interleaved** with payload blocks on the same schedule as the beacon
+3. The manifest uses reserved `blockIndex = 0xFFFFFF` and `PacketFlags.Manifest`
+4. Both require concurrent fountain decoding
+
+**Implementation:**
+
+Rather than serializing manifest acquisition (which would contradict the interleaved design), I5 was amended to permit two concurrent GE contexts:
+- `active`: GE decoder state for current payload block (null if no block active)
+- `manifestActive`: GE decoder state for manifest block (null if no manifest block active)
+
+**Memory impact:**
+- Adds at most 72 KB (one GE decoder) for manifest decoding — within I6a's 1 MB budget
+
+**See:** `notes/bf-28b-manifest-ge-context-resolution.md` for full analysis
+
+---
 
 ---
 
@@ -619,11 +649,18 @@ type RecvSessionState =
   | QuotaExhaustedState
   | DecompressFailedState;
 
-// Each state has exact fields, no nulls
+// Each state has exact fields, no nulls for core metadata
 type ReceivingState = {
   type: 'receiving';
   streamId: number;           // ✅always present in this state
   meta: BeaconMeta;           // ✅always present in this state
+  complete: Uint8Array;       // ✅always present
+  writtenBlocks: Uint8Array;  // ✅always present
+  // GE contexts are nullable (between blocks or not yet started)
+  active: {...} | null;           // ✅payload block GE context (null = between blocks)
+  manifestActive: {...} | null;   // ✅manifest block GE context (null = no manifest block)
+  out: FileSystemWritableFileStream | null;  // ✅nullable (OPFS handle)
+  manifest: BlockHashManifest | null;       // ✅nullable (not yet acquired)
   // ...
 };
 ```
