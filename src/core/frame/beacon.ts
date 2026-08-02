@@ -270,10 +270,10 @@ export function parseBeacon(
   }
 
   // Read the CRC-32 from the last 4 bytes
-  const storedCrc = (bytes[offset]! << 24) |
+  const storedCrc = ((bytes[offset]! << 24) |
                     (bytes[offset + 1]! << 16) |
                     (bytes[offset + 2]! << 8) |
-                    bytes[offset + 3]!;
+                    bytes[offset + 3]!) >>> 0; // Force unsigned
 
   // Calculate CRC-32 over the beacon body (everything except the last 4 bytes)
   const calculatedCrc = crc32(bytes.subarray(0, beaconBodySize));

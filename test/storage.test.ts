@@ -66,28 +66,41 @@ class MockOPFSDirectory {
     this.files.delete(name);
   }
 
-  async *[Symbol.asyncIterator]() {
-    const fileKeys = [...this.files.keys()];
-    for (const name of fileKeys) {
-      yield {
-        kind: 'file' as const,
-        name,
-        getFile: async () => ({
-          arrayBuffer: async () => this.files.get(name)!.data.buffer,
-          text: async () => {
-            if (name.endsWith('.meta.json')) {
-              return JSON.stringify(this.files.get(name)!.metadata);
-            }
-            return JSON.stringify(this.files.get(name)!.metadata);
-          },
-          size: this.files.get(name)!.data.length,
-        }),
-      };
-    }
-  }
-
   values() {
-    return this[Symbol.asyncIterator]();
+    const files = this.files;
+    const fileKeys = [...files.keys()];
+    let index = 0;
+
+    return {
+      async next() {
+        if (index >= fileKeys.length) {
+          return { done: true, value: undefined };
+        }
+
+        const name = fileKeys[index++];
+        return {
+          done: false,
+          value: {
+            kind: 'file' as const,
+            name,
+            getFile: async () => ({
+              arrayBuffer: async () => files.get(name)!.data.buffer,
+              text: async () => {
+                if (name.endsWith('.meta.json')) {
+                  return JSON.stringify(files.get(name)!.metadata);
+                }
+                return JSON.stringify(files.get(name)!.metadata);
+              },
+              size: files.get(name)!.data.length,
+            }),
+          },
+        };
+      },
+
+      [Symbol.asyncIterator]() {
+        return this;
+      },
+    };
   }
 
   // Helper method to add test files directly to this directory

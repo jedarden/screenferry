@@ -75,3 +75,14 @@
 {"bead":"bf-3ct7","duration_ms":213259,"event":"complete","exit_code":0,"outcome":"success","strand":"explore","ts":"2026-08-02T19:28:47.361223618+00:00","worker":"bench-had-1"}
 {"bead":"bf-461d","event":"claim","strand":"explore","ts":"2026-08-02T19:28:47.603344516+00:00","worker":"bench-had-1"}
 {"adapter":"claude-code-glm-4.7","bead":"bf-461d","event":"dispatch","model":"glm-4.7","strand":"explore","ts":"2026-08-02T19:28:47.661698800+00:00","worker":"bench-had-1"}
+{"bead":"bf-461d","duration_ms":181652,"event":"complete","exit_code":0,"outcome":"success","strand":"auto","ts":"2026-08-02T20:04:38.806538491+00:00","worker":"bench-sf-2"}
+{"bead":"bf-ho40","event":"claim","strand":"auto","ts":"2026-08-02T20:04:39.041274888+00:00","worker":"bench-sf-2"}
+{"adapter":"claude-code-glm47","bead":"bf-ho40","event":"dispatch","model":"glm-4.7","strand":"auto","ts":"2026-08-02T20:04:39.048431782+00:00","worker":"bench-sf-2"}
+{"bead":"bf-5fs","event":"claim","strand":"explore","ts":"2026-08-02T20:05:00.097114145+00:00","worker":"bench-had-1"}
+{"adapter":"claude-code-glm-4.7","bead":"bf-5fs","event":"dispatch","model":"glm-4.7","strand":"explore","ts":"2026-08-02T20:05:00.163135994+00:00","worker":"bench-had-1"}
+{"bead":"bf-ho40","duration_ms":256128,"event":"complete","exit_code":0,"outcome":"success","strand":"auto","ts":"2026-08-02T20:08:55.179297902+00:00","worker":"bench-sf-2"}
+{"bead":"bf-pflr","event":"claim","strand":"auto","ts":"2026-08-02T20:08:55.382951442+00:00","worker":"bench-sf-2"}
+{"adapter":"claude-code-glm47","bead":"bf-pflr","event":"dispatch","model":"glm-4.7","strand":"auto","ts":"2026-08-02T20:08:55.388119182+00:00","worker":"bench-sf-2"}
+{"bead":"bf-5fs","duration_ms":329677,"event":"complete","exit_code":0,"outcome":"success","strand":"explore","ts":"2026-08-02T20:10:29.843161242+00:00","worker":"bench-had-1"}
+{"bead":"bf-5fm","event":"claim","strand":"explore","ts":"2026-08-02T20:10:30.084181693+00:00","worker":"bench-had-1"}
+{"adapter":"claude-code-glm-4.7","bead":"bf-5fm","event":"dispatch","model":"glm-4.7","strand":"explore","ts":"2026-08-02T20:10:30.144374257+00:00","worker":"bench-had-1"}
