@@ -12,6 +12,11 @@ import {
   getKMaxWithFallback,
   type GEBenchmarkResult,
 } from './ge-benchmark.js';
+import {
+  runSimpleGEBenchmark,
+  runSimpleGEBenchmarkAsync,
+  type SimpleGEBenchmarkResult,
+} from './simple-ge-runner.js';
 
 /**
  * Storage check result.
@@ -275,7 +280,7 @@ export async function checkOPFS(): Promise<OPFSCheck> {
  * Run GE benchmark to determine K_max.
  *
  * Per D26/T1, the receiver must refuse streams whose K exceeds what it
- * benchmarked locally. This check derives K_max and caches the result.
+ * benchmarked locally. This check uses the simple benchmark runner.
  */
 export async function checkGEBenchmark(
   config: HealthCheckConfig = DEFAULT_HEALTH_CONFIG
@@ -283,27 +288,40 @@ export async function checkGEBenchmark(
   try {
     const start = performance.now();
 
-    if (config.forceBenchmark) {
-      // Force re-run by clearing cache first
-      const {clearBenchmarkCache} = await import('./ge-benchmark.js');
-      await clearBenchmarkCache();
-    }
+    // Use simple benchmark runner for health checks
+    // Run async to avoid blocking UI
+    const result: SimpleGEBenchmarkResult = await runSimpleGEBenchmarkAsync({
+      maxDuration: 10000, // 10 seconds for health checks
+      targetK: 768,
+      trials: 1, // Single trial for speed
+    });
 
-    const kMax = await getKMaxWithFallback();
     const duration = performance.now() - start;
 
-    return {
-      available: true,
-      kMax,
-      cached: true, // Assume cached (no way to check without import)
-      duration,
-    };
+    if (result.success) {
+      return {
+        available: true,
+        kMax: result.kMax,
+        cached: false, // Simple runner doesn't use cache
+        duration: result.duration,
+      };
+    } else {
+      // Benchmark failed but completed
+      return {
+        available: false,
+        kMax: result.kMax,
+        error: result.error,
+        duration: result.duration,
+      };
+    }
   } catch (e) {
-    // If benchmark completely fails, we still have fallback K_max
+    // Benchmark crashed or couldn't run
+    const duration = performance.now() - start;
     return {
-      available: true, // Available via fallback
-      kMax: 512, // FALLBACK_K_MAX
+      available: false,
+      kMax: 0,
       error: e instanceof Error ? e.message : String(e),
+      duration,
     };
   }
 }
