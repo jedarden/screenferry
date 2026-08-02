@@ -749,8 +749,13 @@ Load-bearing: D22 resume requires that re-selecting the same file reproduces the
 **Derivation (sender):**
 
 ```
-streamId = CRC32( fileSize ‖ first 64 KB ‖ middle 64 KB ‖ last 64 KB ‖ lastModified )
+streamId = CRC32( originalSize ‖ first 64 KB ‖ middle 64 KB ‖ last 64 KB ‖ lastModified )
 ```
+
+**Critical:** `originalSize` is the **uncompressed** file size (the beacon's `originalSize` field), NOT the compressed payload size (`payloadLen`). This is required because:
+
+- **Resume (D22):** `streamId` identifies the FILE the user selected, not the compressed version. Using `originalSize` ensures the same file always produces the same `streamId` regardless of compression settings.
+- **Security separation:** E3a's block arithmetic uses `payloadLen` (compressed size) from the beacon to compute the last block's short length. T1's quota check, T3's decompression-bomb cap, and D23's ETA all use `originalSize` from the beacon. `streamId` participates in the original-size domain because it identifies the user's chosen file.
 
 Three sampled windows plus size and mtime. Costs ~200 KB of reads regardless of file
 size, so it is instant even for 4 TB.
@@ -796,6 +801,7 @@ vectors exist to validate.
 |---|---|---|---|
 | **MAGIC** | `0x5` | 4-bit magic in header `magic_ver` field; used for fast rejection of foreign QR symbols. The high nibble of byte 0 in every packet header. | `src/core/params.ts` |
 | **WIRE_VERSION** | `1` | 4-bit wire version in header `magic_ver` field; indicates wire format revision. Packets with mismatched versions are rejected with `E-VERSION`. | `src/core/params.ts` |
+| **L (fragment length)** | `256` | Fixed fragment length in bytes for wire version 1. **NOT session-negotiable** — part of the wire format. The beacon transmits fragmentLen as a validity check; receivers MUST reject any beacon where fragmentLen ≠ L with `E-VERSION`. L cannot change without incrementing WIRE_VERSION. | `src/core/params.ts` |
 | **CRC-8 polynomial** | `0x31` | CRC-8 polynomial used for `fcrc` field in packet headers (covers bytes 0–11 only). | `src/core/frame/crc.ts` |
 | **CRC-8 initial value** | `0xff` | Initial CRC value for CRC-8 computation. | `src/core/frame/crc.ts` |
 | **CRC-32 polynomial** | `0xedb88320` | IEEE 802.3 CRC-32 polynomial used for `streamId` derivation (§7.4), `manifestHash` (§7.2), and `beaconCRC` (§7.2). This is the standard IEEE polynomial (reversed representation). | `src/core/frame/crc.ts` |
