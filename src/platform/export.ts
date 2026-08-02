@@ -10,6 +10,28 @@ import type { OutputArtefact } from './storage.js';
 import { getStorageManager } from './storage.js';
 
 /**
+ * Type declarations for File System Access API
+ * These are not yet in all TypeScript lib definitions
+ */
+declare global {
+  interface Window {
+    showSaveFilePicker?: (options?: SaveFilePickerOptions) => Promise<FileSystemFileHandle>;
+  }
+
+  interface SaveFilePickerOptions {
+    suggestedName?: string;
+    types?: FilePickerAcceptType[];
+  }
+
+  interface FilePickerAcceptType {
+    description?: string;
+    accept: Record<string, string[]>;
+  }
+}
+
+export {}; // Ensure this is treated as a module
+
+/**
  * Export options.
  */
 export interface ExportOptions {

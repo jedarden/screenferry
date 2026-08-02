@@ -194,6 +194,12 @@ export function parseBeacon(
     return value >>> 0;
   };
 
+  const readU8 = (): number => {
+    const value = bytes[offset]!;
+    offset += 1;
+    return value;
+  };
+
   const readBytes = (n: number): Uint8Array => {
     const value = bytes.subarray(offset, offset + n);
     offset += n;

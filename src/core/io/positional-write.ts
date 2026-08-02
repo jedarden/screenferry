@@ -132,7 +132,9 @@ class OPFSWriteBackend implements WriteBackend {
       throw new WriteError(
         'IO_ERROR',
         `Write failed: ${e instanceof Error ? e.message : String(e)}`,
-        { offset, bytesAttempted: buffer.length, cause: e instanceof Error ? e : undefined }
+        e instanceof Error
+          ? { offset, bytesAttempted: buffer.length, cause: e }
+          : { offset, bytesAttempted: buffer.length }
       );
     }
   }
@@ -223,7 +225,11 @@ class PositionalWriteHandleFactoryImpl implements PositionalWriteHandleFactory {
 
   private async getOPFSRoot(): Promise<FileSystemDirectoryHandle> {
     if (!this.opfsRoot) {
-      this.opfsRoot = await navigator.storage.getDirectory();
+      const root = await navigator.storage.getDirectory();
+      if (!root) {
+        throw new WriteError('IO_ERROR', 'OPFS not available', {});
+      }
+      this.opfsRoot = root;
     }
     return this.opfsRoot;
   }

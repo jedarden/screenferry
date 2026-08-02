@@ -6,7 +6,7 @@
 
 ## Context
 
-S2 Run 4 measured **48% erasure** at D9-compliant sender rate, which exceeds the 35.6% completion cliff at dwell = 1.6 K. However, this measurement was taken under **non-qualifying conditions** that deviate from §13.2 in three of seven parameters:
+S2 Run 4 measured **48% erasure** at D9-compliant sender rate, which exceeds the 34.9% completion cliff at dwell = 1.6 K. However, this measurement was taken under **non-qualifying conditions** that deviate from §13.2 in three of seven parameters:
 - Hand-placed, not mounted
 - Dim room, screen is only light source
 - Uncalibrated distance (~30–40 cm)
@@ -18,7 +18,7 @@ The spike-results.md explicitly states: *"none of these figures are budget-quali
 
 ### Option 1: Raise dwell to 2.0 K
 - **Mechanism:** Increase default dwell from 1.6 K to 2.0 K
-- **Effect:** Moves e_max from 35.6% to 48.5% (above the 48% measurement)
+- **Effect:** Moves e_max from 34.9% to 48.5% (above the 48% measurement)
 - **Cost:** +98% standing overhead (from 1.6× to 2.0×)
 - **Consequences:**
   - Halves every §13.1 throughput figure

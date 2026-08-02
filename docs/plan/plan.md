@@ -867,10 +867,12 @@ A test MUST assert `dwell × (1 − erasure_max) ≥ 1.12`, matching §13.1's +1
 overhead budget, so dwell and the band cannot drift apart again.
 
 **The e_max completion cliff.** A block completes on a pass iff `dwell × (1 − e) ≥ 1 + overhead`.
-At dwell 1.6 K and the measured +2.97% mean overhead (§13.1):
+At dwell 1.6 K and the measured +4.2% p99 overhead (D25, §13.1):
 ```
-e_max = 1 − 1.0297 / 1.6 = 35.6%
+e_max = 1 − 1.042 / 1.6 = 34.9%
 ```
+
+**Note:** The test requirement uses 1.12 (the +12% budget from §13.1) as a conservative margin. The actual measured p99 overhead is +4.2%, giving the true completion cliff at 34.9% erasure. The 30% repair code trigger (line 864) provides a 4.9% buffer below this cliff.
 Above this erasure rate, every pass delivers **less than K independent packets** — the block
 never reaches full rank, the decoder resets, and the next pass starts from rank 0. **The transfer
 NEVER FINISHES**, at any file size, with the progress bar frozen at zero blocks. This is why the
