@@ -85,10 +85,14 @@ class MockFileSystemFileHandle {
     return this.syncHandle;
   }
 
-  async getFile(): Promise<{ size: number; arrayBuffer: () => Promise<ArrayBuffer> }> {
+  async getFile(): Promise<{ size: number; arrayBuffer: () => Promise<ArrayBuffer>; text: () => Promise<string> }> {
     return {
       size: this.data.length,
       arrayBuffer: async () => this.data.buffer.slice(0),
+      text: async () => {
+        const decoder = new TextDecoder();
+        return decoder.decode(this.data);
+      },
     };
   }
 
@@ -161,12 +165,16 @@ class MockFileSystemWritableFileStream {
 
   constructor(private fileHandle: MockFileSystemFileHandle) {}
 
-  async write(data: Uint8Array): Promise<void> {
+  async write(data: Uint8Array | string): Promise<void> {
     if (this.closed) {
       throw new DOMException('Stream closed', 'InvalidStateError');
     }
-    this.fileHandle._write(this.offset, data);
-    this.offset += data.length;
+    // Convert string to Uint8Array
+    const bytes = typeof data === 'string'
+      ? new TextEncoder().encode(data)
+      : data;
+    this.fileHandle._write(this.offset, bytes);
+    this.offset += bytes.length;
   }
 
   async seek(offset: number): Promise<void> {
@@ -185,7 +193,7 @@ class MockFileSystemWritableFileStream {
 let mockRoot: MockFileSystemDirectoryHandle | null = null;
 
 const mockStorage = {
-  getDirectory: async () => {
+  getDirectory: () => {
     if (!mockRoot) {
       mockRoot = new MockFileSystemDirectoryHandle('root');
     }
