@@ -74,6 +74,9 @@ export const BENCHMARK_VERSION = 1;
 /** Conservative fallback K_max if benchmark fails */
 export const FALLBACK_K_MAX = 512;
 
+/** Cache TTL in milliseconds (30 days) */
+export const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
 /** Device signature for caching */
 export interface DeviceSignature {
   userAgent: string;
@@ -292,7 +295,15 @@ export async function loadCachedBenchmarkResult(
         db.close();
         const data = getReq.result;
         if (data && data.result.version === BENCHMARK_VERSION) {
-          resolve(data.result);
+          // Check if the cached result has expired
+          const age = Date.now() - data.result.timestamp;
+          if (age > CACHE_TTL_MS) {
+            console.log(`Cached benchmark result expired (age: ${Math.round(age / 1000 / 60 / 60 / 24)} days)`);
+            resolve(null); // Cache expired
+          } else {
+            console.log(`Using cached benchmark result (age: ${Math.round(age / 1000 / 60 / 60 / 24)} days)`);
+            resolve(data.result);
+          }
         } else {
           resolve(null); // No valid cached result
         }
