@@ -11,6 +11,7 @@ import type { OutputArtefact, StorageManager } from '../src/platform/storage.js'
 // Mock OPFS
 class MockOPFSDirectory {
   files = new Map<string, { data: Uint8Array; metadata: OutputArtefact }>();
+  subdirectories = new Map<string, MockOPFSDirectory>();
 
   async getFileHandle(name: string, options: { create?: boolean }) {
     if (!options?.create && !this.files.has(name)) {
@@ -34,7 +35,13 @@ class MockOPFSDirectory {
   }
 
   async getDirectoryHandle(name: string, options: { create?: boolean }) {
-    return this; // Return self for nested directories
+    if (!this.subdirectories.has(name)) {
+      if (!options?.create) {
+        throw new Error('Directory not found');
+      }
+      this.subdirectories.set(name, new MockOPFSDirectory());
+    }
+    return this.subdirectories.get(name)!;
   }
 
   async removeEntry(name: string, options?: { recursive?: boolean }) {
@@ -44,10 +51,14 @@ class MockOPFSDirectory {
     this.files.delete(name);
   }
 
-  async *values(): AsyncIterable<{ kind: string; name: string }> {
-    for (const [name] of this.files) {
+  async *[Symbol.asyncIterator](): AsyncIterator<{ kind: string; name: string }> {
+    for (const name of this.files.keys()) {
       yield { kind: 'file', name };
     }
+  }
+
+  values() {
+    return this[Symbol.asyncIterator]();
   }
 
   // Helper method to add test files
