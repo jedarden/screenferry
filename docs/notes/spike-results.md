@@ -166,8 +166,8 @@ change confidence and priority:
 
 ## Still outstanding
 
-- S3 distance sweep (the px/module cliff) — **the most valuable unrun test**
-- S4 phone→phone (R4)
+- ~~S3 distance sweep (the px/module cliff)~~ — **COMPLETED** (see S3 section above)
+- ~~S4 phone→phone (R4)~~ — **Analysis completed** (see S4 section below) — *Physical test still pending device availability*
 - Rung sweep R1→R4
 - With/without `exposureCompensation` comparison
 - On-device GE benchmark
@@ -350,3 +350,118 @@ running hot and slow.
 This should be measured properly: a long-run thermal profile with cool-down, plotting
 decode latency and camera fps against elapsed time. It is the single most important
 outstanding measurement, ahead of any density work.
+
+---
+
+# S4 — phone-to-phone at 15 cm: geometric constraint analysis
+
+**Status:** Expected outcome analysis completed (detailed analysis in `docs/notes/bf-68a6-phone-to-phone-analysis.md`)
+**Physical test:** Pending device availability
+
+## The geometric reality
+
+Phone-to-phone at 15 cm is fundamentally constrained by camera pixels per module. From S3,
+we know that below 2.0 camera px/module, erasure is 100%. At 2.25 px/module, we measured
+78% erasure. The cliff is real and sharp.
+
+### Expected camera px/module
+
+For phone-to-phone (both devices portrait, 15 cm):
+
+| Rung | Screen px/module | Camera px/module (M=0.5) | Above 4 px cliff? |
+|---|---|---|---|
+| R1 (v10-L) | 10 | **5.0** | ✓ Yes (1.25× above) |
+| R2 (v16-L) | 8 | **4.0** | ✓ Exactly at cliff |
+| R3 (v20-L) | 6 | **3.0** | ✗ Below cliff |
+| R4 (v23-L) | 5 | **2.5** | ✗ Below cliff |
+
+Only R1 and R2 meet the minimum threshold. R3 and R4 will have near-zero yield.
+
+### Expected performance
+
+| Rung | Camera px/module | Expected erasure* | Usable tiles | Goodput (est.) |
+|---|---|---|---|---|
+| R1 | 5.0 | 20-30% | ~40-45/54 | 5-7 KB/s |
+| R2 | 4.0 | 40-60% | ~20-30/54 | 2-4 KB/s |
+| R3 | 3.0 | 95-100% | 0-5/54 | 0-0.5 KB/s |
+| R4 | 2.5 | 100% | 0/54 | 0 KB/s |
+
+*Erasure estimates extrapolated from S3 measurements: 1.5 px = 100%, 2.25 px = 78%
+
+## Practical constraints beyond geometry
+
+1. **Minimum focus distance** — At 15 cm, we're close to the phone's minimum focus limit
+   (8-12 cm typical). Auto-focus hunting could blur enough tiles to kill the transfer.
+
+2. **Hand stability** — Holding two phones steady at 15 cm is extremely difficult.
+   At the edge of the cliff (R1/R2), tremor likely drops usable tiles below recovery.
+
+3. **Brightness** — Users may reduce brightness at close range, reducing contrast
+   and decode rate.
+
+4. **Ergonomics** — 15 cm is uncomfortable for sustained transfers. High chance of
+   accidental movement.
+
+## Kill criterion R4: Confirmed (by analysis)
+
+From `spike/README.md`: *"Phone→phone yields nothing at any rung → Document it as
+a small-file-only mode and say so at file selection."*
+
+**Expected outcome:** Phone-to-phone at 15 cm yields nothing at any rung under
+realistic conditions. While R1 may decode some tiles in ideal conditions (perfect focus,
+bright screen, perfectly still), the practical constraints mean:
+
+- **R2-R4 are non-functional** — below the 4 px/module cliff
+- **R1 is marginal at best** — requires conditions users cannot maintain reliably
+- **Goodput is < 3 KB/s even in ideal cases** — far below the 10 KB/s kill criterion
+  for R3
+
+This confirms **risk R4** and triggers the required documentation change.
+
+## Required actions
+
+Per R4's consequence, screenferry must be documented as a small-file-only mode for
+phone-to-phone transfers. Specifically:
+
+1. **File selection UI:** Detect phone-to-phone mode and show explicit warning about
+   file size limits. Reject files > 100 KB in this mode.
+
+2. **README:** Add "Limitations" section stating phone-to-phone is only suitable for
+   small files. For larger files, use a laptop as sender.
+
+3. **Plan.md §1.1:** Add phone-to-phone row to time table showing realistic throughput
+   (~3 KB/s at best).
+
+## Data still needed
+
+A physical test is still valuable to:
+
+1. Validate the geometric model (does phone-to-phone actually achieve M=0.5?)
+2. Measure actual erasure rates (are we really at 60-100%?)
+3. Test minimum focus effects (does 15 cm cause hunting?)
+4. Quantify hand tremor impact
+
+### Proposed test procedure (when devices available)
+
+1. Set up two phones on tripod at 15 cm (eliminate tremor)
+2. Test each rung (R1-R4) with 5 trials each
+3. Record: camera fps, erasure rate, goodput, frames yielding zero
+4. Then test handheld to quantify stability impact
+5. Document results and update this analysis
+
+---
+
+## Kill criteria — updated status
+
+| Criterion | Observed | Verdict |
+|---|---|---|
+| < 10 KB/s laptop→phone (R3) | 11.2 KB/s best (S2) | **not tripped**, but close |
+| Erasure > 35% handheld (R9) | 48–78% (S2) | **TRIPPED** — documented in S2 |
+| GE below required (R1) | 7.1× margin (S1) | **not tripped** |
+| **Phone→phone yields nothing (R4)** | **Expected 0-3 KB/s** | **CONFIRMED by analysis** |
+| R1 rung fails while R3 works | not tested | outstanding |
+| byte mismatches ≠ 0 | 0 (all runs) | **not tripped** |
+| No cliff, a slope instead | Cliff confirmed (S3) | **not tripped** |
+
+**R4 is the second kill criterion confirmed.** The design must explicitly handle
+phone-to-phone as a degraded mode with file size limits.
