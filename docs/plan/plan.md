@@ -1319,14 +1319,13 @@ debt (PIVOT-CAUSES PH-2).
 
 | Phase | Claimed | Reality |
 |---|---|---|
-| 0 | partial | **Exit criteria NOT met.** `npm run build` fails (no `index.html`, no `src/app.ts`); no version footer (`bf-13h` open); no stub-camera tier; **no lint config**, so G1 cannot pass; G2 (no-network assertion) and G3 (bundle budget, SRI) unimplemented. **G7 is green.** `npm run gate` currently runs typecheck + tests + G7 — a subset of G1 plus G7. |
+| 0 | partial | **Exit criteria NOT met.** `npm run build` fails (no `index.html`, no `src/app.ts`); no version footer (`bf-13h` open); stub-camera tier incomplete; **no lint config**, so G1 cannot pass; G3 (bundle budget, SRI) unimplemented. **G2 is implemented (bf-22ll). G7 is green.** `npm run gate` currently runs typecheck + tests + G7 — a subset of G1 plus G7. |
 | 0.5 | partial | S1, S2, S3 and the thermal observation done. **Outstanding:** phone→phone (R4), rung sweep, a distance sweep under §13.2 conditions, an on-device GE run, and the long-run thermal profile. Its exit criterion — "§13.1's forecast rows replaced with measured figures" — is now met for three rows (§13.1). |
 | 1 | built, **exit criteria NOT met** | `src/core/` has framing, PRNG, LT encode, GE decode, block layer; 22 tests green. **Unmet:** G1–G3 (inherited from Phase 0); the A5 memory assertion is a smoke test, not I6a; the **on-device GE run** required by "GE keeps pace at K=768 measured on a real phone" has not happened. **Not yet written** (listed in §6.5): `frame/beacon.ts`, `frame/repair-code.ts`, `hash/block-hash.ts`, `hash/stream-id.ts`, `hash/whole-file-hash.ts`, `block/schedule.ts`. **I3's golden vector `test/fixtures/vectors.json` does not exist** (AP10 is live, not paid-for). Entered on a partial 0.5, so K, L, dwell and the rung ladder shipped at their modelled values. |
 
 **Gate defects to close before Phase 2:**
 
-0. **The `zxing-wasm` CDN default (§6.5) must be overridden and the `.wasm` precached** — as
-   shipped it would make a network request mid-session and fail offline entirely.
+0. ~~**The `zxing-wasm` CDN default (§6.5) must be overridden and the `.wasm` precached**~~ — **RESOLVED (bf-2t6n).** The zxing-wasm module is now configured to use locally served WASM files with service worker pre caching, passing the G2 no-network assertion.
 
 1. **Phase 0's harness must be built or §17 amended.** Do not leave the discrepancy implicit.
 2. **The on-device GE benchmark has not run**, and D26/T1 both cite a "locally benchmarked max" that no component produces (§16.4 owns it).
