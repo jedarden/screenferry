@@ -20,6 +20,8 @@ export interface GEBenchmarkConfig {
   trials: number;
   /** Degree cap for fountain code. Defaults to 64 (D25). */
   cap?: number;
+  /** Maximum duration for benchmark in ms. Defaults to 30000 (30s). */
+  maxDuration?: number;
 }
 
 export interface GEBenchmarkResult {
@@ -63,6 +65,7 @@ export const DEFAULT_CONFIG: GEBenchmarkConfig = {
   targetK: 768,
   L: 256,
   trials: 3,
+  maxDuration: 30000, // 30 seconds
 };
 
 /** Benchmark algorithm version - increment to invalidate cached results */
@@ -375,6 +378,42 @@ export async function getKMaxWithFallback(
   } catch (e) {
     console.warn('GE benchmark failed, using fallback K_max=512', e);
     return FALLBACK_K_MAX;
+  }
+}
+
+/**
+ * Simple GE benchmark runner - runs the benchmark and returns raw result.
+ *
+ * This is a simplified interface for running the GE benchmark without caching
+ * or fallback logic. It directly executes the benchmark and returns the result.
+ *
+ * @param config - Benchmark configuration
+ * @returns Benchmark result with K_max and duration
+ */
+export async function runGEBenchmark(
+  config: GEBenchmarkConfig = DEFAULT_CONFIG
+): Promise<GEBenchmarkResult> {
+  try {
+    const start = performance.now();
+
+    // Run the benchmark in a worker
+    const result = await runGEBenchmarkInWorker(config);
+
+    const duration = performance.now() - start;
+    return {
+      ...result,
+      duration,
+    };
+  } catch (e) {
+    // If worker fails, try synchronous fallback
+    try {
+      console.warn('Worker benchmark failed, trying synchronous fallback', e);
+      return runGEBenchmarkSync(config);
+    } catch (syncError) {
+      throw new Error(
+        `GE benchmark failed: ${e instanceof Error ? e.message : String(e)}`
+      );
+    }
   }
 }
 
