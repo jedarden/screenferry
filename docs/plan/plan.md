@@ -86,7 +86,7 @@ plan they mean exactly this:
 | **Tile** | One QR symbol on screen. Carries exactly one packet. |
 | **Frame** | One displayed image, containing a grid of tiles. **Never** a video frame — those are *camera frames*. |
 | **Camera frame** | One image captured by the receiver's camera. |
-| **Beacon** | A special frame carrying file-level metadata instead of payload (D17, §7.2). |
+| **Beacon** | A special **packet** carrying file-level metadata instead of payload. Beacon packets are encoded into tiles and mixed into display frames by the frame mixer (D17, §7.2). |
 | **Profile** | A modulation configuration: QR version, module pixel size, tile count. Several coexist per frame (D16). |
 | **Dwell** | How many packets the sender emits for one block before advancing (§8.1). |
 | **Screen px** | A pixel on the *sender's display*. What the renderer controls. |
@@ -381,6 +381,8 @@ File ──► [sample: compressible?] ──► CompressionStream ──► OPF
 The sender **dwells** on each block (§8.1), then advances, looping the file
 continuously. It never terminates on its own — it cannot know when the receiver is done.
 
+> **Beacon clarification:** The beacon is a **packet** (distinguished by `PacketFlags.Beacon` in its header), not a separate frame. The "frame mixer" shown above combines beacon tiles (QR-encoded beacon packets) with payload tiles into the same displayed frames. This ensures minimal overhead: the sender emits beacon packets every ~2 seconds by replacing a few payload tiles in regular frames, rather than interrupting transmission with dedicated beacon frames.
+
 #### 6.3.1 Frames are generated on demand (D24)
 
 Every arrow above is a **generator**, not an array.
@@ -630,7 +632,7 @@ the user until the manifest arrives and verification succeeds. A test MUST corru
 byte and assert the block hash catches it — corrupting only header bytes, as the current
 suite does, cannot detect this class at all.
 
-### 7.2 Beacon frame (D17/D21)
+### 7.2 Beacon packet (D17/D21)
 
 Emitted every ~2 s at the most conservative profile. Everything the receiver needs before
 it can interpret any payload packet:
