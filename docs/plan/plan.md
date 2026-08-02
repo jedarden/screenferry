@@ -733,7 +733,7 @@ type RecvSession = {
   active: { blockIndex: number; pivots: Map<number, GERow>; rank: number } | null;  // I5 — payload block GE context
   manifestActive: { pivots: Map<number, GERow>; rank: number } | null;  // I5 — manifest block GE context
   manifest: BlockHashManifest | null;    // §7.6 — persisted for resume
-  out: FileSystemWritableFileStream;      // OPFS
+  out: PositionalWriteHandle | null;      // OPFS positional write (worker-only createSyncAccessHandle)
   stats: { fps: number; cameraPxPerModule: number; packetsPerSec: number; eta: number };
 };
 ```
