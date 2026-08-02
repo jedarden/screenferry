@@ -226,9 +226,9 @@ block resident at a time.
 
 `crypto.subtle.digest` has **no streaming API** — it takes one buffer.
 
-**Fix:** per-block hashes (cheap, and they let each block be verified and written the
-moment it completes) plus an optional whole-file hash from an incremental WASM hasher.
-See §7.4 for how this interacts with `streamId`.
+**Fix:** per-block hashes (cheap, and they let each block be written as it completes,
+then verified retroactively once the manifest arrives) plus an optional whole-file hash
+from an incremental WASM hasher. See §7.4 for how this interacts with `streamId`.
 
 ### 3.4 Miss recovery gets expensive as blocks multiply
 
@@ -285,12 +285,12 @@ enforcement mechanism, because an invariant nothing checks is a comment.
 | **I2** | The degree distribution and the decoder MUST change together (D6); any distribution change MUST be simulated before merge | `sim/` assertions ported into the test suite; CI gate G4 |
 | **I3** | Fountain indices MUST be derived from `(streamId, blockIndex, seq)`, never transmitted (D7) | Golden test vector `(streamId, blockIndex, seq) → index set`, bit-exact across implementations |
 | **I4** | The file MUST NOT be fully materialised in memory on either side (D20) | Phase 1 flat-memory test over a synthetic 4 GB stream |
-| **I5** | Exactly one block is GE-active at a time | Session type permits one `active`; block-switch policy (`bf-2t1k`) governs when to switch: hold until rank K or N consecutive higher-index packets (default N=32) |
+| **I5** | **Exactly one payload block is GE-active at a time; the manifest stream has its own separate GE context** (bf-28b) | Session type permits two concurrent GE contexts: `active` for payload blocks and `manifestActive` for manifest blocks. Payload block-switch policy (`bf-2t1k`) governs when to switch: hold until rank K or N consecutive higher-index packets (default N=32). The manifest uses reserved `blockIndex = 0xFFFFFF` and `PacketFlags.Manifest`, providing clean separation from payload blocks. This is necessary because manifest blocks are interleaved with payload blocks (§7.6), and both require fountain decoding. |
 | **I6a** | **Block-layer** working set MUST stay ≤ 1 MB regardless of file size (264 KB at the adopted design) | A5 headless block-layer memory assertion |
 | **I6b** | **Whole-receiver** peak MUST stay ≤ 64 MB, and the decode pool MUST hold ≤ 4 in-flight `VideoFrame`s | Phase 3 instrumented run. A single 1080p RGBA frame is **7.9 MiB**, so this budget is dominated by the camera path, not the codec — which is why I6 had to be split |
 | **I7** | Frames MUST be generated on demand, never pre-rendered (D24) | Ring buffer is bounded at 3; assertion on buffer depth |
 | **I8** | A packet failing `fcrc` or `streamId` MUST be discarded, never applied | Unit test with corrupted and foreign packets |
-| **I9** | A block MUST NOT be written to OPFS until its hash verifies | Test: tamper a block, assert refusal + E-BLOCK-HASH |
+| **I9** | A block MAY be written to OPFS before its hash arrives, but MUST NOT be surfaced to the user until verified | Test: blocks written before manifest arrives are not exported; verification failure prevents completion and triggers E-BLOCK-HASH |
 | **I10** | Decoded output MUST be byte-identical to input | End-to-end property test, every phase |
 
 ---
@@ -466,11 +466,13 @@ getUserMedia ──► exposureCompensation:min (D14) ──► measure real fps
                               │                                        │
                      beacon? ──┴──► learn size/blocks/K/hash    payload ──► GE decoder
                                     (gates everything)
-                                                        rank == K ──► verify block hash
-                                                                  ──► write to OPFS
-                                                                  ──► mark bitmap, free
+                                                        rank == K ──► write to OPFS
+                                                                  ──► mark decode bitmap
+                                                                  ──► verify hash (if manifest present)
+                                                                  ──► mark verified bitmap
                                                                               │
-                                            all blocks present ──► [decompress] ──► save
+                                            all blocks present & manifest decoded ──► verify all blocks
+                                                                  ──► [decompress] ──► save
 ```
 
 \* `MediaStreamTrackProcessor` is **Chromium-only**; `requestVideoFrameCallback` +
@@ -619,11 +621,13 @@ is routed to a block. But the consequence must be stated plainly:
 
 Payload integrity therefore rests on exactly two things: QR's own Reed–Solomon (which makes
 an undetected symbol error rare, but not impossible) and **the per-block hash (§7.6), which
-is the sole application-layer check on payload bytes.** That is why I9 is a MUST: a block
-that reaches rank K and fails its hash is discarded entirely and re-collected
-(`E-BLOCK-HASH`, §11, E12). A test MUST corrupt a payload byte and assert the block hash
-catches it — corrupting only header bytes, as the current suite does, cannot detect this
-class at all.
+is the sole application-layer check on payload bytes.** The manifest-based hash verification
+ensures corrupted blocks are detected before completion: a block that reaches rank K but fails
+its hash is never surfaced to the user and triggers re-collection (`E-BLOCK-HASH`, §11, E12).
+I9 enforces that unverified blocks written to OPFS are never exported or made visible to
+the user until the manifest arrives and verification succeeds. A test MUST corrupt a payload
+byte and assert the block hash catches it — corrupting only header bytes, as the current
+suite does, cannot detect this class at all.
 
 ### 7.2 Beacon frame (D17/D21)
 
@@ -664,7 +668,7 @@ them: the 13-byte header has no room, and the beacon carries only `blockHashLen`
 | `blockHashLen` | **4 bytes.** Per-block false accept 2⁻³², ~5×10⁻⁶ across 21,845 blocks — comfortably below the whole-file hash's job |
 | Coding | **Fixed K=768 multi-block stream** — `blockCount_manifest = ceil(blockCount × blockHashLen / BLOCK)`, same LT encoder, same GE decoder. Each manifest block is fountain-coded independently, inheriting the flat-cost property. |
 | Cadence | Interleaved with payload on the same schedule as the beacon (D17), so a late joiner acquires it without waiting a pass |
-| Before it arrives | Completed blocks are written to OPFS but **not marked in the bitmap**; they are verified retroactively once the manifest decodes. The receiver reports "verifying…" rather than claiming completion |
+| Before it arrives | Completed blocks are written to OPFS but tracked separately from verified blocks (two-bitmap system: `complete` for decoded, `writtenBlocks` for written). They are verified retroactively once the manifest decodes. The receiver reports "verifying…" rather than claiming completion. **Critical: blocks written before verification are NEVER surfaced to the user or exported until their hash is verified (I9).** |
 
 **Why not append the hash to each block's payload:** it would make the payload
 `blockSize + 4`, breaking `blockSize = K·L` and therefore D19's entire arithmetic and G7.
@@ -798,8 +802,9 @@ geometry constraints, and is what makes small blocks (§3.4) affordable. Format:
 
 ### 8.3 Resume (D22)
 
-The receiver persists `{streamId, meta, bitmap}` plus the OPFS output after every completed
-block. On reload it offers to resume. At 2.7 KB per 4 GB this is nearly free.
+The receiver persists `{streamId, meta, bitmap, manifest}` plus the OPFS output after every completed
+block. On reload it offers to resume. At 2.7 KB per 4 GB this is nearly free; the manifest adds
+87 KB for a 4 GB file (21,845 blocks × 4-byte hashes).
 
 The sender is stateless across restarts by construction (D24) **when compression is disabled** —
 it needs only the same file and the same `streamId` (§7.4). **With compression enabled, resume is
@@ -810,7 +815,14 @@ The beacon carries a `RESUME_DISABLED` flag when compression is on; the receiver
 suppress the resume UI.
 
 **On resume the receiver MUST re-verify block hashes** rather than trusting the bitmap, in
-case OPFS was corrupted or the file was touched externally.
+case OPFS was corrupted or the file was touched externally. This requires the manifest to be
+persisted alongside the bitmap.
+
+**Pre-manifest reload behavior:** If the receiver is reloaded before the manifest arrives
+(e.g., during the ~12 minute acquisition window for a 4 GB file at the beacon's ~2 s cadence),
+the persisted bitmap preserves which blocks were decoded, and the written blocks remain in OPFS.
+The `writtenBlocks` bitmap is reset on resume, and blocks are re-verified once the manifest arrives.
+This prevents losing all received blocks during the manifest acquisition window.
 
 ### 8.4 Storage limits
 
@@ -867,7 +879,7 @@ stated limitation, not an oversight — see §18 R8.
 | E9 | **Camera permission revoked mid-run** | Pause, preserve the bitmap, prompt for re-grant. Never discard collected blocks. |
 | E10 | **OPFS quota exhausted mid-transfer** | Stop, keep completed blocks, export a partial file plus a manifest of what is missing. Never silently truncate. **The kept partial artefact follows T4b's deletion lifecycle** — warn the user before keeping it, provide a delete control, and reap on startup. |
 | E11 | **Abandoned staging file** | Sender-side staging keyed by `streamId`; on startup, reap staging files with no active session. Also a privacy requirement (§12, T4a). |
-| E12 | **Block reaches rank K but fails its hash** | Discard the whole block, clear its bitmap bit, re-collect. Emit `E-BLOCK-HASH`. This is the CRC-8 false-accept path (§7.1) and MUST be implemented — at GB scale a silent re-do costs hours. |
+| E12 | **Block hash verification fails** | After manifest arrives, block hash verification fails. Clear the verified bitmap bit, re-collect the block. Emit `E-BLOCK-HASH`. Block may already be written to OPFS but is never surfaced until verified (I9). This is the CRC-8 false-accept path (§7.1) and MUST be implemented — at GB scale a silent re-do costs hours. |
 | E13 | **Whole-file hash fails after all blocks pass** | Indicates E5 or a block-hash collision. Report `E-FILE-HASH`; keep the output and label it unverified rather than deleting hours of work. |
 | E14 | **Filename with path separators or control bytes** | Sanitise on export (§12, T2). Never write an attacker-chosen path. |
 | E15 | **Decompression fails at the end** | All blocks verified but the gzip stream is invalid → `E-DECOMPRESS`; keep the compressed artefact so nothing is lost. **The kept artefact follows T4b's deletion lifecycle** — warn the user before keeping it, provide a delete control, and reap on startup. |

@@ -15,7 +15,7 @@
 
 import {describe, it, expect} from 'vitest';
 import type {RecvSessionState} from '../src/core/session/types.js';
-import {createResumeToken, canResumeRecv} from '../src/core/session/types.js';
+import {createResumeToken, canResumeRecv, restoreFromResumeToken} from '../src/core/session/types.js';
 import {isResumeDisabled, BeaconFlags} from '../src/core/frame/beacon.js';
 
 describe('Compression/Resume integration (bf-vgtq)', () => {
@@ -227,6 +227,39 @@ describe('Compression/Resume integration (bf-vgtq)', () => {
       expect(token?.timestamp).toBeGreaterThanOrEqual(beforeTimestamp - 1000);
       expect(token?.timestamp).toBeLessThanOrEqual(Date.now() + 1000);
     });
+
+    it('should include manifest in resume token when available (bf-28q)', () => {
+      const flags = BeaconFlags.None;
+      const state = createPausedState(flags);
+
+      // Simulate a received manifest
+      const mockManifest = {
+        hashes: new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]),
+      };
+      state.previousState.manifest = mockManifest;
+
+      const token = createResumeToken(state);
+
+      expect(token).not.toBeNull();
+      expect(token?.manifest).not.toBeNull();
+      expect(token?.manifest).toEqual(mockManifest);
+    });
+
+    it('should handle null manifest in resume token (bf-28q)', () => {
+      const flags = BeaconFlags.None;
+      const state = createPausedState(flags);
+
+      // Manifest is null (not yet acquired)
+      expect(state.previousState.manifest).toBeNull();
+
+      const token = createResumeToken(state);
+
+      expect(token).not.toBeNull();
+      expect(token?.manifest).toBeNull();
+      // Other fields should still be present
+      expect(token?.streamId).toBe(state.previousState.streamId);
+      expect(token?.complete).toEqual(state.previousState.complete);
+    });
   });
 
   describe('End-to-end scenarios', () => {
@@ -327,6 +360,91 @@ describe('Compression/Resume integration (bf-vgtq)', () => {
       expect(isResumeDisabled(flags)).toBe(false);
       expect(canResumeRecv(state)).toBe(true);
       expect(createResumeToken(state)).not.toBeNull();
+    });
+  });
+
+  describe('restoreFromResumeToken() (bf-28q)', () => {
+    it('should restore paused state with manifest', () => {
+      const flags = BeaconFlags.None;
+      const meta = createMockMeta(flags);
+      const manifest = {
+        hashes: new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]),
+      };
+      const token = {
+        streamId: meta.streamId,
+        meta,
+        complete: new Uint8Array([0b11111000]),
+        writtenBlocks: new Uint8Array([0b11111000]),
+        manifest,
+        timestamp: Date.now() - 5000,
+      };
+
+      const state = restoreFromResumeToken(token);
+
+      expect(state.type).toBe('paused');
+      expect(state.previousState.streamId).toBe(token.streamId);
+      expect(state.previousState.manifest).toEqual(manifest);
+      expect(state.previousState.complete).toEqual(token.complete);
+    });
+
+    it('should restore paused state without manifest', () => {
+      const flags = BeaconFlags.None;
+      const meta = createMockMeta(flags);
+      const token = {
+        streamId: meta.streamId,
+        meta,
+        complete: new Uint8Array([0b11111000]),
+        writtenBlocks: new Uint8Array([0b11111000]),
+        manifest: null,
+        timestamp: Date.now() - 5000,
+      };
+
+      const state = restoreFromResumeToken(token);
+
+      expect(state.type).toBe('paused');
+      expect(state.previousState.streamId).toBe(token.streamId);
+      expect(state.previousState.manifest).toBeNull();
+      expect(state.previousState.complete).toEqual(token.complete);
+    });
+
+    it('should reset writtenBlocks bitmap on resume', () => {
+      const flags = BeaconFlags.None;
+      const meta = createMockMeta(flags);
+      const token = {
+        streamId: meta.streamId,
+        meta,
+        complete: new Uint8Array([0b11111000]),
+        writtenBlocks: new Uint8Array([0b11111000]),
+        manifest: null,
+        timestamp: Date.now() - 5000,
+      };
+
+      const state = restoreFromResumeToken(token);
+
+      expect(state.type).toBe('paused');
+      // writtenBlocks should be reset (all zeros)
+      expect(state.previousState.writtenBlocks).toEqual(new Uint8Array([0b00000000]));
+      // complete should be preserved
+      expect(state.previousState.complete).toEqual(new Uint8Array([0b11111000]));
+    });
+
+    it('should restore with camera-lost pause reason', () => {
+      const flags = BeaconFlags.None;
+      const meta = createMockMeta(flags);
+      const token = {
+        streamId: meta.streamId,
+        meta,
+        complete: new Uint8Array([0b11111000]),
+        writtenBlocks: new Uint8Array([0b11111000]),
+        manifest: null,
+        timestamp: Date.now() - 10000,
+      };
+
+      const state = restoreFromResumeToken(token);
+
+      expect(state.type).toBe('paused');
+      expect(state.pauseReason).toBe('camera-lost');
+      expect(state.pauseTime).toBeGreaterThan(0);
     });
   });
 });

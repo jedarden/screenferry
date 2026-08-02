@@ -25,6 +25,9 @@ export const K = 768;
 /** Block payload bytes = K * L. */
 export const BLOCK = K * L; // 196608
 
+/** Reserved block index for manifest stream (§7.6) — 16.7M blocks addressable, last slot reserved. */
+export const MANIFEST_BLOCK_INDEX = 0xFFFFFF;
+
 /** Fountain degree cap — D25. Verified by sim/degree_cap_sim.py; below 32 is a cliff. */
 export const DEGREE_CAP = 64;
 
@@ -45,6 +48,8 @@ export const enum PacketFlags {
   /** K < 8: plain repetition instead of LT — edge case E2. */
   Repetition = 0x02,
   Compressed = 0x04,
+  /** Manifest packet — block-hash manifest stream (§7.6). */
+  Manifest = 0x08,
 }
 
 /**

@@ -143,15 +143,29 @@ export interface AcquiringState {
  * of work waiting for a full pass.
  *
  * See: docs/notes/bf-2t1k-block-switch-policy.md
+ *
+ * **I5 Resolution (bf-28b):** The invariant permits two concurrent GE contexts:
+ * - `active`: one payload block's GE decoder (regular blocks)
+ * - `manifestActive`: one manifest block's GE decoder (manifest stream at blockIndex 0xFFFFFF)
+ *
+ * This is necessary because manifest blocks are interleaved with payload blocks (§7.6),
+ * and both require fountain decoding. The manifest uses a reserved blockIndex and is
+ * distinguished by PacketFlags.Manifest, providing clean separation.
  */
 export interface ReceivingState extends BaseRecvState {
   type: 'receiving';
+  /** GE decoder state for current payload block (null if no block active). */
   active: {
     blockIndex: number;
     pivots: Map<number, GERow>;
     rank: number;
     consecutiveHigher: number;  // count of consecutive packets with blockIndex > current
     switchThreshold: number;   // N consecutive packets to trigger block switch (default 32)
+  } | null;
+  /** GE decoder state for manifest block (null if no manifest block active). */
+  manifestActive: {
+    pivots: Map<number, GERow>;
+    rank: number;
   } | null;
   out: PositionalWriteHandle | null;
   manifest: BlockHashManifest | null;
@@ -761,12 +775,22 @@ export function getWriteProgress(state: BaseRecvState): number {
 
 /**
  * Resume token for persisting session state.
+ *
+ * Includes the manifest (§7.6) to enable re-verification of block hashes on resume.
+ * Without the persisted manifest, a reload would lose all received blocks because:
+ * - The manifest takes ~12 minutes to acquire for a 4 GB file (at ~2 s beacon cadence)
+ * - During that window, blocks cannot be verified against their hashes
+ * - By §7.6's two-bitmap rule, blocks written before verification are NOT in the resume bitmap
+ * - So the resume token would be empty and all progress would be lost
+ *
+ * See: docs/notes/bf-28q-manifest-resume-persistence.md
  */
 export interface ResumeToken {
   streamId: number;
   meta: BeaconMeta;
   complete: Uint8Array;  // bitmap of complete blocks
   writtenBlocks: Uint8Array;  // bitmap of written blocks
+  manifest: BlockHashManifest | null;  // block hashes for verification (may be null if not yet acquired)
   timestamp: number;
 }
 
@@ -813,16 +837,19 @@ export function createResumeToken(state: RecvSessionState): ResumeToken | null {
       meta: state.previousState.meta,
       complete: state.previousState.complete,
       writtenBlocks: state.previousState.writtenBlocks,
+      manifest: state.previousState.manifest,  // Persist manifest if available
       timestamp: Date.now(),
     };
   }
 
   if (state.type === 'complete') {
+    // Complete state always has the manifest (verified before completion)
     return {
       streamId: state.streamId,
       meta: state.meta,
       complete: state.complete,
       writtenBlocks: state.writtenBlocks,
+      manifest: null,  // Complete state has verified blocks, manifest not needed for resume
       timestamp: Date.now(),
     };
   }
@@ -832,6 +859,15 @@ export function createResumeToken(state: RecvSessionState): ResumeToken | null {
 
 /**
  * Restore a session from a resume token.
+ *
+ * Pre-manifest reload behavior (bf-28q):
+ * - If token.manifest is null, blocks received before manifest acquisition are preserved in OPFS
+ * - The 'complete' bitmap tracks which blocks were decoded before the reload
+ * - The 'writtenBlocks' bitmap is reset (re-verified writes will be re-marked)
+ * - The receiver continues acquiring the manifest and verifies blocks retroactively once it arrives
+ * - This prevents losing progress during the ~12 minute manifest acquisition window for large files
+ *
+ * If token.manifest is present, block verification can proceed immediately.
  */
 export function restoreFromResumeToken(token: ResumeToken): RecvSessionState {
   // Restores to PAUSED state, user must resume to RECEIVING
@@ -848,8 +884,9 @@ export function restoreFromResumeToken(token: ResumeToken): RecvSessionState {
       complete: token.complete,
       writtenBlocks: new Uint8Array(bitmapBytes),  // Reset write tracking on resume
       active: null,
+      manifestActive: null,
       out: null,  // Must be recreated after OPFS reopen
-      manifest: null,
+      manifest: token.manifest,  // Restore manifest if persisted
       stats: {
         fps: 0,
         cameraPxPerModule: 0,
