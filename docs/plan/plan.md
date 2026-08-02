@@ -158,7 +158,8 @@ got *harder* as a side effect of a decision made for a different reason.
   slowest. This is counterintuitive and is why the original error was easy to make.
 - **The sender's cost was unbudgeted too.** §6.3.1 counted QR encode and render but not
   the fountain XOR. At uncapped harmonic degree and K = 16,384 that is 398 KB of XOR
-  per packet — **91.8 MB/s** at this geometry's 225 packets/s, on top of everything
+  per packet — **91.8 MB/s** at the old 225 packets/s (1 packet/tile), or **183.6 MB/s**
+  at the adopted 450 packets/s (2 packets/tile at R2 nominal), on top of everything
   else. Hence D25.
 
 **Fix — D19:** K = **768**, L = **256 B**, block = **192.0 KB**.
@@ -243,14 +244,14 @@ sub-minute and is why smaller blocks are affordable.
 |---|---|---|---|
 | **D19** | **Block layer: independent 192.0 KB blocks, K = 768, L = 256 B** | GE cost is bound by *time*, not memory (§3.1). K = 768 keeps pace at Stage 3's 106 KB/s (114.6 MB/s needed, **1.74x margin**) within a conservative 200 MB/s phone-JS budget; matrix is 72.0 KB and the block-layer working set 264.0 KB, flat regardless of file size. K_max is 1152; 768 is deliberate conservatism per D26. **L is set by the conservative ladder rung** (S3.1.1), not the nominal one. What RFC 6330 calls source blocks. | §3.1, `sim/ge_cost_model.py` |
 | **D27** | **The receiver duty-cycles under thermal pressure; multi-GB is framed as multi-session** | Measured: a Pixel 6 hit 70 °C and its throttling threshold in **20–30 minutes**, against a §1.1 objective of 27 h–4 days of *continuous* decoding. Duty-cycling is **nearly free on this channel** — a skipped frame is an erasure the fountain code already absorbs (D5) — so 50% duty roughly halves heat for roughly half the rate, and **finishes** where 100% duty may not. Drop decode *resolution* before dropping frames (superlinearly cheaper). No web API exposes SoC temperature, so sustained fps decline is the proxy (E17b). | `spike-results`, R11 |
-| **D25** | **Cap fountain degree at d ≤ 64** | Cuts encoder XOR **7.9×** at the adopted K = 768 (mean degree 106.3 → 13.5): 6.1 MB/s → 0.8 MB/s at 225 packets/s. D6 forbids changing the distribution on faith, so it was **simulated**: at the adopted **K = 768** the cap costs **+1.6 points** (1.34% → 2.97% mean, p99 4.2%), and +1.9 pts at K = 1024. There is a cliff below it — cap 32 costs +4.9 pts with a bad p99, cap 16 costs **+55 pts**. 64 is the right side of the cliff with margin. | `sim/degree_cap_sim.py` |
+| **D25** | **Cap fountain degree at d ≤ 64** | Cuts encoder XOR **7.9×** at the adopted K = 768 (mean degree 106.3 → 13.5): 12.2 MB/s → 1.6 MB/s at 450 packets/s (R2 nominal: 2 packets/tile, 15 tiles, 15 fps). D6 forbids changing the distribution on faith, so it was **simulated**: at the adopted **K = 768** the cap costs **+1.6 points** (1.34% → 2.97% mean, p99 4.2%), and +1.9 pts at K = 1024. There is a cliff below it — cap 32 costs +4.9 pts with a bad p99, cap 16 costs **+55 pts**. 64 is the right side of the cliff with margin. | `sim/degree_cap_sim.py` |
 | **D26** | **K is chosen by the SENDER at session start and MUST be conservative** | Decode cost lands on the receiver, whose CPU the sender cannot know (no back-channel). So the sender MUST assume the weaker device. K = 768 is the default floor; a sender-side setting MAY raise it when the user knows the receiver is a desktop. The receiver derives K from the beacon and MUST refuse a stream whose K exceeds what it benchmarked locally. | §3.1 |
 | **D20** | **Stream both ends; never materialise the file** | Multi-GB `ArrayBuffer` is not allocatable. `File.slice()` sender-side, OPFS receiver-side. | §3.2 |
 | **D21** | **Per-packet header stays 13 bytes: file metadata lives in the beacon** | A 3-byte block index would have cost 23% more header. Moving `payloadLen`, filename, MIME, hash and block count into the periodic beacon pays for it exactly. Payload packets carry only what is needed to *place bytes*. | §7.1 |
 | **D22** | **Resume is mandatory and first-class** | At 2.7–27 h for 1–10 GB, no transfer survives on user patience. Receiver persists the completed-block bitmap; incomplete blocks restart rather than persisting partial GE state. | §1.1, §8.3 |
 | **D23** | **Estimate time before the user commits; refuse or warn at defined thresholds** | Thresholds are numeric (§13.1), not "a threshold". Estimate from *measured* rate once acquired. | §1.1 |
 | **D24** | **Frames generated on demand and discarded; nothing pre-rendered** | The LT stream is endless — no finite frame set exists. One pass over 4 GB is ~550,000 frames = **4.2 TB** as `ImageData`. On-demand encode costs ~7% of one core. PRNG-derived indices make the sender **stateless**: frame *N* generates without replaying 1…*N*−1, which is what makes resume and repair nearly free. | §6.3.1 |
-| D1 | **Tiled QR, not single QR** | 15 × v15 QR decode from one 1080p frame in 7.8 ms for ~7.8 KB, vs 2953 B for one v40. ~10× for zero new decoder risk. | `beyond-qr` §10 |
+| D1 | **Tiled QR, not single QR** | 15 × v15 QR decode from one 1080p frame in 7.8 ms for ~7.5 KB user-visible payload (at 2 packets/tile: 15 tiles × 2 packets × 256 B = 7,680 B; 8.0 KB includes 13-byte headers). This vs 2,953 B for one v40 — ~2.5× for zero new decoder risk. | `beyond-qr` §10 |
 | D2 | **QR v15 @ ECC L, ~15 tiles** | Bounded by the 4 **camera** px/module cliff (§2 — *not* screen px), not symbology density. EC L because the channel is erasure-dominated — redundancy belongs in the fountain code. L→H would cost 57% of payload for nothing. | `qr-encoding` |
 | D3 | **zxing-wasm decoder, read `.bytes`** | Only credible multi-symbol decoder that returns real bytes — verified against 7 libraries with every byte value: exact in 100% of payloads. Bounded 9–26 ms where jsQR hit 1453 ms. Apache-2.0. | `browser-qr-scanning` |
 | D4 | **node-qrcode encoder, mask pinned** | Pinning the mask is a 4.6–8× encode speedup — a bigger lever than library choice. Worker-safe. | `qr-encoding` |
@@ -390,7 +391,8 @@ Every arrow above is a **generator**, not an array.
 - **On-demand is cheap.** ~0.29 ms per v15 tile (from 1.53 ms at v40, mask pinned) ×
   15 tiles × 15 fps ≈ **65 ms/sec, ~7% of one core**, plus ~2.3 ms/sec to render, plus
   **fountain XOR: 3.4 KB/packet at d ≤ 64 (D25) = 0.8 MB/s** at this geometry's
-  **225 packets/s** — negligible, but only because of the cap. Uncapped it is 6.1 MB/s
+  **450 packets/s** (15 tiles × 2 packets/tile × 15 fps, using the R2 nominal rung) —
+  negligible, but only because of the cap. Uncapped it is 6.1 MB/s
   at K = 768, and was 91.8 MB/s at the old K = 16,384.
 
 Because indices derive from a PRNG (D7), the sender is **stateless**: frame *N* generates
@@ -409,11 +411,11 @@ A 1920×1080 landscape code region imaged by a portrait 1080×1920 capture yield
 so 4 screen px/module is only 2.25 camera px/module, below the cliff. Rendering the *same*
 payload into a **portrait-shaped region** inverts this:
 
-| Code region on screen | M | Camera px/module @ 2 screen px | Tiles | KB/frame |
-|---|---|---|---|---|
-| 1920×1080 (naive: fill the screen) | 0.56 | 1.13 — **far below cliff** | 15 | 8.6 |
-| 1080×1080 square | 1.00 | 2.00 — below cliff | 9 | 5.2 |
-| **540×960 portrait** | **2.00** | **4.00 — above cliff** | 15 | **8.6** |
+| Code region on screen | M | Camera px/module @ 2 screen px | Tiles | QR cap/frame | Payload/frame |
+|---|---|---|---|---|---|
+| 1920×1080 (naive: fill the screen) | 0.56 | 1.13 — **far below cliff** | 15 | 8.8 KB | 7.5 KB |
+| 1080×1080 square | 1.00 | 2.00 — below cliff | 9 | 5.3 KB | 4.5 KB |
+| **540×960 portrait** | **2.00** | **4.00 — above cliff** | 15 | **8.8 KB** | **7.5 KB** |
 
 Same tile count and same bytes per frame as the naive layout, but *above* the cliff instead of
 below it — so yield goes from roughly a fifth to near-total. **The sender MUST size the code
@@ -421,9 +423,18 @@ region to the receiver's capture aspect, not to its own display.** Since there i
 back-channel, it cannot know that aspect: expose it as a user-visible setting (portrait /
 landscape receiver) **defaulting to portrait, which is how phones are held — and portrait is
 a fully supported mode, not a degraded one.** The 540×960 portrait region above clears the
-cliff (4.00 camera px/module) at the *same* 8.6 KB/frame as the naive landscape layout would
-need physical rotation to reach. **Phase 3's ≥ 20 KB/s gate MUST pass with the receiver held
-portrait, unaided** — that is the default, unassisted case, not a stretch goal.
+cliff (4.00 camera px/module) at the *same* 7.5 KB/frame payload as the naive landscape
+layout. **Phase 3's ≥ 20 KB/s gate MUST pass with the receiver held portrait, unaided** —
+that is the default, unassisted case, not a stretch goal.
+
+**Packets-per-tile basis.** The R2 nominal rung (v16-L, 60% of tiles in steady state per D18a)
+carries **2 packets per tile**. Each packet is 269 B (13-byte header + 256 B payload), so
+2 packets = 538 B per tile, which fits within v16-L's 586 B capacity. The **user-visible payload**
+is 15 tiles × 2 packets/tile × 256 B = **7,680 B/frame ≈ 7.5 KB/frame**, matching the table
+above (per §13.2, all throughput figures quote user-visible bytes, not wire bytes). The **8.8 KB/frame
+QR capacity** is 15 tiles × 586 B (v16-L capacity). At 15 fps, this geometry delivers
+**7.5 KB × 15 fps = 112.5 KB/s payload rate** (or ~113 KB/s) before fountain overhead
+and erasure loss.
 
 **Two routes to the same M; landscape is a free bonus, not a requirement.** Physically holding
 the receiver in landscape puts the screen's long axis on the camera's long axis — **1.78×,
@@ -927,6 +938,15 @@ one; physical device compromise.
 ### 13.1 Budgets — committed, not forecast
 
 §15's table is *expectation*. These are the numbers the build is held to.
+
+**Throughput basis.** All throughput budgets are **user-visible file bytes per second** after:
+- Fountain coding overhead (+12% p99 at K=768 with D25's cap)
+- Erasure loss (20–30% assumed band per D18c)
+- Dwell overhead (60% standing overhead per §8.1)
+
+The gross wire rate at the R2 nominal rung (v16-L, 2 packets/tile, 15 tiles, 15 fps) is
+**112.5 KB/s payload** (7.5 KB/frame × 15 fps). After fountain (+12%) and 30% erasure,
+net goodput is **~70 KB/s** — well above the 20 KB/s budget.
 
 | Budget | Value | Gate |
 |---|---|---|
