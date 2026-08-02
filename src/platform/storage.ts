@@ -94,8 +94,9 @@ export interface StorageManager {
    * Delete an output by streamId.
    *
    * @param streamId - Stream identifier
+   * @param filename - Optional filename for logging purposes
    */
-  deleteOutput(streamId: number): Promise<void>;
+  deleteOutput(streamId: number, filename?: string): Promise<void>;
 
   /**
    * Cleanup orphaned outputs.
@@ -247,23 +248,72 @@ class OPFSStorageManager implements StorageManager {
     }
   }
 
-  async deleteOutput(streamId: number): Promise<void> {
+  async deleteOutput(streamId: number, filename?: string): Promise<void> {
+    const startTime = performance.now();
+
+    console.log('[Storage:Deletion] Starting deletion', {
+      streamId,
+      filename: filename || '(unknown)',
+      timestamp: new Date().toISOString(),
+    });
+
     try {
       const outputDir = await this.getOutputDirectory();
       const filePath = this.getFilePath(streamId);
       const metadataPath = this.getMetadataPath(streamId);
 
+      console.log('[Storage:Deletion] Deleting files', {
+        streamId,
+        filename: filename || '(unknown)',
+        files: [filePath, metadataPath],
+      });
+
       // Delete file and metadata
       await outputDir.removeEntry(filePath, { recursive: false });
-      await outputDir.removeEntry(metadataPath, { recursive: false });
+      console.log('[Storage:Deletion] Data file deleted', {
+        streamId,
+        file: filePath,
+      });
 
-      console.log(`[Storage] Deleted output: streamId=${streamId}`);
+      await outputDir.removeEntry(metadataPath, { recursive: false });
+      console.log('[Storage:Deletion] Metadata file deleted', {
+        streamId,
+        file: metadataPath,
+      });
+
+      const duration = performance.now() - startTime;
+      console.log('[Storage:Deletion] Deletion completed successfully', {
+        streamId,
+        filename: filename || '(unknown)',
+        duration: `${duration.toFixed(2)}ms`,
+        timestamp: new Date().toISOString(),
+      });
     } catch (e) {
+      const duration = performance.now() - startTime;
+      const errorDetails = {
+        streamId,
+        filename: filename || '(unknown)',
+        duration: `${duration.toFixed(2)}ms`,
+        timestamp: new Date().toISOString(),
+        error: {
+          name: e instanceof Error ? e.name : 'Unknown',
+          message: e instanceof Error ? e.message : String(e),
+          stack: e instanceof Error ? e.stack : undefined,
+        },
+      };
+
       // If file doesn't exist, that's okay - it's already gone
       if (e instanceof Error && !e.message.includes('not found')) {
-        console.error(`[Storage] Failed to delete output: streamId=${streamId}`, e);
+        console.error('[Storage:Deletion] Failed to delete output', errorDetails);
         throw e;
       }
+
+      // File not found - log but don't throw
+      console.warn('[Storage:Deletion] Files not found (already deleted)', {
+        streamId,
+        filename: filename || '(unknown)',
+        duration: `${duration.toFixed(2)}ms`,
+      });
     }
   }
 

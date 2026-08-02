@@ -90,12 +90,41 @@ export async function shareFile(options: ExportOptions): Promise<ExportResult> {
     console.log(`[Export] Share successful for ${filename}`);
 
     // Delete the file from OPFS after successful share
+    const deleteStartTime = performance.now();
+    console.log('[Export:Deletion] Starting deletion after share', {
+      method: 'share',
+      streamId,
+      filename,
+      timestamp: new Date().toISOString(),
+    });
+
     try {
       const storage = await getStorageManager();
-      await storage.deleteOutput(streamId);
-      console.log(`[Export] Deleted output after share: streamId=${streamId}`);
+      await storage.deleteOutput(streamId, filename);
+
+      const deleteDuration = performance.now() - deleteStartTime;
+      console.log('[Export:Deletion] Deletion completed successfully', {
+        method: 'share',
+        streamId,
+        filename,
+        duration: `${deleteDuration.toFixed(2)}ms`,
+        timestamp: new Date().toISOString(),
+      });
     } catch (e) {
-      console.error(`[Export] Failed to delete output after share:`, e);
+      const deleteDuration = performance.now() - deleteStartTime;
+      const errorDetails = {
+        method: 'share',
+        streamId,
+        filename,
+        duration: `${deleteDuration.toFixed(2)}ms`,
+        timestamp: new Date().toISOString(),
+        error: {
+          name: e instanceof Error ? e.name : 'Unknown',
+          message: e instanceof Error ? e.message : String(e),
+          stack: e instanceof Error ? e.stack : undefined,
+        },
+      };
+      console.error('[Export:Deletion] Failed to delete output after share', errorDetails);
       // Don't throw - the share succeeded even if deletion failed
     }
 
@@ -156,12 +185,41 @@ export async function saveFile(options: ExportOptions): Promise<ExportResult> {
     console.log(`[Export] Save successful for ${filename}`);
 
     // Delete the file from OPFS after successful save
+    const deleteStartTime = performance.now();
+    console.log('[Export:Deletion] Starting deletion after save', {
+      method: 'save',
+      streamId,
+      filename,
+      timestamp: new Date().toISOString(),
+    });
+
     try {
       const storage = await getStorageManager();
-      await storage.deleteOutput(streamId);
-      console.log(`[Export] Deleted output after save: streamId=${streamId}`);
+      await storage.deleteOutput(streamId, filename);
+
+      const deleteDuration = performance.now() - deleteStartTime;
+      console.log('[Export:Deletion] Deletion completed successfully', {
+        method: 'save',
+        streamId,
+        filename,
+        duration: `${deleteDuration.toFixed(2)}ms`,
+        timestamp: new Date().toISOString(),
+      });
     } catch (e) {
-      console.error(`[Export] Failed to delete output after save:`, e);
+      const deleteDuration = performance.now() - deleteStartTime;
+      const errorDetails = {
+        method: 'save',
+        streamId,
+        filename,
+        duration: `${deleteDuration.toFixed(2)}ms`,
+        timestamp: new Date().toISOString(),
+        error: {
+          name: e instanceof Error ? e.name : 'Unknown',
+          message: e instanceof Error ? e.message : String(e),
+          stack: e instanceof Error ? e.stack : undefined,
+        },
+      };
+      console.error('[Export:Deletion] Failed to delete output after save', errorDetails);
       // Don't throw - the save succeeded even if deletion failed
     }
 
@@ -231,12 +289,41 @@ export async function downloadFile(options: ExportOptions): Promise<ExportResult
 
     // Delete the file from OPFS after download starts
     // Note: We can't detect when download completes or if user cancelled
+    const deleteStartTime = performance.now();
+    console.log('[Export:Deletion] Starting deletion after download', {
+      method: 'download',
+      streamId,
+      filename,
+      timestamp: new Date().toISOString(),
+    });
+
     try {
       const storage = await getStorageManager();
-      await storage.deleteOutput(streamId);
-      console.log(`[Export] Deleted output after download: streamId=${streamId}`);
+      await storage.deleteOutput(streamId, filename);
+
+      const deleteDuration = performance.now() - deleteStartTime;
+      console.log('[Export:Deletion] Deletion completed successfully', {
+        method: 'download',
+        streamId,
+        filename,
+        duration: `${deleteDuration.toFixed(2)}ms`,
+        timestamp: new Date().toISOString(),
+      });
     } catch (e) {
-      console.error(`[Export] Failed to delete output after download:`, e);
+      const deleteDuration = performance.now() - deleteStartTime;
+      const errorDetails = {
+        method: 'download',
+        streamId,
+        filename,
+        duration: `${deleteDuration.toFixed(2)}ms`,
+        timestamp: new Date().toISOString(),
+        error: {
+          name: e instanceof Error ? e.name : 'Unknown',
+          message: e instanceof Error ? e.message : String(e),
+          stack: e instanceof Error ? e.stack : undefined,
+        },
+      };
+      console.error('[Export:Deletion] Failed to delete output after download', errorDetails);
     }
 
     return { success: true, method: 'save' };
