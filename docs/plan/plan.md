@@ -21,6 +21,7 @@ evidence behind every number lives in [`../research/`](../research/).
 | 2026-07-31 | **Re-review corrections** — §3.1 formula was 2× wrong (fixed); L reverted 507 → 256 B because 507 broke D16's conservative rung (§3.1.1); D18 split into D18a/b/c with the erasure band restored to 20–30%; I6 split; module layout added; numbers now emitted by the model and diffed in CI (G7) | `sim/ge_cost_model.py` (rewritten), `sim/degree_cap_sim.py` (K=768) |
 | 2026-07-31 | **Plan review corrections** — D19 re-derived (K 16,384 → 768; see §3.1), degree cap added (D25), K made device-measured (D26), dwell/erasure inconsistency fixed, and §2/§5/§6/§9–§14/§16/§18 added | `sim/ge_cost_model.py`, `sim/degree_cap_sim.py` |
 | 2026-08-01 | **Portrait made the default supported receiver orientation, not a fallback** — §6.3.2 reframed (sender-side portrait code region is primary; landscape rotation is an optional bonus, not required to meet Phase 3's gate); `E-ORIENTATION` (§11) reworded from a rotate-now blocker to an optional-margin tip; A2 (§9) now states the receiver is held portrait; R2 (§18) mitigation leads with the portrait code-region shaping | `docs/notes/spike-results.md` §"What 1 Mbps needs" |
+| 2026-08-02 | **Compression/resume conflict resolution documented** — §8.3 updated with implementation details and cross-references to `bf-17s0` (analysis), `bf-3k90` (solution evaluation), and `bf-2w1a` (validation). T4 and E11 sections verified unchanged (Option B preserves privacy posture). Architecture diagrams verified (no flow changes). | `docs/notes/bf-5kd6-compression-resume-documentation-update.md` |
 
 **Normative language.** **MUST** / **MUST NOT** are invariants (§5) — violating one is a
 correctness bug. **SHOULD** is a strong default, overridable with a recorded reason.
@@ -808,11 +809,15 @@ block. On reload it offers to resume. At 2.7 KB per 4 GB this is nearly free; th
 
 The sender is stateless across restarts by construction (D24) **when compression is disabled** —
 it needs only the same file and the same `streamId` (§7.4). **With compression enabled, resume is
-NOT supported** — see `notes/bf-17s0-resume-compression-conflict.md` for the full analysis.
+NOT supported** — see `docs/notes/bf-17s0-resume-compression-conflict.md` for the full analysis,
+`docs/notes/bf-3k90-compression-resume-solution-evaluation.md` for the solution evaluation,
+and `notes/bf-2w1a.md` for validation and test coverage.
 The short version: `CompressionStream` offers no determinism guarantee, so re-compression after
 staging is reaped (E11) would produce different blocks and silently corrupt the receiver's state.
-The beacon carries a `RESUME_DISABLED` flag when compression is on; the receiver uses it to
-suppress the resume UI.
+The beacon carries a `ResumeDisabled` flag (beacon `flags` field) when compression is on;
+the receiver uses this flag to suppress resume UI and prevent persisting resume tokens.
+This preserves the T4 privacy requirement (staging is still wiped on startup) while preventing
+silent corruption.
 
 **On resume the receiver MUST re-verify block hashes** rather than trusting the bitmap, in
 case OPFS was corrupted or the file was touched externally. This requires the manifest to be
@@ -917,10 +922,23 @@ now, before Phase 5 designs any UI — after that, taxonomies get retrofitted to
 | `E-FOREIGN-STREAM` | Different `streamId` (E7) | "That's a different file — ignoring it." | automatic, informational |
 | `E-VERSION` | Unknown `magic_ver` (§16.3) | "The sending device is running version X; this one is Y. Update both." | user must update |
 | `E-META-BOUNDS` | Beacon field out of bounds (T1) | "That transmission looks malformed and was rejected." | automatic, refuse |
+| `E-MANIFEST-CORRUPT` | Manifest CRC validation failed (§7.6) | "The block manifest is corrupted and is being re-decoded." | automatic retry |
+| `E-MANIFEST-MISSING` | Manifest never arrived (§7.6) | "Waiting for block manifest to verify received chunks." | wait or request repair |
+| `E-MANIFEST-DECODE` | Manifest fountain decode failed (§7.6) | "Could not decode the block manifest. Retrying..." | automatic retry |
+| `E-MANIFEST-LIVELOCK` | E12 livelock detected, manifest corrupted (bf-5fm) | "Multiple chunks failed verification — the manifest appears corrupted. Re-decoding manifest..." | re-decode manifest |
 | `E-BLOCK-HASH` | Rank K reached, hash failed (E12) | "A chunk arrived corrupted and is being re-collected." | automatic retry |
-| `E-FILE-HASH` | Whole-file hash failed (E13) | "The file is complete but failed its final check — saved as unverified." | keep output, warn |
+| `E-BLOCK-RETRY-EXCEEDED` | Block retry limit exceeded (E12 livelock, bf-5fm) | "A chunk has failed verification too many times. Re-decoding manifest..." | re-decode manifest |
+| `E-K-OVERFLOW` | Sender K exceeds receiver's maximum (D26) | "Sender's chunk size is too large for this device. Use a smaller file or a more powerful receiver." | refuse, user adjusts |
+| `E-REPAIR-BOUNDS` | Repair code references blocks beyond file (§8.2) | "That repair code refers to chunks that don't exist. Check it and try again." | user re-enters |
 | `E-REPAIR-CODE` | Repair code checksum failed | "That repair code doesn't look right — check it and try again." | user re-enters |
+| `E-FILE-HASH` | Whole-file hash failed (E13) | "The file is complete but failed its final check — saved as unverified." | keep output, warn |
 | `E-WASM-LOAD` | Decoder failed to load | "The scanner failed to start. Reload the page." | user reloads |
+
+**Status codes** (informational, not errors):
+
+| Code | Meaning | User-facing |
+|---|---|---|
+| `E-VERIFYING` | Verifying blocks against manifest (§7.6) | "Verifying received chunks against manifest..." |
 
 **Local / resource:**
 
