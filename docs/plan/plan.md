@@ -845,6 +845,16 @@ erasure lower means the ladder is too conservative and throughput is being left 
 A test MUST assert `dwell × (1 − erasure_max) ≥ 1.12`, matching §13.1's +12% p99
 overhead budget, so dwell and the band cannot drift apart again.
 
+**The e_max completion cliff.** A block completes on a pass iff `dwell × (1 − e) ≥ 1 + overhead`.
+At dwell 1.6 K and the measured +2.97% mean overhead (§13.1):
+```
+e_max = 1 − 1.0297 / 1.6 = 35.6%
+```
+Above this erasure rate, every pass delivers **less than K independent packets** — the block
+never reaches full rank, the decoder resets, and the next pass starts from rank 0. **The transfer
+NEVER FINISHES**, at any file size, with the progress bar frozen at zero blocks. This is why the
+repair code (§8.2) exists: when real erasure exceeds e_max, human mediation is the designed recovery path.
+
 **When real erasure exceeds 30%** — which nothing in v1 can detect (D18a) — blocks miss
 and the **repair code (§8.2) is the recovery path**, not a tighter loop. This is the
 designed answer, not a gap.
