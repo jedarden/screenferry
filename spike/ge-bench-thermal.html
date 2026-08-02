@@ -1,0 +1,211 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GE Benchmark - Thermal Throttling Test</title>
+<style>
+  :root { color-scheme: dark }
+  body { margin:0; font:14px/1.5 system-ui,sans-serif; background:#111; color:#eee; padding:1rem }
+  pre { background:#0a0a0a; padding:1rem; border-radius:4px; white-space:pre-wrap; font-size:12px; line-height:1.4 }
+  .big { font-size:1.8rem; font-weight:700; margin:.5rem 0 }
+  .ok { color:#5d5 }
+  .fail { color:#f66 }
+  .warn { color:#fb4 }
+  .phase { color:#4af }
+  button { padding:12px 24px; font-size:16px; margin:8px; cursor:pointer; background:#333; color:#fff; border:1px solid #555; border-radius:4px; }
+  button:disabled { opacity:0.5; cursor:not-allowed; }
+  .progress { font-size:20px; font-weight:bold; margin:1rem 0; }
+  .comparison { margin:1rem 0; padding:1rem; background:#1a1a1a; border-radius:4px; }
+</style>
+
+<h1>GE Benchmark - Thermal Throttling Test</h1>
+<p><strong>Plan ref:</strong> §18.2, R1 — Measures sustained XOR throughput WHILE THERMALLY THROTTLED.</p>
+
+<button id="btn-start" onclick="startTest()">Start Full Thermal Test</button>
+<button id="btn-benchmark-only" onclick="benchmarkOnly()">Benchmark Only (Cool)</button>
+
+<div class="progress" id="progress">Click button to start</div>
+<div class="big" id="summary"></div>
+<pre id="results"></pre>
+
+<script type="module">
+import { run, requiredMBs } from './ge-bench.mjs';
+
+const STAGES = [["Stage 1", 30], ["Stage 2", 60], ["Stage 3", 106]];
+const BUDGET = 200;
+const PHONE_FACTOR = 4;
+const K = 768;
+const L = 256;
+
+let coolResult = null;
+let throttledResult = null;
+
+function addResult(text) {
+  const el = document.getElementById('results');
+  el.textContent += text + '\n';
+  console.log(text);
+  el.scrollTop = el.scrollHeight;
+}
+
+function formatReport(r, label) {
+  const phone = r.throughputMBs / PHONE_FACTOR;
+  let out = `\n${label}:\n`;
+  out += `  K=${r.K}  L=${r.L}  cap=${r.cap}\n`;
+  out += `  block ${(r.blockBytes / 1024).toFixed(0)} KB · matrix ${(r.matrixBytes / 1024).toFixed(0)} KB\n`;
+  out += `  packets ${r.packets} (overhead ${r.overheadPct >= 0 ? '+' : ''}${r.overheadPct.toFixed(2)}%) · row-ops ${r.rowOps.toLocaleString()}\n`;
+  out += `  decode ${r.ms.toFixed(0)} ms · XOR ${(r.xorBytes / 1e6).toFixed(0)} MB\n`;
+  out += `  THIS DEVICE: ${r.throughputMBs.toFixed(0)} MB/s\n`;
+  out += `  est. phone (÷${PHONE_FACTOR}): ${phone.toFixed(0)} MB/s   [plan assumes ${BUDGET} MB/s]\n`;
+
+  for (const [name, kb] of STAGES) {
+    const need = requiredMBs(r.K, r.L, kb * 1024);
+    const ok = phone >= need;
+    out += `    ${name.padEnd(8)} needs ${need.toFixed(0).padStart(4)} MB/s  → ${ok ? 'OK' : 'FAILS'}  (${(phone / need).toFixed(2)}x margin)\n`;
+  }
+
+  return { text: out, phone, device: r.throughputMBs };
+}
+
+// CPU-intensive work to heat up the device
+function heatUp(durationMs) {
+  const startTime = performance.now();
+  let iterations = 0;
+  const checkInterval = 1000; // Report every second
+
+  return new Promise((resolve) => {
+    function heatWork() {
+      const now = performance.now();
+      const elapsed = now - startTime;
+
+      if (elapsed >= durationMs) {
+        addResult(`Heat-up complete: ${iterations} iterations`);
+        resolve();
+        return;
+      }
+
+      // CPU-intensive work: repeated matrix operations
+      const size = 100;
+      const matrix = new Float32Array(size * size);
+      for (let i = 0; i < 1000; i++) {
+        for (let j = 0; j < size; j++) {
+          for (let k = 0; k < size; k++) {
+            matrix[j * size + k] = matrix[j * size + k] * 1.001 + Math.random();
+          }
+        }
+      }
+      iterations++;
+
+      // Report progress every second
+      if (iterations % 10 === 0) {
+        const elapsedSec = (elapsed / 1000).toFixed(0);
+        addResult(`Heating... ${elapsedSec}s / ${(durationMs / 1000).toFixed(0)}s (${iterations} iterations)`);
+      }
+
+      setTimeout(heatWork, 0);
+    }
+    heatWork();
+  });
+}
+
+// Run benchmark and return best result
+async function runBenchmark(label) {
+  addResult(`\n${label}...`);
+  let best = null;
+
+  // Warmup
+  for (let i = 0; i < 3; i++) {
+    await new Promise(r => setTimeout(r, 10));
+    run(K, L, { seed: 0xC0FFEE + i });
+  }
+
+  // Actual runs
+  for (let i = 0; i < 5; i++) {
+    await new Promise(r => setTimeout(r, 20));
+    const r = run(K, L, { seed: 0xC0FFEE + i });
+    if (!best || r.throughputMBs > best.throughputMBs) best = r;
+    addResult(`  Run ${i+1}: ${r.throughputMBs.toFixed(0)} MB/s device → ${(r.throughputMBs / PHONE_FACTOR).toFixed(0)} MB/s phone est`);
+  }
+
+  const result = formatReport(best, label);
+  addResult(result.text);
+  return result;
+}
+
+window.benchmarkOnly = async function() {
+  document.getElementById('btn-start').disabled = true;
+  document.getElementById('btn-benchmark-only').disabled = true;
+  document.getElementById('progress').textContent = 'Running cool benchmark...';
+  document.getElementById('results').textContent = '';
+
+  addResult('Device info:');
+  addResult(`  UA: ${navigator.userAgent}`);
+  addResult(`  Hardware concurrency: ${navigator.hardwareConcurrency || 'unknown'}`);
+  addResult(`  Device memory: ${navigator.deviceMemory || 'unknown'} GB`);
+  addResult(`  Platform: ${navigator.platform}`);
+  addResult('');
+
+  const result = await runBenchmark('COOL DEVICE');
+  document.getElementById('summary').innerHTML = `Cool: <span class="${result.phone >= 114.6 ? 'ok' : 'fail'}">${result.phone.toFixed(0)} MB/s</span> (target: 114.6 MB/s)`;
+
+  document.getElementById('btn-start').disabled = false;
+  document.getElementById('btn-benchmark-only').disabled = false;
+  addResult('\n===== BENCHMARK COMPLETE =====');
+};
+
+window.startTest = async function() {
+  document.getElementById('btn-start').disabled = true;
+  document.getElementById('btn-benchmark-only').disabled = true;
+  document.getElementById('results').textContent = '';
+  document.getElementById('summary').textContent = '';
+
+  addResult('Device info:');
+  addResult(`  UA: ${navigator.userAgent}`);
+  addResult(`  Hardware concurrency: ${navigator.hardwareConcurrency || 'unknown'}`);
+  addResult(`  Device memory: ${navigator.deviceMemory || 'unknown'} GB`);
+  addResult(`  Platform: ${navigator.platform}`);
+  addResult('');
+
+  // Phase 1: Cool baseline
+  document.getElementById('progress').textContent = 'Phase 1: Cool baseline...';
+  coolResult = await runBenchmark('COOL BASELINE');
+
+  // Phase 2: Heat up the device
+  document.getElementById('progress').textContent = 'Phase 2: Heating device (5 minutes)...';
+  addResult('\n=== HEATING PHASE: 5 minutes of CPU load ===');
+  await heatUp(5 * 60 * 1000);
+
+  // Phase 3: Measure while throttled
+  document.getElementById('progress').textContent = 'Phase 3: Measuring throttled performance...';
+  throttledResult = await runBenchmark('THROTTLED DEVICE (HOT)');
+
+  // Phase 4: Comparison
+  document.getElementById('progress').textContent = 'Analysis complete';
+
+  const degradation = ((coolResult.device - throttledResult.device) / coolResult.device * 100);
+  const phoneCool = coolResult.phone;
+  const phoneThrottled = throttledResult.phone;
+
+  addResult('\n=== THERMAL THROTTLING ANALYSIS ===');
+  addResult(`Cool device: ${coolResult.device.toFixed(0)} MB/s → ${phoneCool.toFixed(0)} MB/s phone est`);
+  addResult(`Hot device: ${throttledResult.device.toFixed(0)} MB/s → ${phoneThrottled.toFixed(0)} MB/s phone est`);
+  addResult(`Thermal degradation: ${degradation.toFixed(1)}%`);
+  addResult(`Phone margin at Stage 3 (114.6 MB/s target):`);
+  addResult(`  Cool: ${(phoneCool / 114.6).toFixed(2)}x margin`);
+  addResult(`  Throttled: ${(phoneThrottled / 114.6).toFixed(2)}x margin`);
+
+  const summaryClass = phoneThrottled >= 114.6 ? 'ok' : 'fail';
+  document.getElementById('summary').innerHTML = `
+    <div class="comparison">
+      <strong>Cool:</strong> ${phoneCool.toFixed(0)} MB/s (${(phoneCool / 114.6).toFixed(2)}x margin)<br>
+      <strong>Throttled:</strong> <span class="${summaryClass}">${phoneThrottled.toFixed(0)} MB/s</span> (${(phoneThrottled / 114.6).toFixed(2)}x margin)<br>
+      <strong>Degradation:</strong> ${degradation.toFixed(1)}%
+    </div>
+  `;
+
+  document.getElementById('btn-start').disabled = false;
+  document.getElementById('btn-benchmark-only').disabled = false;
+  addResult('\n===== TEST COMPLETE =====');
+};
+
+// Initial message
+addResult('This test will:\n1. Measure GE benchmark on cool device\n2. Heat up device with 5 minutes of CPU load\n3. Measure GE benchmark while thermally throttled\n4. Report degradation and margins\n\nClick button to start.');
+</script>

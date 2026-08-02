@@ -1,0 +1,80 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GE Benchmark - Auto Run</title>
+<style>
+  :root { color-scheme: dark }
+  body { margin:0; font:14px/1.5 system-ui,sans-serif; background:#111; color:#eee; padding:1rem }
+  pre { background:#0a0a0a; padding:1rem; border-radius:4px; white-space:pre-wrap; font-size:12px; line-height:1.4 }
+  .big { font-size:1.8rem; font-weight:700; margin:.5rem 0 }
+  .ok { color:#5d5 }
+  .fail { color:#f66 }
+  .warn { color:#fb4 }
+</style>
+
+<h1>GE Benchmark - Auto Run</h1>
+<div class="big" id="summary">Running benchmark...</div>
+<pre id="results"></pre>
+
+<script type="module">
+import { run, requiredMBs } from './ge-bench.mjs';
+
+const STAGES = [["Stage 1", 30], ["Stage 2", 60], ["Stage 3", 106]];
+const BUDGET = 200;
+const PHONE_FACTOR = 4;
+
+function addResult(text) {
+  const el = document.getElementById('results');
+  el.textContent += text + '\n';
+  console.log(text);
+}
+
+function formatReport(r) {
+  const phone = r.throughputMBs / PHONE_FACTOR;
+  let out = `\nK=${r.K}  L=${r.L}  cap=${r.cap}\n`;
+  out += `  block ${(r.blockBytes / 1024).toFixed(0)} KB · matrix ${(r.matrixBytes / 1024).toFixed(0)} KB\n`;
+  out += `  packets ${r.packets} (overhead ${r.overheadPct >= 0 ? '+' : ''}${r.overheadPct.toFixed(2)}%) · row-ops ${r.rowOps.toLocaleString()}\n`;
+  out += `  decode ${r.ms.toFixed(0)} ms · XOR ${(r.xorBytes / 1e6).toFixed(0)} MB\n`;
+  out += `  THIS DEVICE: ${r.throughputMBs.toFixed(0)} MB/s\n`;
+  out += `  est. phone (÷${PHONE_FACTOR}): ${phone.toFixed(0)} MB/s   [plan assumes ${BUDGET} MB/s]\n`;
+
+  for (const [name, kb] of STAGES) {
+    const need = requiredMBs(r.K, r.L, kb * 1024);
+    const ok = phone >= need;
+    out += `    ${name.padEnd(8)} needs ${need.toFixed(0).padStart(4)} MB/s  → ${ok ? 'OK' : 'FAILS'}  (${(phone / need).toFixed(2)}x margin)\n`;
+  }
+
+  return { text: out, phone, r };
+}
+
+// Device info
+addResult('Device info:');
+addResult(`  UA: ${navigator.userAgent}`);
+addResult(`  Hardware concurrency: ${navigator.hardwareConcurrency || 'unknown'}`);
+addResult(`  Device memory: ${navigator.deviceMemory || 'unknown'} GB`);
+addResult(`  Platform: ${navigator.platform}`);
+addResult('');
+
+// Warmup
+addResult('Warming up...');
+for (let i = 0; i < 3; i++) {
+  await new Promise(r => setTimeout(r, 10));
+  run(768, 256, { seed: 0xC0FFEE + i });
+}
+addResult('Warmup complete\n');
+
+// Benchmark K=768, L=256
+addResult('Running K=768, L=256...');
+let best = null;
+for (let i = 0; i < 3; i++) {
+  await new Promise(r => setTimeout(r, 10));
+  const r = run(768, 256, { seed: 0xC0FFEE + i });
+  if (!best || r.throughputMBs > best.throughputMBs) best = r;
+}
+
+const { text, phone } = formatReport(best);
+addResult(text);
+
+document.getElementById('summary').innerHTML = `K=768 phone est: <span class="${phone >= 114.6 ? 'ok' : 'fail'}">${phone.toFixed(0)} MB/s</span> (target: 114.6 MB/s)`;
+addResult('\n===== BENCHMARK COMPLETE =====');
+</script>
