@@ -688,8 +688,9 @@ type RecvSession = {
   streamId: number | null;                // locked on first valid header
   meta: BeaconMeta | null;                // gates everything
   complete: Uint8Array;                   // block bitmap — the resume token
+  writtenBlocks: Uint8Array;              // blocks written to OPFS (lags complete during out-of-order writes)
   active: { blockIndex: number; pivots: Map<number, GERow>; rank: number } | null;  // I5
-  out: FileSystemWritableFileStream;      // OPFS
+  out: PositionalWriteHandle | null;     // OPFS worker-side handle with write(buf, {at}) for out-of-order completion
   stats: { fps: number; cameraPxPerModule: number; packetsPerSec: number; eta: number };
 };
 ```
