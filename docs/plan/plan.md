@@ -1331,6 +1331,14 @@ updated "if any decision changed" — but a **measurement** is not a **decision*
 triggered. **Rule: any spike or hardware measurement MUST be folded into §13.1, §18 and the
 revision history in the same commit that records it.** Owner: whoever runs the measurement.
 
+**Dependency gap this exposes.** Three consecutive reviews found the same pattern: every critical
+finding was in material added in the preceding commits, each time because a new section's internal
+logic was sound but was never wired back into the sections it depends on. §7.6 names eleven
+dependents and is referenced by one line. D27 was never checked against §8.1. §7.2's mandatory
+hash left "optional" standing in two places. **Rule: any new section MUST enumerate all sections
+that depend on it and update each dependent section to reference the new material.** Owner:
+whoever writes the new section.
+
 ### 17.1 Phase 0.5 — why a spike, and why here
 
 The plan's parameters are currently modelled or borrowed from research on other
