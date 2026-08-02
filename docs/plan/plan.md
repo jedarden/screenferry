@@ -506,26 +506,42 @@ so the tree separates them explicitly.
 ```
 src/
   core/                 # pure, no DOM, no workers — the testable heart
-    fountain/           #   lt-encode.ts  ge-decode.ts  prng.ts  degree.ts
-    block/              #   partition.ts  bitmap.ts  schedule.ts
-    frame/              #   header.ts  beacon.ts  crc.ts  repair-code.ts
-    hash/               #   block-hash.ts  stream-id.ts  whole-file-hash.ts
+    params.ts           # ⚠️ CRITICAL: rung table, validation guards, G7 diff targets
+    session/            #   types.ts (SendSession, RecvSession from §7.3)
+    fountain/           #   encoder.ts (was lt-encode.ts)  decoder.ts (was ge-decode.ts)  prng.ts
+    block/              #   partition.ts
+    frame/              #   header.ts  beacon.ts  crc.ts
+    hash/               #   block-hash.ts  whole-file-hash.ts
+    errors/             #   error-codes.ts (§11 error taxonomy)
+    io/                 #   positional-write.ts (OPFS positional write for D20)
   modulation/           # the swappable layer (§6.1)
     types.ts            #   the Modulation interface — the ONLY contract above
-    qr-tiled/           #   stage 1: encode.ts  decode.ts  layout.ts  ladder.ts
-    qr-colour/          #   stage 2
-    grid/               #   stage 3
-  workers/              # one file per thread role (§6.2)
-    encode.worker.ts  decode.worker.ts  ge.worker.ts  opfs.worker.ts
+    qr-tiled/           #   stage 1: qr-encoder.ts  zxing-config.ts
+    qr-tiled/           #   qr-encoder-worker.ts  (encode worker)
+    qr-colour/          #   stage 2 (not yet implemented)
+    grid/               #   stage 3 (not yet implemented)
+  workers/              # worker implementations for thread roles (§6.2)
+    qr-encode.worker.ts  qr-decode-pool.ts  qr-decode.worker.ts  ge-benchmark.worker.ts
   platform/             # every capability probe and fallback lives here
-    camera.ts  storage.ts  wakelock.ts  share.ts  capabilities.ts
-  ui/                   # role select, progress, coaching, pre-flight
+    camera-pipeline.ts  storage.ts  export.ts  ge-benchmark.ts  health-check.ts
+    init.ts  orientation.ts  capture-resolution.ts  simple-ge-runner.ts  version.ts
+  ui/                   # role select, progress, coaching, pre-flight (not yet implemented)
   app.ts
 test/
   fixtures/             # conformance vectors (§14.3)
   degradation/          # synthetic blur/glare/tear generators
 docs/                   # plan, notes, research, sim
 ```
+
+**Missing from implementation (from original plan):**
+- `core/fountain/degree.ts` — degree distribution logic (D6, D25)
+- `core/block/bitmap.ts` — block bitmap for D22 resume
+- `core/block/schedule.ts` — dwell scheduling (§8.1) and repair code (§8.2)
+- `core/frame/repair-code.ts` — repair code format (§7.5, §8.2)
+- `core/hash/stream-id.ts` — streamId derivation (§7.4)
+- `modulation/qr-tiled/layout.ts` — tile layout logic
+- `modulation/qr-tiled/ladder.ts` — D16 ladder rung logic
+- `workers/opfs.worker.ts` — OPFS worker (may be inline elsewhere)
 
 **Rules.** `core/` MUST NOT import from `modulation/`, `workers/`, `platform/` or `ui/` —
 it is the layer the property tests own. Nothing outside `modulation/` may reference QR
