@@ -41,11 +41,37 @@ describe('A10: Hostile beacon fuzzer (bf-5fs)', () => {
    * This helper ensures that blockCount, blockSize, originalSize, and payloadLen
    * are all consistent to avoid validation errors and CRC mismatches.
    *
-   * @param overrides - Fields to override in the base meta
+   * @param overrides - Fields to override in the base meta (partial overrides only)
    * @returns Encoded beacon bytes
    */
   function createEncodedBeacon(overrides: Partial<BeaconMeta>): Uint8Array {
+    // Start with base meta and apply overrides
     const meta = {...createValidMeta(), ...overrides};
+
+    // Calculate consistent size based on blockCount and blockSize
+    // This ALWAYS overrides any size values in the input
+    if (typeof meta.blockCount === 'number' && typeof meta.blockSize === 'number') {
+      // Use BigInt for safe calculation to avoid overflow
+      const blockCountBigInt = BigInt(meta.blockCount);
+      const blockSizeBigInt = BigInt(meta.blockSize);
+      const calculatedSizeBigInt = blockCountBigInt * blockSizeBigInt;
+
+      // Check if it exceeds safe integer range
+      if (calculatedSizeBigInt > BigInt(Number.MAX_SAFE_INTEGER)) {
+        throw new Error(`Size overflow: blockCount=${meta.blockCount} × blockSize=${meta.blockSize} exceeds safe integer range`);
+      }
+
+      const calculatedSizeNumber = Number(calculatedSizeBigInt);
+
+      // Check BEACON_LIMITS
+      if (calculatedSizeNumber > BEACON_LIMITS.MAX_FILE_SIZE) {
+        throw new Error(`Size exceeds MAX_FILE_SIZE: ${calculatedSizeNumber}`);
+      }
+
+      // ALWAYS use calculated sizes, never use provided values
+      meta.originalSize = calculatedSizeNumber;
+      meta.payloadLen = calculatedSizeNumber;
+    }
 
     // Ensure wire version is valid for encoding
     if (meta.wireVersion !== 1) {
@@ -67,45 +93,12 @@ describe('A10: Hostile beacon fuzzer (bf-5fs)', () => {
       );
     }
 
-    // Calculate consistent size based on blockCount and blockSize if provided
-    if (typeof meta.blockCount === 'number' && typeof meta.blockSize === 'number') {
-      const calculatedSize = meta.blockCount * meta.blockSize;
-
-      // Check for overflow - use BigInt for safe calculation
-      const blockCountBigInt = BigInt(meta.blockCount);
-      const blockSizeBigInt = BigInt(meta.blockSize);
-      const calculatedSizeBigInt = blockCountBigInt * blockSizeBigInt;
-
-      // Check if it exceeds safe integer range
-      if (calculatedSizeBigInt > BigInt(Number.MAX_SAFE_INTEGER)) {
-        throw new Error(`Size overflow: blockCount=${meta.blockCount} × blockSize=${meta.blockSize} exceeds safe integer range`);
-      }
-
-      const calculatedSizeNumber = Number(calculatedSizeBigInt);
-
-      // Check BEACON_LIMITS
-      if (calculatedSizeNumber > BEACON_LIMITS.MAX_FILE_SIZE) {
-        throw new Error(`Size exceeds MAX_FILE_SIZE: ${calculatedSizeNumber}`);
-      }
-
-      // Only set sizes if they weren't explicitly provided in overrides
-      if (overrides.originalSize === undefined) {
-        meta.originalSize = calculatedSizeNumber;
-      }
-      if (overrides.payloadLen === undefined) {
-        meta.payloadLen = calculatedSizeNumber;
-      }
-    }
-
     return encodeBeacon(meta);
   }
 
   describe('A10 original threat: fileSize manipulation', () => {
     it('accepts beacon with reasonable originalSize and blockCount', () => {
-      const meta = createValidMeta();
-      meta.blockCount = 1000;
-
-      const encoded = createEncodedBeacon(meta);
+      const encoded = createEncodedBeacon({blockCount: 1000});
 
       // Should accept valid beacon with wire constant L
       const parsed = parseBeacon(encoded, 1024, 1000 * 192 * 1024); // 1000 blocks × 192 KB = 192 MB
@@ -233,42 +226,35 @@ describe('A10: Hostile beacon fuzzer (bf-5fs)', () => {
       // Test case 1: blockCount that yields exactly 1 manifest block
       // 1 = ceil(blockCount × 4 / 196608)
       // blockCount = 196608 / 4 = 49,152
-      meta.blockCount = 49_152;
-      meta.blockSize = 192 * 1024; // 192 KB
-      meta.originalSize = 49_152 * 192 * 1024; // Consistent size
-      meta.payloadLen = meta.originalSize;
-
-      const encoded1 = createEncodedBeacon(meta);
+      const encoded1 = createEncodedBeacon({
+        blockCount: 49_152,
+        blockSize: 192 * 1024, // 192 KB
+      });
       const parsed1 = parseBeacon(encoded1, 1024, 10 * 1024 * 1024 * 1024);
       expect(parsed1.blockCount).toBe(49_152);
       expect(parsed1.fragmentLen).toBe(256); // Wire constant L
 
       // Test case 2: blockCount that yields a reasonable manifest size
       // Test that K_manifest calculation works for reasonable values
-      meta.blockCount = 100_000;
-      meta.originalSize = 100_000 * 192 * 1024; // Consistent size
-      meta.payloadLen = meta.originalSize;
-
-      const encoded2 = createEncodedBeacon(meta);
+      const encoded2 = createEncodedBeacon({
+        blockCount: 100_000,
+        blockSize: 192 * 1024, // 192 KB
+      });
       const parsed2 = parseBeacon(encoded2, 1024, 10 * 1024 * 1024 * 1024);
       expect(parsed2.blockCount).toBe(100_000);
       expect(parsed2.fragmentLen).toBe(256); // Wire constant L
     });
 
     it('prevents unbounded manifest growth from combined parameters', () => {
-      const meta = createValidMeta();
-
       // Test with large blockHashLen to trigger K_manifest overflow with reasonable blockCount
       // K_manifest = ceil(blockCount × blockHashLen / BLOCK)
       // For blockCount=4,000,000, blockHashLen=64, BLOCK=196608:
       // K_manifest = ceil(4,000,000 × 64 / 196608) = ceil(1302.08) = 1303 > 1000
-      meta.blockHashLen = 64; // Larger hash length
-      meta.blockCount = 4_000_000; // Well within MAX_BLOCK_COUNT, will cause K_manifest overflow
-      meta.blockSize = 100 * 1024; // 100 KB (smaller to avoid overflow)
-      meta.originalSize = 400_000_000_000; // 400 GB (explicitly set to avoid multiplication overflow)
-      meta.payloadLen = 400_000_000_000;
-
-      const encoded = createEncodedBeacon(meta);
+      const encoded = createEncodedBeacon({
+        blockHashLen: 64, // Larger hash length
+        blockCount: 4_000_000, // Well within MAX_BLOCK_COUNT, will cause K_manifest overflow
+        blockSize: 100 * 1024, // 100 KB (smaller to avoid overflow)
+      });
 
       try {
         parseBeacon(encoded, 1024, 3 * 1024 * 1024 * 1024);
@@ -313,15 +299,14 @@ describe('A10: Hostile beacon fuzzer (bf-5fs)', () => {
 
       // Test all fields at their reasonable limits
       // fragmentLen must be wire constant L=256, cannot test MAX_L boundary
-      meta.blockCount = 1_000_000; // Reasonable large value
-      meta.blockSize = 192 * 1024; // 192 KB
-      meta.originalSize = 1_000_000 * 192 * 1024; // Consistent size
-      meta.payloadLen = meta.originalSize;
-      meta.blockHashLen = 4;
-      meta.filename = 'a'.repeat(32); // MAX_FILENAME_CODEPOINTS
-      meta.mimeType = 'a'.repeat(14); // MAX_MIMETYPE_CODEPOINTS
+      const encoded = createEncodedBeacon({
+        blockCount: 1_000_000, // Reasonable large value
+        blockSize: 192 * 1024, // 192 KB
+        blockHashLen: 4,
+        filename: 'a'.repeat(32), // MAX_FILENAME_CODEPOINTS
+        mimeType: 'a'.repeat(14), // MAX_MIMETYPE_CODEPOINTS
+      });
 
-      const encoded = createEncodedBeacon(meta);
       const parsed = parseBeacon(encoded, 1024, 10 * 1024 * 1024 * 1024);
 
       expect(parsed.blockCount).toBe(1_000_000);

@@ -74,6 +74,7 @@ export function verifyPacket(bytes, L) {
 async function renderTile(payload, version, modulePx) {
   const qr = QRCode.create([{ data: payload, mode: 'byte' }], {
     errorCorrectionLevel: 'L', version,
+    maskPattern: 0, // D4: pinned mask — 4.6–8× encode speedup
   });
   const size = qr.modules.size;
   const data = qr.modules.data;

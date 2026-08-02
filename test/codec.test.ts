@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import { BLOCK, DEGREE_CAP, K, L, PACKET, RUNGS } from '../src/core/params.js';
 import { crc8, crc32 } from '../src/core/frame/crc.js';
-import { readPacket, writePacket } from '../src/core/frame/header.js';
+import { readPacket, writePacket, PacketVersionError } from '../src/core/frame/header.js';
 import { deriveIndices, makeDegreeTable, packetSeed } from '../src/core/fountain/prng.js';
 import { LTEncoder } from '../src/core/fountain/encoder.js';
 import { GEDecoder } from '../src/core/fountain/decoder.js';
@@ -113,11 +113,19 @@ describe('header (I8)', () => {
       { wireVersion: 1, flags: 0, streamId: 5, blockIndex: 2, seq: 9 },
       randomBytes(L, 4),
     );
-    for (let i = 0; i < 12; i++) {
+    // Test bytes 1-11 (CRC and other fields)
+    for (let i = 1; i < 12; i++) {
       const m = Uint8Array.from(p);
       m[i]! ^= 0x01;
       expect(readPacket(m)).toBeNull();
     }
+    // Byte 0: corrupting the version nibble should throw E-VERSION per §16.3
+    const m = Uint8Array.from(p);
+    m[0]! ^= 0x01; // Flip a bit in the version nibble
+    expect(() => readPacket(m)).toThrow(PacketVersionError);
+    expect(() => readPacket(m)).toThrow(expect.objectContaining({
+      code: 'E-VERSION'
+    }));
   });
 
   it('rejects foreign magic and wrong length', () => {
@@ -134,7 +142,12 @@ describe('header (I8)', () => {
     const wrongVersion = Uint8Array.from(p);
     // Change the version nibble to 2 (while keeping magic the same)
     wrongVersion[0] = (wrongVersion[0]! & 0xf0) | 0x02;
-    expect(readPacket(wrongVersion)).toBeNull();
+    // §16.3: MUST report E-VERSION and refuse - never attempt a partial parse
+    expect(() => readPacket(wrongVersion)).toThrow(PacketVersionError);
+    expect(() => readPacket(wrongVersion)).toThrow(expect.objectContaining({
+      code: 'E-VERSION',
+      details: { senderVersion: 2, receiverVersion: 1 }
+    }));
   });
 });
 

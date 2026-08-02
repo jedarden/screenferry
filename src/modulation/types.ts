@@ -118,7 +118,7 @@ export interface TileDiagnostics {
    * Specific error condition if decoding failed.
    * Absence of this field with decoded=false means "general decode failure".
    */
-  readonly error?: 'E-TOO-FAR' | 'E-TOO-CLOSE' | 'E-BLUR' | 'E-DARK' | 'E-GLARE' | 'E-FOCUS-HUNT' | 'E-TORN';
+  readonly error?: 'E-TOO-FAR' | 'E-TOO-CLOSE' | 'E-BLUR' | 'E-DARK' | 'E-GLARE' | 'E-FOCUS-HUNT' | 'E-TORN' | 'E-ORIENTATION';
 }
 
 /**

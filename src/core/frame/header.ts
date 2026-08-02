@@ -16,6 +16,23 @@
 import { HEADER, MAGIC, MAGIC_VER, PACKET, WIRE_VERSION } from '../params.js';
 import { crc8 } from './crc.js';
 
+/**
+ * Validation error for packet header version mismatch.
+ *
+ * Thrown when a packet's wire version nibble doesn't match the receiver's
+ * expected version, as required by §16.3's version refusal rule.
+ */
+export class PacketVersionError extends Error {
+  constructor(
+    public code: string,
+    message: string,
+    public details: { senderVersion: number; receiverVersion: number }
+  ) {
+    super(message);
+    this.name = 'PacketVersionError';
+  }
+}
+
 export interface PacketHeader {
   wireVersion: number;
   flags: number;
@@ -45,8 +62,8 @@ export function writePacket(h: PacketHeader, payload: Uint8Array): Uint8Array {
 
 /**
  * Parse and validate. Returns null for anything suspect — invariant I8 requires a
- * packet failing fcrc or magic to be DISCARDED, never applied. Never throws:
- * a bad packet is an erasure, and erasures are the normal case.
+ * packet failing fcrc or magic to be DISCARDED, never applied. Throws
+ * PacketVersionError when the version nibble doesn't match, as required by §16.3.
  */
 export function readPacket(
   bytes: Uint8Array,
@@ -55,9 +72,17 @@ export function readPacket(
   if (bytes.length !== expectLen) return null;
   if ((bytes[0]! >>> 4) !== MAGIC) return null;
 
-  // §16.3: Refuse packets with unknown wire version - never attempt a partial parse
+  // §16.3: Refuse packets with unknown wire version - never attempt a partial parse.
+  // The header's 4-bit nibble is a fast reject; the beacon's 1-byte wireVersion is
+  // authoritative. When the nibble doesn't match, we must report E-VERSION and refuse.
   const wireVersion = bytes[0]! & 0x0f;
-  if (wireVersion !== (WIRE_VERSION & 0x0f)) return null;
+  if (wireVersion !== (WIRE_VERSION & 0x0f)) {
+    throw new PacketVersionError(
+      'E-VERSION',
+      `Wire version mismatch: sender is ${wireVersion}, receiver is ${WIRE_VERSION}`,
+      { senderVersion: wireVersion, receiverVersion: WIRE_VERSION }
+    );
+  }
 
   if (crc8(bytes, 0, 12) !== bytes[12]) return null;
   return {

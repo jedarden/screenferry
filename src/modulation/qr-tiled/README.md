@@ -33,8 +33,42 @@ All profiles use ECC level 'L' (redundancy belongs in the fountain code, not QR)
 - `node-qrcode` (exact version pinned) — sender encoder
 - `zxing-wasm` (exact version + SRI on .wasm) — receiver decoder
 
-## Status
+## Implementation Status
 
-⚠️ **NOT YET IMPLEMENTED** — This stub exists to establish the module layout per Phase 0's exit criteria (plan.md §17).
+✅ **D4's pinned mask pattern** — Implemented in `qr-encoder.ts` and `qr-encode.worker.ts` (bf-5sr2)
 
-See `bf-1bd` for the corrected Modulation interface that fixed D16 mixed profiles, D18b/§11 diagnostics, and platform compatibility.
+### Completed (bf-5sr2)
+
+- ✅ **D4 pinned mask pattern**: QR encoding with pinned mask pattern for 4.6-8× speedup
+- ✅ **Worker-based encoding**: Offloads QR encoding to worker pool per plan.md §6.3.1
+- ✅ **Spike rig updated**: Updated `spike/rig.js` to use pinned mask pattern
+
+### Remaining
+
+- ⚠️ `encode.ts` - Full encoder implementation
+- ⚠️ `decode.ts` - QR decoder using zxing-wasm, reading `.bytes` (D3)
+- ⚠️ `layout.ts` - Tile grid layout and profile mixing logic (D16, D18a)
+- ⚠️ `ladder.ts` - Fixed-weight ladder configuration (R1=15%, R2=60%, R3=25%)
+
+### Architecture
+
+The QR encoding layer is now structured as:
+
+```
+src/modulation/qr-tiled/
+├── qr-encoder.ts           # Core QR encoder with D4's pinned mask
+├── qr-encoder-worker.ts    # Worker pool manager
+├── zxing-config.ts         # zxing-wasm local WASM configuration
+└── README.md               # This file
+
+src/workers/
+└── qr-encode.worker.ts     # QR encoding worker implementation
+```
+
+### D4 Implementation Details
+
+**Pinned Mask Pattern**: The encoder pins the QR mask pattern to 0 instead of evaluating all 8 patterns. This provides 4.6-8× encode speedup as measured in spike-results.md:
+
+> "D4 measured pinning as a 4.6-8x speedup — a bigger lever than library choice. spike-results.md calls it 'on the critical path, not an optimisation'."
+
+**Worker Pool**: Encoding runs in a pool of workers (default: `navigator.hardwareConcurrency || 4`) to avoid blocking the main thread, as specified in plan.md §6.3.1.

@@ -13,6 +13,7 @@ class MockOPFSDirectory {
   files = new Map<string, { data: Uint8Array; metadata: OutputArtefact }>();
   subdirectories = new Map<string, MockOPFSDirectory>();
   name: string;
+  kind: 'directory' = 'directory';
 
   constructor(name: string = 'root') {
     this.name = name;
@@ -54,8 +55,10 @@ class MockOPFSDirectory {
       if (!options?.create) {
         throw new Error('Directory not found');
       }
-      this.subdirectories.set(name, new MockOPFSDirectory(name));
+      const newDir = new MockOPFSDirectory(name);
+      this.subdirectories.set(name, newDir);
     }
+    // Return the actual directory instance
     return this.subdirectories.get(name)!;
   }
 
@@ -66,41 +69,23 @@ class MockOPFSDirectory {
     this.files.delete(name);
   }
 
-  values() {
-    const files = this.files;
-    const fileKeys = [...files.keys()];
-    let index = 0;
-
-    return {
-      async next() {
-        if (index >= fileKeys.length) {
-          return { done: true, value: undefined };
-        }
-
-        const name = fileKeys[index++];
-        return {
-          done: false,
-          value: {
-            kind: 'file' as const,
-            name,
-            getFile: async () => ({
-              arrayBuffer: async () => files.get(name)!.data.buffer,
-              text: async () => {
-                if (name.endsWith('.meta.json')) {
-                  return JSON.stringify(files.get(name)!.metadata);
-                }
-                return JSON.stringify(files.get(name)!.metadata);
-              },
-              size: files.get(name)!.data.length,
-            }),
+  async *values() {
+    for (const [name, fileData] of this.files) {
+      yield {
+        kind: 'file' as const,
+        name,
+        getFile: async () => ({
+          arrayBuffer: async () => fileData.data.buffer,
+          text: async () => {
+            if (name.endsWith('.meta.json')) {
+              return JSON.stringify(fileData.metadata);
+            }
+            return JSON.stringify(fileData.metadata);
           },
-        };
-      },
-
-      [Symbol.asyncIterator]() {
-        return this;
-      },
-    };
+          size: fileData.data.length,
+        }),
+      };
+    }
   }
 
   // Helper method to add test files directly to this directory
@@ -141,7 +126,7 @@ vi.stubGlobal('navigator', mockNavigator);
 
 // Helper to get the output directory (where test files should be stored)
 async function getOutputDirectory(): Promise<MockOPFSDirectory> {
-  return await mockOPFS.getDirectoryHandle('screenferry-outputs', { create: true });
+  return await mockOPFS.getDirectoryHandle('screenferry-outputs', { create: true }) as MockOPFSDirectory;
 }
 
 describe('StorageManager', () => {

@@ -18,6 +18,19 @@ import {
   type SimpleGEBenchmarkResult,
 } from './simple-ge-runner.js';
 import {createPositionalWriteHandleFactory} from '../core/io/positional-write.js';
+import {
+  getDefaultResolution,
+  type CaptureResolution,
+  getConstraints,
+  toMediaTrackConstraints,
+  formatConstraints,
+} from './capture-resolution.js';
+import {
+  detectOrientation,
+  shouldShowOrientationCoaching,
+  getOrientationCoaching,
+  type OrientationDetection,
+} from './orientation.js';
 
 /**
  * Storage check result.
@@ -34,6 +47,10 @@ export interface StorageCheck {
 export interface CameraCheck {
   available: boolean;
   measuredFps?: number; // Measured frames per second (D14)
+  resolution?: CaptureResolution; // Selected capture resolution (§6.4)
+  actualWidth?: number; // Actual capture width from getSettings()
+  actualHeight?: number; // Actual capture height from getSettings()
+  orientation?: OrientationDetection; // Orientation coaching (bf-6anq, E-ORIENTATION)
   error?: string;
 }
 
@@ -150,7 +167,9 @@ export async function checkStorage(): Promise<StorageCheck> {
  * Check camera availability and measure frame rate.
  *
  * Per D14, measure the actual camera fps to validate Stage 3 feasibility.
- * This is a slow check and may be skipped with config.skipSlow.
+ * Per §6.4, select capture resolution deliberately rather than accepting
+ * getUserMedia defaults. This is a slow check and may be skipped with
+ * config.skipSlow.
  */
 export async function checkCamera(
   config: HealthCheckConfig = DEFAULT_HEALTH_CONFIG
@@ -159,6 +178,9 @@ export async function checkCamera(
     return {
       available: true, // Assume available for quick checks
       measuredFps: undefined,
+      resolution: undefined,
+      actualWidth: undefined,
+      actualHeight: undefined,
     };
   }
 
@@ -170,16 +192,34 @@ export async function checkCamera(
       };
     }
 
+    // Use capture-resolution selection per §6.4
+    const resolution = getDefaultResolution(); // 1080p recommended
+    const constraints = getConstraints(resolution);
+
+    if (!constraints) {
+      return {
+        available: false,
+        error: `Invalid resolution configuration: ${resolution}`,
+      };
+    }
+
+    const trackConstraints = toMediaTrackConstraints(constraints);
     const stream = await navigator.mediaDevices.getUserMedia({
-      video: {
-        facingMode: 'environment', // Prefer rear camera
-        width: {ideal: 1920},
-        height: {ideal: 1080},
-      },
+      video: trackConstraints,
     });
 
     const videoTrack = stream.getVideoTracks()[0];
     const settings = videoTrack.getSettings();
+
+    // Capture actual resolution (may differ from requested due to device limits)
+    const actualWidth = settings?.width ? settings.width as number : undefined;
+    const actualHeight = settings?.height ? settings.height as number : undefined;
+
+    // Detect orientation for E-ORIENTATION coaching (bf-6anq)
+    let orientation: OrientationDetection | undefined;
+    if (actualWidth && actualHeight) {
+      orientation = detectOrientation(actualWidth, actualHeight);
+    }
 
     // Clean up
     stream.getTracks().forEach(track => track.stop());
@@ -187,9 +227,11 @@ export async function checkCamera(
     if (settings) {
       return {
         available: true,
-        // FPS measurement requires actually capturing frames
-        // This is a placeholder - real implementation would time captures
-        measuredFps: undefined,
+        measuredFps: undefined, // FPS measurement requires frame capture timing
+        resolution,
+        actualWidth,
+        actualHeight,
+        orientation,
       };
     }
 
@@ -436,9 +478,22 @@ export function healthCheckSummary(result: HealthCheckResult): string {
     const fps = result.camera.measuredFps
       ? `(${result.camera.measuredFps.toFixed(1)} fps)`
       : '';
-    parts.push(`✓ Camera ${fps}`);
+    const resolution = result.camera.actualWidth && result.camera.actualHeight
+      ? `(${result.camera.actualWidth}×${result.camera.actualHeight})`
+      : '';
+    parts.push(`✓ Camera ${resolution} ${fps}`);
   } else {
     parts.push(`✗ Camera: ${result.camera.error || 'unavailable'}`);
+  }
+
+  // E-ORIENTATION coaching (bf-6anq)
+  if (result.camera.available &&
+      result.camera.orientation &&
+      shouldShowOrientationCoaching(result.camera.orientation)) {
+    const coaching = getOrientationCoaching(result.camera.orientation);
+    if (coaching) {
+      parts.push(`💡 Tip: ${coaching}`);
+    }
   }
 
   if (result.wakeLock.available) {
@@ -506,6 +561,16 @@ export function formatHealthCheckForUI(result: HealthCheckResult): HealthCheckUI
 
   if (result.geBenchmark.kMax && result.geBenchmark.kMax < 512) {
     recommendations.push('This device has limited capacity. Use smaller files or a more powerful receiver.');
+  }
+
+  // E-ORIENTATION coaching (bf-6anq)
+  if (result.camera.available &&
+      result.camera.orientation &&
+      shouldShowOrientationCoaching(result.camera.orientation)) {
+    const coaching = getOrientationCoaching(result.camera.orientation);
+    if (coaching) {
+      recommendations.push(coaching);
+    }
   }
 
   return {
