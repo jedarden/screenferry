@@ -536,7 +536,7 @@ exactly one implementation.
 | Dependency | Pin | If unavailable |
 |---|---|---|
 | `zxing-wasm` | exact version + SRI on the `.wasm`. **MUST call `setZXingModuleOverrides({ locateFile })` pointing at a bundle-local, service-worker-precached `.wasm`.** See the general WASM rule below | Fatal on the receiver — surface `E-WASM-LOAD`; the sender still works |
-| `incremental-wasm-hash` | exact version + SRI on the `.wasm`. **MUST be bundle-local, service-worker-precached, and loaded via bundle-local overrides (not default CDN paths).** See the general WASM rule below | Optional — skip whole-file hash if unavailable (per-block hashes still mandatory) |
+| `incremental-wasm-hash` | exact version + SRI on the `.wasm`. **MUST be bundle-local, service-worker-precached, and loaded via bundle-local overrides (not default CDN paths).** See the general WASM rule below | Fatal on the receiver — surface `E-WASM-LOAD`; per-block hashes alone are insufficient for byte-exact reconstruction per concept.md constraint 4 |
 | `node-qrcode` | exact version | Fatal on the sender; the receiver still works |
 | `CompressionStream` | platform | Skip compression (D8 is already conditional) |
 | `MediaStreamTrackProcessor` | platform | Fall back to `requestVideoFrameCallback` + `drawImage` — MUST be implemented, it is not Chromium-only |
@@ -747,7 +747,7 @@ The bitmap is tiny: 4 GB / 192 KB = 21,845 blocks = **2.7 KB**.
 ### 7.4 `streamId` derivation
 
 Load-bearing: D22 resume requires that re-selecting the same file reproduces the same
-`streamId`, and §3.3 says a full multi-GB hash is not free.
+`streamId`. The derivation uses sampling to avoid the cost of hashing the full file payload.
 
 **Derivation (sender):**
 
