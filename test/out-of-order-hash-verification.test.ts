@@ -431,7 +431,7 @@ describe('Out-of-order hash verification', () => {
   });
 
   describe('position tracking during out-of-order writes', () => {
-    it('should track write progress correctly with out-of-order writes', async () => {
+    it('should correctly track all written blocks after out-of-order completion', async () => {
       const blockSize = 8;
       const blockCount = 10;
 
@@ -457,7 +457,6 @@ describe('Out-of-order hash verification', () => {
         writtenBlocks: new Uint8Array(bitmapBytes),
       };
 
-      const tracker = new WritePositionTrackerImpl(mockState);
       const handle = await factory.createHandle(testFilePath, blockCount * blockSize);
 
       // Create test blocks
@@ -475,22 +474,19 @@ describe('Out-of-order hash verification', () => {
 
       for (const blockIndex of writeOrder) {
         await writeTrackedBlock(mockState, handle, blocks[blockIndex], blockIndex, blockSize);
-
-        // Update tracker
-        tracker.markBlockWritten(blockIndex);
-
-        // Verify block is marked as written
-        expect(tracker.isBlockWritten(blockIndex)).toBe(true);
       }
 
-      // Verify all blocks are written
-      expect(tracker.isComplete()).toBe(true);
-      expect(tracker.blocksWritten).toBe(blockCount);
-
       await handle.close();
+
+      // After all writes, create tracker to verify final state
+      const finalTracker = new WritePositionTrackerImpl(mockState);
+
+      // Verify all blocks are written
+      expect(finalTracker.isComplete()).toBe(true);
+      expect(finalTracker.blocksWritten).toBe(blockCount);
     });
 
-    it('should handle write position advancement correctly', async () => {
+    it('should correctly track position progression with out-of-order writes', async () => {
       const blockSize = 4;
       const blockCount = 6;
 
@@ -515,36 +511,35 @@ describe('Out-of-order hash verification', () => {
         writtenBlocks: new Uint8Array(bitmapBytes),
       };
 
-      const tracker = new WritePositionTrackerImpl(mockState);
       const handle = await factory.createHandle(testFilePath, blockCount * blockSize);
 
-      // Write blocks in order first
+      // Write blocks in order first: 0, 1, 2
       for (let i = 0; i < 3; i++) {
         const block = new Uint8Array(blockSize);
         block.fill(i);
         await writeTrackedBlock(mockState, handle, block, i, blockSize);
-        tracker.markBlockWritten(i);
       }
 
-      // Position should be at 3
+      // After writing 0, 1, 2, position should be at 3
+      let tracker = new WritePositionTrackerImpl(mockState);
       expect(tracker.currentPosition).toBe(3);
 
       // Write block 5 (out of order)
       const block5 = new Uint8Array(blockSize);
       block5.fill(5);
       await writeTrackedBlock(mockState, handle, block5, 5, blockSize);
-      tracker.markBlockWritten(5);
 
       // Position should still be at 3 (block 3 not written yet)
+      tracker = new WritePositionTrackerImpl(mockState);
       expect(tracker.currentPosition).toBe(3);
 
       // Write block 3
       const block3 = new Uint8Array(blockSize);
       block3.fill(3);
       await writeTrackedBlock(mockState, handle, block3, 3, blockSize);
-      tracker.markBlockWritten(3);
 
-      // Position should advance to 4
+      // Position should advance to 4 (next unwritten block)
+      tracker = new WritePositionTrackerImpl(mockState);
       expect(tracker.currentPosition).toBe(4);
 
       await handle.close();
