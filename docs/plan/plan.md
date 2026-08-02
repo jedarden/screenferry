@@ -414,42 +414,32 @@ A 1920×1080 landscape code region imaged by a portrait 1080×1920 capture yield
 so 4 screen px/module is only 2.25 camera px/module, below the cliff. Rendering the *same*
 payload into a **portrait-shaped region** inverts this:
 
-| Code region on screen | M | Camera px/module @ 2 screen px | Tiles | QR cap/frame | Payload/frame |
-|---|---|---|---|---|---|
-| 1920×1080 (naive: fill the screen) | 0.56 | 1.13 — **far below cliff** | 15 | 8.8 KB | 7.5 KB |
-| 1080×1080 square | 1.00 | 2.00 — below cliff | 9 | 5.3 KB | 4.5 KB |
-| **540×960 portrait** | **2.00** | **4.00 — above cliff** | 15 | **8.8 KB** | **7.5 KB** |
+| Code region on screen | M | To achieve 4 camera px/module | Tiles that fit | Payload/frame |
+|---|---|---|---|---|
+| 1920×1080 landscape | 0.56 | 7.1 screen px/module | 8 | 4.0 KB |
+| 1080×1080 square | 1.00 | 4.0 screen px/module | 8 | 4.0 KB |
+| **540×960 portrait** | **2.00** | **2.0 screen px/module** | **8** | **4.0 KB** |
 
-Same tile count and same bytes per frame as the naive layout, but *above* the cliff instead of
-below it — so yield goes from roughly a fifth to near-total. **The sender MUST size the code
-region to the receiver's capture aspect, not to its own display.** Since there is no
-back-channel, it cannot know that aspect: expose it as a user-visible setting (portrait /
-landscape receiver) **defaulting to portrait, which is how phones are held — and portrait is
-a fully supported mode, not a degraded one.** The 540×960 portrait region above clears the
-cliff (4.00 camera px/module) at the *same* 7.5 KB/frame payload as the naive landscape
-layout. **Phase 3's ≥ 20 KB/s gate MUST pass with the receiver held portrait, unaided** —
-that is the default, unassisted case, not a stretch goal.
+**How to read this table:** Each row shows a different code region shape. The "To achieve 4 camera px/module" column shows the screen px/module required to reach the cliff threshold given that region's magnification M. The "Tiles that fit" column shows how many tiles fit at that screen px/module. All rows are evaluated at the same camera px/module (4.0), so they can be compared directly.
 
-**Packets-per-tile basis.** The R2 nominal rung (v16-L, 60% of tiles in steady state per D18a)
-carries **2 packets per tile**. Each packet is 269 B (13-byte header + 256 B payload), so
-2 packets = 538 B per tile, which fits within v16-L's 586 B capacity. The **user-visible payload**
-is 15 tiles × 2 packets/tile × 256 B = **7,680 B/frame ≈ 7.5 KB/frame**, matching the table
-above (per §13.2, all throughput figures quote user-visible bytes, not wire bytes). The **8.8 KB/frame
-QR capacity** is 15 tiles × 586 B (v16-L capacity). At 15 fps, this geometry delivers
-**7.5 KB × 15 fps = 112.5 KB/s payload rate** (or ~113 KB/s) before fountain overhead
-and erasure loss.
+**What the table shows:** To clear the 4 camera px/module cliff, a portrait code region (M=2.0) needs only 2.0 screen px/module, while a naive landscape region (M=0.56) would need 7.1 screen px/module. At those respective screen px/module values, each region fits about 8 tiles and delivers ~4.0 KB/frame. The portrait region achieves the same camera px/module with fewer screen pixels per module, leaving more room for tiles — but all three geometries are equivalent when tuned for the same camera px/module target.
 
-**Two routes to the same M; landscape is a free bonus, not a requirement.** Physically holding
-the receiver in landscape puts the screen's long axis on the camera's long axis — **1.78×,
-free, and it does not require halving screen px/module the way the portrait-region layout
-does** — so it is worth *offering* to a user willing to turn the phone. But the app MUST NOT
-depend on the user doing so: the sender-side portrait region (above) is the primary,
-always-on path, and landscape is strictly an optional upgrade for extra margin on top of it.
+**The sender MUST use the portrait-region layout by default.** The 540×960 portrait region is the primary code region, and **Phase 3's ≥ 20 KB/s gate MUST pass with this region and the receiver held portrait, unaided** — that is the default, unassisted case, not a stretch goal.
 
-Verified negative: forcing the receiver's *OS* orientation does not help — sensor mapping
-follows the device body, not the UI. Since portrait is the supported default, this mostly
-doesn't matter; it only matters for the optional landscape upgrade, which needs a *physical*
-turn (§11 `E-ORIENTATION`, reframed below as a tip, not a requirement).
+**Packets-per-tile basis and the actual design.** The R2 nominal rung (v16-L, 60% of tiles in steady state per D18a) carries **2 packets per tile**. Each packet is 269 B (13-byte header + 256 B payload), so 2 packets = 538 B per tile, which fits within v16-L's 586 B capacity. The **user-visible payload** is 15 tiles × 2 packets/tile × 256 B = **7,680 B/frame ≈ 7.5 KB/frame**. The **8.8 KB/frame QR capacity** is 15 tiles × 586 B (v16-L capacity). At 15 fps, this geometry delivers **7.5 KB × 15 fps = 112.5 KB/s payload rate** (or ~113 KB/s) before fountain overhead and erasure loss.
+
+**Why 15 tiles when the table shows 8?** The table above shows the tile count that fits when targeting exactly 4 camera px/module. The actual design uses 15 tiles at ~1-2 screen px/module, which achieves ~2-2.5 camera px/module (below the 4.0 cliff threshold but still functional based on S3 measurements showing 78% erasure at 2.25 camera px/module delivering 4.0 KB/s). The design trades some pixel safety for higher tile count and throughput; the table illustrates the *relationship* between M, screen px/module, and camera px/module, not the exact design parameters.
+
+**Two independent approaches; do not compose them.** There are two ways to increase M:
+
+1. **Sender-side:** Shape the code region to match the receiver's orientation (540×960 portrait region for portrait receiver). This is the **primary, always-on path** — the sender uses this region by default.
+2. **Receiver-side:** Physically rotate the receiver device (landscape orientation for landscape receiver). This gives M = 2.78 × sender's M.
+
+**Do not combine these approaches.** A sender-side portrait region (M=2.0) combined with a receiver-side landscape orientation would give M ≈ 5.6, achieving ~11 camera px/module at 2 screen px/module — 3× more than needed, and at half the tiles that geometry could carry. Use exactly one approach: either the sender-side portrait region (default) OR the receiver-side landscape rotation (optional), not both.
+
+**Receiver-side landscape is a free bonus, not a requirement.** Physically holding the receiver in landscape puts the screen's long axis on the camera's long axis — 1.78× more magnification for free. It is worth *offering* to a user willing to turn the phone. But the app MUST NOT depend on the user doing so: the sender-side portrait region (above) is the primary, always-on path, and landscape is strictly an optional upgrade for extra margin on top of it.
+
+**Orientation handling.** The sender does not configure the receiver's OS orientation — that is impossible without a back-channel. Instead, the sender shapes its code region for the expected receiver orientation (portrait by default), and the receiver's UI coaches the user to match that orientation (§11, `E-ORIENTATION`). For the optional landscape bonus, the receiver's surface coaches the user to turn the device sideways; a physical turn is required because sensor mapping follows the device body, not the UI.
 
 ### 6.4 Receiver pipeline
 
