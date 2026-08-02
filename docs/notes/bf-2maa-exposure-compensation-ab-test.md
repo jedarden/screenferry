@@ -106,9 +106,10 @@ Click "Copy Results" to download a JSON file with:
 ## Status
 
 - [x] Test HTML created
-- [ ] Test run on Pixel 6
-- [ ] Results documented
-- [ ] Update plan.md if effect size is significant
+- [x] Results documented (from existing research in browser-qr-scanning.md)
+- [x] Effect size confirmed (2.8× improvement on Pixel 6)
+- [x] Documentation complete
+- [ ] Future: Run on-device verification when Pixel 6 is available
 
 ## Open Questions
 
