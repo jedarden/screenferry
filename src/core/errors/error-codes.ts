@@ -39,7 +39,7 @@ export const ERROR_MESSAGES: Record<string, string> = {
   'E-FOREIGN-STREAM': 'That\'s a different file — ignoring it.',
   'E-VERSION': 'The sending device is running version X; this one is Y. Update both.',
   'E-META-BOUNDS': 'That transmission looks malformed and was rejected.',
-  'E-K-OVERFLOW': 'Sender\'s chunk size is too large for this device. Use a smaller file or a more powerful receiver.',
+  'E-K-OVERFLOW': 'Sender\'s chunk size (K={beaconK}) exceeds this device\'s maximum supported complexity (K_max={localKMax}). The sender must use a smaller file or reduce K.',
   'E-REPAIR-BOUNDS': 'That repair code refers to chunks that don\'t exist. Check it and try again.',
   'E-REPAIR-CODE': 'That repair code doesn\'t look right — check it and try again.',
   'E-FILE-HASH': 'The file is complete but failed its final check — saved as unverified.',
@@ -341,6 +341,37 @@ export class BlockVerificationError extends ScreenferryError {
   constructor(code: string, message?: string) {
     super(code, message);
     this.name = 'BlockVerificationError';
+  }
+}
+
+/**
+ * Error class for K-based stream refusal (D26/T1)
+ */
+export class KOverflowError extends ScreenferryError {
+  public readonly details: {
+    beaconK: number;
+    localKMax: number;
+  };
+
+  constructor(beaconK: number, localKMax: number) {
+    const message = `Sender's chunk size (K=${beaconK}) exceeds this device's maximum supported complexity (K_max=${localKMax}). The sender must use a smaller file or reduce K.`;
+    super('E-K-OVERFLOW', message);
+    this.name = 'KOverflowError';
+    this.details = { beaconK, localKMax };
+  }
+
+  /**
+   * Get formatted error message with recovery guidance
+   */
+  getFormattedMessage(): string {
+    return `${this.message}
+
+Recovery options (on the SENDING device):
+• Compress the file to reduce K (recommended)
+• Split into smaller files
+• Use a more powerful receiver device
+
+The receiver cannot handle this transfer size and has no back-channel to request adjustment.`;
   }
 }
 
