@@ -29,7 +29,8 @@ describe('Sender restart with compression (bf-2w1a)', () => {
     return {
       streamId,
       wireVersion: 1,
-      fileSize,
+      originalSize: fileSize,
+      payloadLen: fileSize, // Will be smaller with compression, but tests use uncompressed
       blockSize,
       blockCount,
       fragmentLen: 256,
@@ -37,6 +38,7 @@ describe('Sender restart with compression (bf-2w1a)', () => {
       flags,
       blockHashLen: 4,
       wholeFileHash: new Uint8Array(32),
+      manifestHash: new Uint8Array(4), // CRC-32 of manifest
       filename: 'large-video.mp4',
       mimeType: 'video/mp4',
     };
