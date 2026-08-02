@@ -295,7 +295,6 @@ describe('runStartupCleanup()', () => {
 
     cleanupSpy.mockRestore();
   });
-  });
 
   it('uses empty active set by default', async () => {
     mockOPFS.addTestFile(100, 25 * 60 * 60 * 1000);
