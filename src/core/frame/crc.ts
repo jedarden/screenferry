@@ -2,8 +2,10 @@
  * CRC-8 (poly 0x31) for per-packet rejection, CRC-32 (IEEE) for streamId.
  *
  * CRC-8's residual is 1/256 (§7.1) — it is a cheap first filter, NOT integrity.
- * Integrity is the per-block hash, and invariant I9 requires a block that reaches
- * rank K but fails its hash to be discarded entirely (edge case E12).
+ * Integrity is the per-block hash, and invariant I9 requires that blocks reaching
+ * rank K before their hash arrives MAY be written to OPFS but MUST NOT be surfaced
+ * to the user until verified. If verification fails, E-BLOCK-HASH is emitted and
+ * the block is re-collected (edge case E12).
  */
 
 const CRC8_TABLE = (() => {
