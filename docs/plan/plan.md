@@ -641,6 +641,7 @@ it can interpret any payload packet:
 | `flags` | 1 | compressed / hash alg / colour profile |
 | `blockHashLen` | 1 | Per-block hash truncation length |
 | `wholeFileHash` | 32 | **Mandatory.** concept.md constraint 4 makes byte-exact reconstruction non-negotiable and names this as the verification. An earlier revision made it optional "on very large files" — i.e. dropped the guarantee exactly where E5 (source mutated during a 10-hour read) is most likely and the stakes are highest. Computed by streaming the reassembled file through an incremental WASM hasher (§3.3); the cost is one extra read, not one extra copy |
+| `manifestHash` | 4 | **Mandatory.** CRC-32 of the manifest data (§7.6). Roots the cryptographic chain: **beacon → manifest → blocks → whole file**. Without this, a corrupted manifest packet would cause wrong block hashes, leading to infinite E12 failures with no error code or termination. The beacon already carries 32 bytes; adding 4 more is negligible. |
 | `filename`, `mimeType` | var | Length-prefixed UTF-8, **sanitised** (§12, T2) |
 
 The receiver shows "acquiring…" until its first beacon.
@@ -659,16 +660,21 @@ them: the 13-byte header has no room, and the beacon carries only `blockHashLen`
 |---|---|
 | Transport | A dedicated **manifest stream**, `blockIndex = 0xFFFFFF`, distinguished by `PacketFlags.Manifest` |
 | Contents | `blockCount × blockHashLen` truncated hashes, in block order |
+| Integrity | **Mandatory validation via beacon's `manifestHash` field (§7.2)**. The beacon carries a 4-byte CRC-32 of the manifest data. After decoding the manifest, the receiver MUST compute its CRC-32 and compare against the beacon's `manifestHash`. A mismatch indicates corruption and MUST cause the manifest to be discarded and re-decoded. This prevents infinite E12 failures from corrupted manifest data. |
 | `blockHashLen` | **4 bytes.** Per-block false accept 2⁻³², ~5×10⁻⁶ across 21,845 blocks — comfortably below the whole-file hash's job |
-| Coding | Its own `K_manifest = ceil(blockCount × 4 / L)`, same LT encoder, same GE decoder |
+| Coding | **Fixed K=768 multi-block stream** — `blockCount_manifest = ceil(blockCount × blockHashLen / BLOCK)`, same LT encoder, same GE decoder. Each manifest block is fountain-coded independently, inheriting the flat-cost property. |
 | Cadence | Interleaved with payload on the same schedule as the beacon (D17), so a late joiner acquires it without waiting a pass |
 | Before it arrives | Completed blocks are written to OPFS but **not marked in the bitmap**; they are verified retroactively once the manifest decodes. The receiver reports "verifying…" rather than claiming completion |
 
 **Why not append the hash to each block's payload:** it would make the payload
 `blockSize + 4`, breaking `blockSize = K·L` and therefore D19's entire arithmetic and G7.
 
-**Sizing sanity:** 21,845 × 4 B = 87 KB ⇒ `K_manifest` = 342 fragments — one third of a
-normal block, decodable well inside the first pass.
+**Sizing sanity:** 21,845 blocks × 4 B = 87 KB at 4 GB ⇒ `blockCount_manifest` = 1 (one block). At 100 GB (546,125 blocks): 2.1 MB ⇒ 11 blocks. At 1 TB (5.46M blocks): 21 MB ⇒ 110 blocks. Each block decodes at K=768 (72 KB matrix), so memory stays bounded regardless of file size — flat-cost by design.
+
+**Why the manifest hash is mandatory:** Without it, a single flipped byte in the manifest
+packet would yield wrong hashes for hundreds of blocks. Those blocks would fail E12 forever
+— re-collect, fail, re-collect — with no error code and no termination. The manifest hash
+detects this corruption immediately and forces re-decode of the manifest.
 
 ### 7.3 Session state
 
