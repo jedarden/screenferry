@@ -60,7 +60,7 @@ describe('Sender validation (bf-4pc5)', () => {
         resumeEnabled: true,
       };
       expect(() => validateSenderConfig(config)).toThrow(CompressionResumeConflictError);
-      expect(() => validateSenderConfig(config)).toThrow('Compression and resume cannot both be enabled');
+      expect(() => validateSenderConfig(config)).toThrow('Cannot enable both compression and resume mode');
     });
 
     it('should provide detailed error message', () => {
@@ -74,9 +74,11 @@ describe('Sender validation (bf-4pc5)', () => {
       } catch (e) {
         expect(e).toBeInstanceOf(CompressionResumeConflictError);
         const error = e as CompressionResumeConflictError;
-        expect(error.message).toContain('Compression and resume cannot both be enabled');
+        expect(error.message).toContain('Cannot enable both compression and resume mode');
         expect(error.message).toContain('CompressionStream');
-        expect(error.message).toContain('determinism');
+        expect(error.message).toContain('T4 privacy constraint');
+        expect(error.message).toContain('Faster transfers');
+        expect(error.message).toContain('Robust multi-hour transfers');
       }
     });
   });
@@ -147,10 +149,10 @@ describe('Sender validation (bf-4pc5)', () => {
       };
       const error = getValidationError(config);
       expect(error).not.toBeNull();
-      expect(error).toContain('Compression and resume cannot both be enabled');
+      expect(error).toContain('Cannot enable both compression and resume mode');
     });
 
-    it('should return specific error message mentioning CompressionStream', () => {
+    it('should return specific error message mentioning CompressionStream and T4', () => {
       const config: SenderConfig = {
         compressionEnabled: true,
         resumeEnabled: true,
@@ -158,7 +160,7 @@ describe('Sender validation (bf-4pc5)', () => {
       const error = getValidationError(config);
       expect(error).not.toBeNull();
       expect(error).toContain('CompressionStream');
-      expect(error).toContain('determinism');
+      expect(error).toContain('T4 privacy constraint');
     });
   });
 
@@ -175,9 +177,11 @@ describe('Sender validation (bf-4pc5)', () => {
 
     it('should have descriptive message', () => {
       const error = new CompressionResumeConflictError();
-      expect(error.message).toContain('Compression and resume cannot both be enabled');
+      expect(error.message).toContain('Cannot enable both compression and resume mode');
       expect(error.message).toContain('CompressionStream');
-      expect(error.message).toContain('determinism');
+      expect(error.message).toContain('T4 privacy constraint');
+      expect(error.message).toContain('Faster transfers');
+      expect(error.message).toContain('Robust multi-hour transfers');
     });
   });
 

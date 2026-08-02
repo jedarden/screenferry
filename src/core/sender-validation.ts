@@ -16,15 +16,29 @@
  * - Different bytes → different block boundaries → different hashes
  * - Receiver's persisted bitmap would become silently invalid
  *
- * Solution: Disable resume when compression is enabled (set ResumeDisabled flag)
+ * **T4 Privacy Constraint:**
+ * Per the T4 (T4B) privacy constraint, staging files are automatically reaped after
+ * browser restart (E11). This makes compression non-deterministic, which would
+ * silently corrupt receiver state if resume were allowed. Therefore, compression
+ * and resume are mutually exclusive.
+ *
+ * **Solution:** Users must choose one or the other:
+ * - Compression = Faster transfer (speed), but NO resume support
+ * - Resume mode = Robust multi-hour transfers, but slower (no compression)
+ *
+ * Reference: docs/notes/bf-3k90-compression-resume-solution-evaluation.md (Option B)
+ *            docs/notes/bf-2vke-compression-resume-t4-reap-interaction.md
  */
 export class CompressionResumeConflictError extends Error {
   constructor() {
     super(
-      'Compression and resume cannot both be enabled. ' +
-      'When compression is enabled, resume is NOT supported because ' +
-      'CompressionStream offers no determinism guarantee across browser restarts. ' +
-      'This would silently corrupt the receiver\'s persisted state.'
+      'Cannot enable both compression and resume mode.\n\n' +
+      'You must choose one:\n' +
+      '• Compression enabled = Faster transfers, but NO resume support\n' +
+      '• Resume enabled = Robust multi-hour transfers, but slower\n\n' +
+      'Why? CompressionStream offers no determinism guarantee across browser ' +
+      'restarts. Combined with the T4 privacy constraint (staging files are ' +
+      'reaped after restart), this would silently corrupt the receiver\'s state.'
     );
     this.name = 'CompressionResumeConflictError';
   }
