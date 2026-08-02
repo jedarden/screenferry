@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FF6200EE"
+        android:pathData="M9,0L9,108L99,108L99,0L9,0ZM93,6L93,102L15,102L15,6L93,6Z" />
+    <group
+        android:scaleX="0.8"
+        android:scaleY="0.8"
+        android:translateX="10.8"
+        android:translateY="10.8">
+        <!-- Gear/cog icon representing stress testing -->
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M54,24c-16.5,0 -30,13.5 -30,30s13.5,30 30,30s30,-13.5 30,-30S70.5,24 54,24zM54,78c-13.3,0 -24,-10.7 -24,-24s10.7,-24 24,-24s24,10.7 24,24S67.3,78 54,78z" />
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M54,36c-9.9,0 -18,8.1 -18,18s8.1,18 18,18s18,-8.1 18,-18S63.9,36 54,36z" />
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M54,18 L54,12 L60,12 L60,18 Z" />
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M54,96 L54,90 L60,90 L60,96 Z" />
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M18,54 L12,54 L12,48 L18,48 Z" />
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M96,54 L90,54 L90,48 L96,48 Z" />
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M27,27 L23,23 L27,19 L31,23 Z" />
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M81,81 L77,77 L81,73 L85,77 Z" />
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M27,81 L23,77 L27,73 L31,77 Z" />
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M81,27 L77,23 L81,19 L85,23 Z" />
+    </group>
+</vector>
