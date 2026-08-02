@@ -190,7 +190,7 @@ class OPFSStorageManager implements StorageManager {
     await metaHandle.write(metadataBytes, { at: 0 });
     await metaHandle.close();
 
-    console.log(`[Storage] Stored output: streamId=${streamId}, filename=${filename}, size=${data.length}`);
+    console.log(`[Storage] Stored output: streamId=${streamId}, size=${data.length}`);
   }
 
   async getOutput(streamId: number): Promise<Uint8Array | null> {
@@ -283,7 +283,7 @@ class OPFSStorageManager implements StorageManager {
       const isOld = (now - output.createdAt) > this.config.maxOrphanAge;
 
       if (isInactive && isOld) {
-        console.log(`[Storage] Cleaning up orphaned output: streamId=${output.streamId}, filename=${output.filename}, age=${Math.round((now - output.createdAt) / 1000 / 60)} minutes`);
+        console.log(`[Storage] Cleaning up orphaned output: streamId=${output.streamId}, age=${Math.round((now - output.createdAt) / 1000 / 60)} minutes`);
 
         try {
           await this.deleteOutput(output.streamId);
