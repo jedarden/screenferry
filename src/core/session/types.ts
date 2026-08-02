@@ -9,12 +9,55 @@
 import type {PositionalWriteHandle} from '../io/positional-write.js';
 
 /**
+ * Write position tracking state.
+ *
+ * Tracks the current position for sequential writes and allows
+ * querying/updating the position during out-of-order block writes.
+ */
+export interface WritePositionTracker {
+  /**
+   * Current write position as block index.
+   * Tracks the next expected block to be written.
+   */
+  currentPosition: number;
+
+  /**
+   * Total number of blocks written so far.
+   */
+  blocksWritten: number;
+
+  /**
+   * Get the next position to write.
+   * Returns the first incomplete block index at or after the current position.
+   */
+  getNextPosition(): number;
+
+  /**
+   * Update position after a successful write.
+   * Advances to the next incomplete block.
+   */
+  advancePosition(): void;
+
+  /**
+   * Reset position to a specific block index.
+   * Used during resume or error recovery.
+   */
+  setPosition(position: number): void;
+}
+
+/**
  * Common metadata shared across multiple receiver states.
  */
 interface BaseRecvState {
   streamId: number;
   meta: BeaconMeta;
   complete: Uint8Array;  // block bitmap
+  /**
+   * Bitmap tracking which blocks have been written to output.
+   * May lag behind `complete` during write failures or partial flush.
+   * Same size/structure as `complete` bitmap.
+   */
+  writtenBlocks: Uint8Array;
 }
 
 /**
@@ -415,6 +458,304 @@ export function setBitmapBit(bitmap: Uint8Array, blockIndex: number): void {
 }
 
 // ==============================================================================
+// BLOCK POSITION TRACKING FOR WRITES
+// ==============================================================================
+
+/**
+ * Concrete implementation of WritePositionTracker.
+ *
+ * Manages block position tracking for out-of-order writes.
+ * Integrates with the bitmap-based tracking in BaseRecvState.
+ */
+export class WritePositionTrackerImpl implements WritePositionTracker {
+  private _currentPosition: number;
+  private _blocksWritten: number;
+  private readonly state: BaseRecvState;
+
+  constructor(state: BaseRecvState) {
+    this.state = state;
+    this._currentPosition = 0;
+    this._blocksWritten = 0;
+
+    // Initialize from existing state
+    this._blocksWritten = getBlocksWrittenCount(state);
+    this._currentPosition = getCurrentWritePosition(state);
+  }
+
+  /**
+   * Current write position as block index.
+   * Tracks the next expected block to be written.
+   */
+  get currentPosition(): number {
+    return this._currentPosition;
+  }
+
+  /**
+   * Total number of blocks written so far.
+   */
+  get blocksWritten(): number {
+    return this._blocksWritten;
+  }
+
+  /**
+   * Get the next position to write.
+   * Returns the first incomplete block index at or after the current position.
+   */
+  getNextPosition(): number {
+    return getNextWritePosition(this.state, this._currentPosition);
+  }
+
+  /**
+   * Update position after a successful write.
+   * Advances to the next incomplete block.
+   */
+  advancePosition(): void {
+    // Find next unwritten block
+    const nextPos = this.getNextPosition();
+
+    // If we found a new unwritten block, advance to it
+    if (nextPos !== this._currentPosition) {
+      this._currentPosition = nextPos;
+    } else {
+      // No advancement needed, stay at current position
+      // (block at current position was already marked as written)
+    }
+
+    // Recalculate blocks written count
+    this._blocksWritten = getBlocksWrittenCount(this.state);
+  }
+
+  /**
+   * Reset position to a specific block index.
+   * Used during resume or error recovery.
+   */
+  setPosition(position: number): void {
+    if (position < 0 || position > this.state.meta.blockCount) {
+      throw new Error(`Invalid position: ${position} (must be 0-${this.state.meta.blockCount})`);
+    }
+    this._currentPosition = position;
+  }
+
+  /**
+   * Mark a block as written and update position tracking.
+   * This is a convenience method that combines marking and position update.
+   */
+  markBlockWritten(blockIndex: number): void {
+    if (!isBlockWritten(this.state, blockIndex)) {
+      markBlockWritten(this.state, blockIndex);
+      this._blocksWritten++;
+
+      // If this was the current position, advance to next
+      if (blockIndex === this._currentPosition) {
+        this.advancePosition();
+      }
+    }
+  }
+
+  /**
+   * Check if a block has been written.
+   */
+  isBlockWritten(blockIndex: number): boolean {
+    return isBlockWritten(this.state, blockIndex);
+  }
+
+  /**
+   * Get all unwritten block indices.
+   */
+  getUnwrittenBlocks(): number[] {
+    return getUnwrittenBlocks(this.state);
+  }
+
+  /**
+   * Check if all blocks have been written.
+   */
+  isComplete(): boolean {
+    return areAllBlocksWritten(this.state);
+  }
+
+  /**
+   * Get write progress as a ratio (0.0 to 1.0).
+   */
+  getProgress(): number {
+    return getWriteProgress(this.state);
+  }
+}
+
+/**
+ * Check if a block has been written to output.
+ */
+export function isBlockWritten(state: BaseRecvState, blockIndex: number): boolean {
+  const byteIndex = Math.floor(blockIndex / 8);
+  const bitIndex = blockIndex % 8;
+  return (state.writtenBlocks[byteIndex] & (1 << bitIndex)) !== 0;
+}
+
+/**
+ * Mark a block as written to output.
+ */
+export function markBlockWritten(state: BaseRecvState, blockIndex: number): void {
+  const byteIndex = Math.floor(blockIndex / 8);
+  const bitIndex = blockIndex % 8;
+  state.writtenBlocks[byteIndex] |= (1 << bitIndex);
+}
+
+/**
+ * Get count of blocks written so far.
+ */
+export function getBlocksWrittenCount(state: BaseRecvState): number {
+  let count = 0;
+  for (const byte of state.writtenBlocks) {
+    count += popcount(byte);
+  }
+  return count;
+}
+
+/**
+ * Population count (number of set bits) for a byte.
+ * Used for bitmap operations.
+ */
+function popcount(x: number): number {
+  x = x - ((x >> 1) & 0x55);
+  x = (x & 0x33) + ((x >> 2) & 0x33);
+  return (x + (x >> 4)) & 0x0f;
+}
+
+/**
+ * Get all block indices that have been decoded but not yet written.
+ */
+export function getUnwrittenBlocks(state: BaseRecvState): number[] {
+  const unwritten: number[] = [];
+  const blockCount = state.meta.blockCount;
+
+  for (let i = 0; i < blockCount; i++) {
+    const byteIndex = Math.floor(i / 8);
+    const bitIndex = i % 8;
+
+    const complete = (state.complete[byteIndex] & (1 << bitIndex)) !== 0;
+    const written = (state.writtenBlocks[byteIndex] & (1 << bitIndex)) !== 0;
+
+    if (complete && !written) {
+      unwritten.push(i);
+    }
+  }
+
+  return unwritten;
+}
+
+/**
+ * Check if all complete blocks have been written.
+ */
+export function areAllBlocksWritten(state: BaseRecvState): boolean {
+  const blockCount = state.meta.blockCount;
+
+  for (let i = 0; i < blockCount; i++) {
+    const byteIndex = Math.floor(i / 8);
+    const bitIndex = i % 8;
+
+    const complete = (state.complete[byteIndex] & (1 << bitIndex)) !== 0;
+    const written = (state.writtenBlocks[byteIndex] & (1 << bitIndex)) !== 0;
+
+    if (complete && !written) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+/**
+ * Calculate the current write position as a block index.
+ * Returns the first incomplete block index at or after the given start index.
+ */
+export function getNextWritePosition(state: BaseRecvState, startIndex = 0): number {
+  const blockCount = state.meta.blockCount;
+
+  for (let i = startIndex; i < blockCount; i++) {
+    if (!isBlockWritten(state, i)) {
+      return i;
+    }
+  }
+
+  return blockCount; // All blocks written
+}
+
+/**
+ * Get the current write position as a block index.
+ * Returns the index of the next block to write (first unwritten block).
+ */
+export function getCurrentWritePosition(state: BaseRecvState): number {
+  return getNextWritePosition(state, 0);
+}
+
+/**
+ * Write a decoded block to its correct position and update tracking.
+ *
+ * This function combines the positional write with tracking updates:
+ * 1. Calculates the correct offset for the block
+ * 2. Writes the block data to the handle
+ * 3. Marks the block as written in the tracking bitmap
+ *
+ * @param state - Receiver session state with tracking
+ * @param handle - Positional write handle
+ * @param blockData - Decoded block data
+ * @param blockIndex - Block index (determines offset)
+ * @param blockSize - Block size from beacon
+ * @throws WriteError if write fails
+ * @throws Error if block is already written
+ */
+export async function writeTrackedBlock(
+  state: BaseRecvState,
+  handle: PositionalWriteHandle,
+  blockData: Uint8Array,
+  blockIndex: number,
+  blockSize: number
+): Promise<void> {
+  // Check if block is already written
+  if (isBlockWritten(state, blockIndex)) {
+    throw new Error(`Block ${blockIndex} is already written`);
+  }
+
+  // Calculate offset
+  const offset = blockIndex * blockSize;
+
+  // Write at specific offset
+  await handle.write(blockData, { at: offset });
+
+  // Mark block as written
+  markBlockWritten(state, blockIndex);
+}
+
+/**
+ * Reset write tracking for a block (allows re-write).
+ *
+ * Used during error recovery when a block write needs to be retried.
+ * Clears the written flag for a specific block.
+ *
+ * @param state - Receiver session state with tracking
+ * @param blockIndex - Block index to reset
+ */
+export function resetBlockWriteTracking(state: BaseRecvState, blockIndex: number): void {
+  const byteIndex = Math.floor(blockIndex / 8);
+  const bitIndex = blockIndex % 8;
+  state.writtenBlocks[byteIndex] &= ~(1 << bitIndex);
+}
+
+/**
+ * Get write progress as a percentage.
+ *
+ * Returns the percentage of blocks that have been written (0.0 to 1.0).
+ *
+ * @param state - Receiver session state with tracking
+ * @returns Write progress ratio (0.0 = none written, 1.0 = all written)
+ */
+export function getWriteProgress(state: BaseRecvState): number {
+  const total = state.meta.blockCount;
+  if (total === 0) return 1.0;
+  const written = getBlocksWrittenCount(state);
+  return written / total;
+}
+
+// ==============================================================================
 // RESUME TOKEN (D22)
 // ==============================================================================
 
@@ -424,7 +765,8 @@ export function setBitmapBit(bitmap: Uint8Array, blockIndex: number): void {
 export interface ResumeToken {
   streamId: number;
   meta: BeaconMeta;
-  complete: Uint8Array;  // bitmap
+  complete: Uint8Array;  // bitmap of complete blocks
+  writtenBlocks: Uint8Array;  // bitmap of written blocks
   timestamp: number;
 }
 
@@ -460,6 +802,7 @@ export function createResumeToken(state: RecvSessionState): ResumeToken | null {
       streamId: state.previousState.streamId,
       meta: state.previousState.meta,
       complete: state.previousState.complete,
+      writtenBlocks: state.previousState.writtenBlocks,
       timestamp: Date.now(),
     };
   }
@@ -469,6 +812,7 @@ export function createResumeToken(state: RecvSessionState): ResumeToken | null {
       streamId: state.streamId,
       meta: state.meta,
       complete: state.complete,
+      writtenBlocks: state.writtenBlocks,
       timestamp: Date.now(),
     };
   }
@@ -482,6 +826,9 @@ export function createResumeToken(state: RecvSessionState): ResumeToken | null {
 export function restoreFromResumeToken(token: ResumeToken): RecvSessionState {
   // Restores to PAUSED state, user must resume to RECEIVING
   // Note: PositionalWriteHandle must be recreated after OPFS reopen using factory.reopenHandle()
+  const blockCount = token.meta.blockCount;
+  const bitmapBytes = Math.ceil(blockCount / 8);
+
   return {
     type: 'paused',
     previousState: {
@@ -489,6 +836,7 @@ export function restoreFromResumeToken(token: ResumeToken): RecvSessionState {
       streamId: token.streamId,
       meta: token.meta,
       complete: token.complete,
+      writtenBlocks: new Uint8Array(bitmapBytes),  // Reset write tracking on resume
       active: null,
       out: null,  // Must be recreated after OPFS reopen
       manifest: null,
