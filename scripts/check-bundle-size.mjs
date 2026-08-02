@@ -11,7 +11,7 @@
  * - Gzip: 35 kB max
  */
 
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 // Bundle-size budgets (in bytes)
@@ -19,42 +19,40 @@ const BUNDLE_MAX_UNCOMPRESSED = 100 * 1024; // 100 kB
 const BUNDLE_MAX_GZIP = 35 * 1024; // 35 kB
 
 const DIST_DIR = 'dist';
-const MANIFEST_FILE = join(DIST_DIR, '.vite', 'manifest.json');
+const ASSETS_DIR = join(DIST_DIR, 'assets');
 
 /**
- * Find the main JS bundle in the Vite manifest
+ * Find the main JS bundle in the dist/assets directory
+ * Vite doesn't generate a manifest by default, so we scan the assets folder
  */
-function findMainBundle(manifest) {
-  for (const [entry, files] of Object.entries(manifest)) {
-    if (entry === 'index.html' || files.length === 0) continue;
-
-    const file = files.find(f => f.endsWith('.js') && !f.includes('worker'));
-    if (file) {
-      return file;
-    }
+function findMainBundle() {
+  if (!existsSync(ASSETS_DIR)) {
+    console.error('❌ Assets directory not found. Run `npm run build` first.');
+    process.exit(1);
   }
-  return null;
+
+  const files = readdirSync(ASSETS_DIR);
+
+  // Find the main JS bundle (index-*.js pattern, not workers)
+  const mainBundle = files.find(f =>
+    f.match(/^index-[a-z0-9]+\.js$/i) && !f.includes('worker')
+  );
+
+  if (!mainBundle) {
+    console.error('❌ Cannot find main bundle in assets directory.');
+    console.error('   Available files:', files.join(', '));
+    process.exit(1);
+  }
+
+  return mainBundle;
 }
 
 /**
- * Parse Vite manifest to get bundle info
+ * Get bundle info by scanning assets directory
  */
 function parseManifest() {
-  if (!existsSync(MANIFEST_FILE)) {
-    console.error('❌ Vite manifest not found. Run `npm run build` first.');
-    process.exit(1);
-  }
-
-  const manifest = JSON.parse(readFileSync(MANIFEST_FILE, 'utf-8'));
-  const mainBundle = findMainBundle(manifest);
-
-  if (!mainBundle) {
-    console.error('❌ Cannot find main bundle in manifest.');
-    process.exit(1);
-  }
-
-  // Build the file path
-  const bundlePath = join(DIST_DIR, mainBundle);
+  const mainBundle = findMainBundle();
+  const bundlePath = join(ASSETS_DIR, mainBundle);
 
   if (!existsSync(bundlePath)) {
     console.error(`❌ Bundle file not found: ${bundlePath}`);

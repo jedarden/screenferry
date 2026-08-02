@@ -288,7 +288,7 @@ enforcement mechanism, because an invariant nothing checks is a comment.
 | **I2** | The degree distribution and the decoder MUST change together (D6); any distribution change MUST be simulated before merge | `sim/` assertions ported into the test suite; CI gate G4 |
 | **I3** | Fountain indices MUST be derived from `(streamId, blockIndex, seq)`, never transmitted (D7) | Golden test vector `(streamId, blockIndex, seq) → index set`, bit-exact across implementations |
 | **I4** | The file MUST NOT be fully materialised in memory on either side (D20) | Phase 1 flat-memory test over a synthetic 4 GB stream |
-| **I5** | **Exactly one payload block is GE-active at a time; the manifest stream has its own separate GE context** (bf-28b) | Session type permits two concurrent GE contexts: `active` for payload blocks and `manifestActive` for manifest blocks. Payload block-switch policy (`bf-2t1k`) governs when to switch: hold until rank K or N consecutive higher-index packets (default N=32). The manifest uses reserved `blockIndex = 0xFFFFFF` and `PacketFlags.Manifest`, providing clean separation from payload blocks. This is necessary because manifest blocks are interleaved with payload blocks (§7.6), and both require fountain decoding. |
+| **I5** | **Exactly one payload block is GE-active at a time; the manifest stream has its own separate GE context** (bf-28b) | Session type permits two concurrent GE contexts: `active` for payload blocks and `manifestActive` for manifest blocks. Payload block-switch policy (`bf-2t1k`) governs when to switch: hold until rank K or N consecutive higher-index packets (default N=32). The manifest uses reserved `blockIndex = 0xFFFFFF` and `PacketFlags.Manifest`, providing clean separation from payload blocks. This is necessary because manifest blocks are interleaved with payload blocks (§7.3), and both require fountain decoding. |
 | **I6a** | **Block-layer** working set MUST stay ≤ 1 MB regardless of file size (264 KB at the adopted design) | A5 headless block-layer memory assertion |
 | **I6b** | **Whole-receiver** peak MUST stay ≤ 64 MB, and the decode pool MUST hold ≤ 4 in-flight `VideoFrame`s | Phase 3 instrumented run. A single 1080p RGBA frame is **7.9 MiB**, so this budget is dominated by the camera path, not the codec — which is why I6 had to be split |
 | **I7** | Frames MUST be generated on demand, never pre-rendered (D24) | Ring buffer is bounded at 3; assertion on buffer depth |
@@ -507,7 +507,7 @@ so the tree separates them explicitly.
 src/
   core/                 # pure, no DOM, no workers — the testable heart
     params.ts           # ⚠️ CRITICAL: rung table, validation guards, G7 diff targets
-    session/            #   types.ts (SendSession, RecvSession from §7.3)
+    session/            #   types.ts (SendSession, RecvSession from §7.4)
     fountain/           #   encoder.ts (was lt-encode.ts)  decoder.ts (was ge-decode.ts)  prng.ts
     block/              #   partition.ts
     frame/              #   header.ts  beacon.ts  crc.ts
@@ -537,8 +537,8 @@ docs/                   # plan, notes, research, sim
 - `core/fountain/degree.ts` — degree distribution logic (D6, D25)
 - `core/block/bitmap.ts` — block bitmap for D22 resume
 - `core/block/schedule.ts` — dwell scheduling (§8.1) and repair code (§8.2)
-- `core/frame/repair-code.ts` — repair code format (§7.5, §8.2)
-- `core/hash/stream-id.ts` — streamId derivation (§7.4)
+- `core/frame/repair-code.ts` — repair code format (§7.6, §8.2)
+- `core/hash/stream-id.ts` — streamId derivation (§7.5)
 - `modulation/qr-tiled/layout.ts` — tile layout logic
 - `modulation/qr-tiled/ladder.ts` — D16 ladder rung logic
 - `workers/opfs.worker.ts` — OPFS worker (may be inline elsewhere)
@@ -549,9 +549,9 @@ docs/                   # plan, notes, research, sim
 |---|---|---|
 | `core/frame/beacon.ts` | **1** | Beacon packet encoding/decoding (§7.2, D17/D21) is framing — Phase 1's "framing" deliverable. Required for the receiver to learn file metadata (`streamId`, `blockCount`, `K`, etc.) before it can interpret any payload packet. |
 | `core/hash/stream-id.ts` | **1** | `streamId` derivation (§7.4, D7) is required by the fountain encoder's PRNG seeding. Phase 1's "LT encode" and "GE decode" cannot work without `streamId`, and I3's conformance vector depends on it. |
-| `core/hash/block-hash.ts` | **1** | Per-block hashes (§7.6) are the only application-layer integrity check on payload bytes (§7.1). Phase 1's "byte-exact" requirement (property tests) and I9's verification invariant cannot be enforced without them. |
+| `core/hash/block-hash.ts` | **1** | Per-block hashes (§7.3) are the only application-layer integrity check on payload bytes (§7.1). Phase 1's "byte-exact" requirement (property tests) and I9's verification invariant cannot be enforced without them. |
 | `core/block/schedule.ts` | **4** | Dwell scheduling (§8.1) and repair code targeting (§8.2) are large-file machinery. Phase 4's A5 (synthetic 4 GB), A6 (resume), and A7 (repair) exit criteria require block scheduling. |
-| `core/frame/repair-code.ts` | **4** | Repair code format (§7.5, §8.2) is the human-mediated recovery path. Phase 4's A7 exit criterion ("Only the missing blocks retransmit") requires encoding/decoding repair codes. |
+| `core/frame/repair-code.ts` | **4** | Repair code format (§7.6, §8.2) is the human-mediated recovery path. Phase 4's A7 exit criterion ("Only the missing blocks retransmit") requires encoding/decoding repair codes. |
 
 **Rules.** `core/` MUST NOT import from `modulation/`, `workers/`, `platform/` or `ui/` —
 it is the layer the property tests own. Nothing outside `modulation/` may reference QR
@@ -638,7 +638,7 @@ colour reference is **not optional** for Stage 2.
 |---|---|---|---|
 | 0 | 1 | `magic_ver` | 4-bit magic + 4-bit wire version. Rejects foreign QR instantly. See §16.3 for version skew. |
 | 1 | 1 | `flags` | packet type (payload/beacon), reserved |
-| 2 | 4 | `streamId` | Identifies the **file**. Seeds the PRNG; receiver locks it on first sight. Derivation: §7.4 |
+| 2 | 4 | `streamId` | Identifies the **file**. Seeds the PRNG; receiver locks it on first sight. Derivation: §7.5 |
 | 6 | 3 | `blockIndex` | 16.7 M blocks × 192 KB = **3.0 TB** addressable — beyond any practical transfer (1 TB is 117 days) |
 | 9 | 3 | `seq` | Sequence **within the block**; with `streamId`+`blockIndex` derives the index set |
 | 12 | 1 | `fcrc` | CRC-8 — rejects a mis-decode before it poisons the matrix |
@@ -654,7 +654,7 @@ is routed to a block. But the consequence must be stated plainly:
 > check.
 
 Payload integrity therefore rests on exactly two things: QR's own Reed–Solomon (which makes
-an undetected symbol error rare, but not impossible) and **the per-block hash (§7.6), which
+an undetected symbol error rare, but not impossible) and **the per-block hash (§7.3), which
 is the sole application-layer check on payload bytes.** The manifest-based hash verification
 ensures corrupted blocks are detected before completion: a block that reaches rank K but fails
 its hash is never surfaced to the user and triggers re-collection (`E-BLOCK-HASH`, §11, E12).
@@ -680,7 +680,7 @@ it can interpret any payload packet:
 | `flags` | 1 | compressed / hash alg / colour profile |
 | `blockHashLen` | 1 | Per-block hash truncation length |
 | `wholeFileHash` | 32 | **Mandatory.** concept.md constraint 4 makes byte-exact reconstruction non-negotiable and names this as the verification. An earlier revision made it optional "on very large files" — i.e. dropped the guarantee exactly where E5 (source mutated during a 10-hour read) is most likely and the stakes are highest. Computed on the **decompressed reassembly** (after decompression, if compression is enabled; otherwise on the received blocks directly). The sender hashes the original file by streaming it through an incremental WASM hasher; the receiver hashes its decompressed output and compares. The hash covers the final user-visible output, not intermediate compressed data. If decompression fails (E15), the hash cannot be evaluated and the compressed artefact is kept unverified. |
-| `manifestHash` | 4 | **Mandatory.** CRC-32 of the manifest data (§7.6). Roots the cryptographic chain: **beacon → manifest → blocks → whole file**. Without this, a corrupted manifest packet would cause wrong block hashes, leading to infinite E12 failures with no error code or termination. The beacon already carries 32 bytes; adding 4 more is negligible. |
+| `manifestHash` | 4 | **Mandatory.** CRC-32 of the manifest data (§7.3). Roots the cryptographic chain: **beacon → manifest → blocks → whole file**. Without this, a corrupted manifest packet would cause wrong block hashes, leading to infinite E12 failures with no error code or termination. The beacon already carries 32 bytes; adding 4 more is negligible. |
 | `filenameLen` | 1 | Length prefix for filename field |
 | `filename` | var | UTF-8 filename, **sanitised** (§12, T2). Capped at 128 bytes / 32 codepoints. See truncation rules below. |
 | `mimeTypeLen` | 1 | Length prefix for MIME type field |
@@ -709,7 +709,7 @@ This strategy ensures the beacon never overflows R1's 256-byte payload while acc
 
 The receiver shows "acquiring…" until its first beacon.
 
-### 7.6 The block-hash manifest — how per-block hashes reach the receiver
+### 7.3 The block-hash manifest — how per-block hashes reach the receiver
 
 I9, E12, §6.4, §8.3 and §7.4 all depend on per-block hashes, and §7.1 establishes they are
 the *only* application-layer check on payload bytes. Nothing in the wire format carried
@@ -739,7 +739,7 @@ packet would yield wrong hashes for hundreds of blocks. Those blocks would fail 
 — re-collect, fail, re-collect — with no error code and no termination. The manifest hash
 detects this corruption immediately and forces re-decode of the manifest.
 
-### 7.3 Session state
+### 7.4 Session state
 
 ```ts
 type SendSession = {
@@ -760,19 +760,19 @@ type RecvSession = {
   writtenBlocks: Uint8Array;              // bitmap tracking blocks written to OPFS
   active: { blockIndex: number; pivots: Map<number, GERow>; rank: number } | null;  // I5 — payload block GE context
   manifestActive: { pivots: Map<number, GERow>; rank: number } | null;  // I5 — manifest block GE context
-  manifest: BlockHashManifest | null;    // §7.6 — persisted for resume
+  manifest: BlockHashManifest | null;    // §7.3 — persisted for resume
   out: PositionalWriteHandle | null;      // OPFS positional write (worker-only createSyncAccessHandle)
   stats: { fps: number; cameraPxPerModule: number; packetsPerSec: number; eta: number };
 };
 ```
 
-**Two-bitmap system:** `complete` tracks blocks that have been fountain-decoded; `writtenBlocks` tracks blocks that have been written to OPFS. These separate because blocks may be decoded before their hashes arrive (§7.6), and they must not be surfaced to the user until verified.
+**Two-bitmap system:** `complete` tracks blocks that have been fountain-decoded; `writtenBlocks` tracks blocks that have been written to OPFS. These separate because blocks may be decoded before their hashes arrive (§7.3), and they must not be surfaced to the user until verified.
 
 Partial state for a block the sender has moved past is **discarded, not persisted** — a
 badly damaged block rarely half-completes usefully, and persisting it would defeat I6.
 The bitmap is tiny: 4 GB / 192 KB = 21,845 blocks = **2.7 KB**.
 
-### 7.4 `streamId` derivation
+### 7.5 `streamId` derivation
 
 Load-bearing: D22 resume requires that re-selecting the same file reproduces the same
 `streamId`. The derivation uses sampling to avoid the cost of hashing the full file payload.
@@ -803,7 +803,7 @@ size, so it is instant even for 4 TB.
 Deliberately **not** `crc32(payload)` — the research's original design — because the
 block layer made a full-payload pass unaffordable.
 
-### 7.5 Repair code format (§8.2)
+### 7.6 Repair code format (§8.2)
 
 A human types this, so it must be short, unambiguous, and self-checking.
 
@@ -1036,7 +1036,7 @@ now, before Phase 5 designs any UI — after that, taxonomies get retrofitted to
 | `E-FOREIGN-STREAM` | Different `streamId` (E7) | "That's a different file — ignoring it." | automatic, informational |
 | `E-VERSION` | Unknown `magic_ver` (§16.3) | "The sending device is running version X; this one is Y. Update both." | user must update |
 | `E-META-BOUNDS` | Beacon field out of bounds (T1) | "That transmission looks malformed and was rejected." | automatic, refuse |
-| `E-MANIFEST-CORRUPT` | Manifest CRC validation failed (§7.6) | "The block manifest is corrupted and is being re-decoded." | automatic retry |
+| `E-MANIFEST-CORRUPT` | Manifest CRC validation failed (§7.3) | "The block manifest is corrupted and is being re-decoded." | automatic retry |
 | `E-MANIFEST-MISSING` | Manifest never arrived (§7.6) | "Waiting for block manifest to verify received chunks." | wait or request repair |
 | `E-MANIFEST-DECODE` | Manifest fountain decode failed (§7.6) | "Could not decode the block manifest. Retrying..." | automatic retry |
 | `E-MANIFEST-LIVELOCK` | E12 livelock detected, manifest corrupted (bf-5fm) | "Multiple chunks failed verification — the manifest appears corrupted. Re-decoding manifest..." | re-decode manifest |
@@ -1107,6 +1107,8 @@ net goodput is **~70 KB/s** — well above the 20 KB/s budget.
 
 | Budget | Value | Gate |
 |---|---|---|
+| **Bundle size (uncompressed)** | **≤ 100 kB** — JavaScript bundle delivered to browser | G3, Phase 0 |
+| **Bundle size (gzip)** | **≤ 35 kB** — Gzip-compressed JavaScript bundle | G3, Phase 0 |
 | Throughput, A1 reference setup | **≥ 20 KB/s** sustained | Phase 3 |
 | Throughput, A3 phone→phone | **≥ 3 KB/s** sustained | Phase 3; miss triggers §18 R4 |
 | Block-layer working set | **≤ 1 MB**, any file size (I6a) | Phase 1 |
