@@ -408,9 +408,7 @@ directly without replaying 1…*N*−1. That is what makes resume and repair nea
 
 #### 6.3.2 Shape the code region to the CAMERA, not the screen
 
-Measured, and worth ~4–5× on its own. The receiver's camera has a fixed aspect and a fixed
-pixel count; the sender's screen has a different one. What matters is **camera px per module**
-(§2), and that is set by how much of the capture the code region fills.
+The receiver's camera has a fixed aspect and a fixed pixel count; the sender's screen has a different one. What matters is **camera px per module** (§2), and that is set by how much of the capture the code region fills. The 4 px/module decode cliff is measured: spike S3 showed 100% erasure at 1.5 camera px/module (0.0 KB/s), dropping to 78% at 2.25 camera px/module (4.0 KB/s). Properly shaping the code region clears the cliff and is the single biggest lever.
 
 A 1920×1080 landscape code region imaged by a portrait 1080×1920 capture yields **M = 0.5625** —
 so 4 screen px/module is only 2.25 camera px/module, below the cliff. Rendering the *same*
@@ -477,7 +475,7 @@ getUserMedia ──► exposureCompensation:min (D14) ──► measure real fps
                                                                   ──► mark verified bitmap
                                                                               │
                                             all blocks present & manifest decoded ──► verify all blocks
-                                                                  ──► [decompress] ──► save
+                                                                  ──► [decompress] ──► compute whole-file hash ──► compare with beacon ──► save (or E-FILE-HASH if mismatch)
 ```
 
 \* `MediaStreamTrackProcessor` is **Chromium-only**; `requestVideoFrameCallback` +
@@ -519,7 +517,7 @@ src/
     fountain/           #   lt-encode.ts  ge-decode.ts  prng.ts  degree.ts
     block/              #   partition.ts  bitmap.ts  schedule.ts
     frame/              #   header.ts  beacon.ts  crc.ts  repair-code.ts
-    hash/               #   block-hash.ts  stream-id.ts
+    hash/               #   block-hash.ts  stream-id.ts  whole-file-hash.ts
   modulation/           # the swappable layer (§6.1)
     types.ts            #   the Modulation interface — the ONLY contract above
     qr-tiled/           #   stage 1: encode.ts  decode.ts  layout.ts  ladder.ts
@@ -663,7 +661,7 @@ it can interpret any payload packet:
 | `degreeCap` | 1 | D25; receiver MUST use the same cap |
 | `flags` | 1 | compressed / hash alg / colour profile |
 | `blockHashLen` | 1 | Per-block hash truncation length |
-| `wholeFileHash` | 32 | **Mandatory.** concept.md constraint 4 makes byte-exact reconstruction non-negotiable and names this as the verification. An earlier revision made it optional "on very large files" — i.e. dropped the guarantee exactly where E5 (source mutated during a 10-hour read) is most likely and the stakes are highest. Computed by streaming the reassembled file through an incremental WASM hasher (§3.3); the cost is one extra read, not one extra copy |
+| `wholeFileHash` | 32 | **Mandatory.** concept.md constraint 4 makes byte-exact reconstruction non-negotiable and names this as the verification. An earlier revision made it optional "on very large files" — i.e. dropped the guarantee exactly where E5 (source mutated during a 10-hour read) is most likely and the stakes are highest. Computed on the **decompressed reassembly** (after decompression, if compression is enabled; otherwise on the received blocks directly). The sender hashes the original file by streaming it through an incremental WASM hasher; the receiver hashes its decompressed output and compares. The hash covers the final user-visible output, not intermediate compressed data. If decompression fails (E15), the hash cannot be evaluated and the compressed artefact is kept unverified. |
 | `manifestHash` | 4 | **Mandatory.** CRC-32 of the manifest data (§7.6). Roots the cryptographic chain: **beacon → manifest → blocks → whole file**. Without this, a corrupted manifest packet would cause wrong block hashes, leading to infinite E12 failures with no error code or termination. The beacon already carries 32 bytes; adding 4 more is negligible. |
 | `filenameLen` | 1 | Length prefix for filename field |
 | `filename` | var | UTF-8 filename, **sanitised** (§12, T2). Capped at 128 bytes / 32 codepoints. See truncation rules below. |
@@ -985,7 +983,7 @@ stated limitation, not an oversight — see §18 R8.
 | E12 | **Block hash verification fails** | After manifest arrives, block hash verification fails. Clear the verified bitmap bit, re-collect the block. Emit `E-BLOCK-HASH`. Block may already be written to OPFS but is never surfaced until verified (I9). This is the CRC-8 false-accept path (§7.1) and MUST be implemented — at GB scale a silent re-do costs hours. |
 | E13 | **Whole-file hash fails after all blocks pass** | Indicates E5 or a block-hash collision. Report `E-FILE-HASH`; keep the output and label it unverified rather than deleting hours of work. |
 | E14 | **Filename with path separators or control bytes** | Sanitise on export (§12, T2). Never write an attacker-chosen path. |
-| E15 | **Decompression fails at the end** | All blocks verified but the gzip stream is invalid → `E-DECOMPRESS`; keep the compressed artefact so nothing is lost. **The kept artefact follows T4b's deletion lifecycle** — warn the user before keeping it, provide a delete control, and reap on startup. |
+| E15 | **Decompression fails at the end** | All blocks verified (per-block hashes passed) but the gzip stream is invalid → `E-DECOMPRESS`. Keep the compressed artefact so nothing is lost, but note that **the whole-file hash cannot be evaluated** — it requires successful decompression to compute. The kept artefact follows T4b's deletion lifecycle: warn the user before keeping it (explicitly noting it is **unverified**), provide a delete control, and reap on startup. The compressed artefact is received data that passed per-block verification but failed the final format conversion (decompression); it cannot be surfaced to the user as the original file. |
 | E16 | **Worker crash mid-block** | Restart the worker, discard the active block only, keep the bitmap. |
 | E17a | **Sender-side thermal throttling** | Observed: the bench laptop decayed 6.7 → 2.4 fps over two minutes. Locally observable, so D18b's local step-down applies. **Receiver-side detection:** Camera fps drops >30% while decode latency stays within +30%. See `docs/notes/bf-3mnt-thermal-throttling-discrimination.md` for discrimination logic. The receiver MUST NOT duty-cycle in response to sender-side throttling — doing so would multiply transfer time without addressing the root cause. |
 | E17b | **Receiver-side thermal throttling** | Observed at **70 °C / throttling threshold within 20–30 minutes**. D18a's rule bites: fps decline is a *receiver* observation, the ladder is a *sender* control, and there is no back-channel — so "step the ladder down" is **structurally impossible** here. Mitigate locally instead: **duty-cycle (D27)** is the primary lever; drop decode resolution is often NOT viable because S3 showed 1080p was already at 2.25 camera px/module (below the 4 px/module cliff), and 720p measured 100% erasure. Resolution reduction MUST maintain ≥ 4 camera px/module floor. **Detection:** Decode latency increases >50% while camera fps stays within -20%. See `docs/notes/bf-3mnt-thermal-throttling-discrimination.md` for discrimination logic against sender-side throttling. |
@@ -1323,7 +1321,7 @@ debt (PIVOT-CAUSES PH-2).
 |---|---|---|
 | 0 | partial | **Exit criteria NOT met.** `npm run build` fails (no `index.html`, no `src/app.ts`); no version footer (`bf-13h` open); no stub-camera tier; **no lint config**, so G1 cannot pass; G2 (no-network assertion) and G3 (bundle budget, SRI) unimplemented. **G7 is green.** `npm run gate` currently runs typecheck + tests + G7 — a subset of G1 plus G7. |
 | 0.5 | partial | S1, S2, S3 and the thermal observation done. **Outstanding:** phone→phone (R4), rung sweep, a distance sweep under §13.2 conditions, an on-device GE run, and the long-run thermal profile. Its exit criterion — "§13.1's forecast rows replaced with measured figures" — is now met for three rows (§13.1). |
-| 1 | built, **exit criteria NOT met** | `src/core/` has framing, PRNG, LT encode, GE decode, block layer; 22 tests green. **Unmet:** G1–G3 (inherited from Phase 0); the A5 memory assertion is a smoke test, not I6a; the **on-device GE run** required by "GE keeps pace at K=768 measured on a real phone" has not happened. **Not yet written** (listed in §6.5): `frame/beacon.ts`, `frame/repair-code.ts`, `hash/block-hash.ts`, `hash/stream-id.ts`, `block/schedule.ts`. **I3's golden vector `test/fixtures/vectors.json` does not exist** (AP10 is live, not paid-for). Entered on a partial 0.5, so K, L, dwell and the rung ladder shipped at their modelled values. |
+| 1 | built, **exit criteria NOT met** | `src/core/` has framing, PRNG, LT encode, GE decode, block layer; 22 tests green. **Unmet:** G1–G3 (inherited from Phase 0); the A5 memory assertion is a smoke test, not I6a; the **on-device GE run** required by "GE keeps pace at K=768 measured on a real phone" has not happened. **Not yet written** (listed in §6.5): `frame/beacon.ts`, `frame/repair-code.ts`, `hash/block-hash.ts`, `hash/stream-id.ts`, `hash/whole-file-hash.ts`, `block/schedule.ts`. **I3's golden vector `test/fixtures/vectors.json` does not exist** (AP10 is live, not paid-for). Entered on a partial 0.5, so K, L, dwell and the rung ladder shipped at their modelled values. |
 
 **Gate defects to close before Phase 2:**
 
