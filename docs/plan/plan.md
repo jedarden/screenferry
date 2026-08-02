@@ -546,7 +546,7 @@ exactly one implementation.
 | Dependency | Pin | If unavailable |
 |---|---|---|
 | `zxing-wasm` | exact version + SRI on the `.wasm`. **MUST call `setZXingModuleOverrides({ locateFile })` pointing at a bundle-local, service-worker-precached `.wasm`.** See the general WASM rule below | Fatal on the receiver — surface `E-WASM-LOAD`; the sender still works |
-| `incremental-wasm-hash` | exact version + SRI on the `.wasm`. **MUST be bundle-local and service-worker-precached.** See the general WASM rule below | Optional — skip whole-file hash if unavailable (per-block hashes still mandatory) |
+| `incremental-wasm-hash` | exact version + SRI on the `.wasm`. **MUST be bundle-local, service-worker-precached, and loaded via bundle-local overrides (not default CDN paths).** See the general WASM rule below | Optional — skip whole-file hash if unavailable (per-block hashes still mandatory) |
 | `node-qrcode` | exact version | Fatal on the sender; the receiver still works |
 | `CompressionStream` | platform | Skip compression (D8 is already conditional) |
 | `MediaStreamTrackProcessor` | platform | Fall back to `requestVideoFrameCallback` + `drawImage` — MUST be implemented, it is not Chromium-only |
