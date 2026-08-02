@@ -21,7 +21,22 @@
  */
 
 import { readBarcodes } from 'zxing-wasm/reader';
+import { configureLocalZXingWASM } from '../modulation/qr-tiled/zxing-config.js';
 import type { DecodedFrameResult, TileDiagnostics, QRPosition } from '../modulation/types.js';
+
+/**
+ * Configure zxing-wasm to use local WASM files.
+ *
+ * This MUST be called before any zxing-wasm functions are used. Workers run in
+ * a separate global context from the main thread, so the main thread's initZXing()
+ * call doesn't affect them. Each worker must configure zxing locally.
+ *
+ * Per plan.md §6.5, T5, T7, A8: Using local WASM prevents:
+ * - Third-party network requests mid-session (T7 - no exfiltration)
+ * - Failures in airplane mode (A8 - air-gapped case)
+ * - Remote WASM execution (T5 - surface reduction)
+ */
+configureLocalZXingWASM();
 
 /**
  * Worker message types
