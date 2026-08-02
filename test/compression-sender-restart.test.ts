@@ -210,7 +210,7 @@ describe('Sender restart with compression (bf-2w1a)', () => {
         meta,
         complete: new Uint8Array([0xFF, 0xFF, 0xFF, 0xFF]), // All blocks complete
         outputPath: '/output/large-video.mp4',
-        outputSize: meta.fileSize,
+        outputSize: meta.originalSize,
         verified: true,
         compressed: true,
       };
@@ -231,7 +231,7 @@ describe('Sender restart with compression (bf-2w1a)', () => {
         meta,
         complete: new Uint8Array([0xFF, 0xFF, 0xFF, 0xFF]),
         outputPath: '/output/large-video.mp4',
-        outputSize: meta.fileSize,
+        outputSize: meta.originalSize,
         verified: true,
         compressed: false,
       };

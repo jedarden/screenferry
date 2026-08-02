@@ -61,7 +61,7 @@ describe('runAppInit()', () => {
     const result = await runAppInit();
 
     expect(result.healthCheckPassed).toBe(false);
-    expect(result.errors).toContain('Camera not available');
+    expect(result.errors).toContain('Health check: Camera not available');
   });
 
   it('handles cleanup failure gracefully', async () => {
@@ -70,7 +70,7 @@ describe('runAppInit()', () => {
 
     const result = await runAppInit();
 
-    expect(result.errors).toContain('Storage error');
+    expect(result.errors).toContain('Startup cleanup: Storage error');
   });
 
   it('collects multiple errors', async () => {
@@ -83,8 +83,8 @@ describe('runAppInit()', () => {
     const result = await runAppInit();
 
     expect(result.errors).toHaveLength(2);
-    expect(result.errors).toContain('Health check failed');
-    expect(result.errors).toContain('Cleanup failed');
+    expect(result.errors).toContain('Health check: Health check failed');
+    expect(result.errors).toContain('Startup cleanup: Cleanup failed');
   });
 
   it('returns successful result when all checks pass', async () => {

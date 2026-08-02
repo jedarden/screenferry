@@ -17,6 +17,7 @@ import {
   runSimpleGEBenchmarkAsync,
   type SimpleGEBenchmarkResult,
 } from './simple-ge-runner.js';
+import {createPositionalWriteHandleFactory} from '../core/io/positional-write.js';
 
 /**
  * Storage check result.
@@ -245,14 +246,21 @@ export async function checkOPFS(): Promise<OPFSCheck> {
 
     const root = await navigator.storage.getDirectory();
 
-    // Test write capability
+    // Test write capability using positional write interface
     const testFileName = `screenferry-opfs-test-${Date.now()}`;
-    const testFile = await root.getFileHandle(testFileName, {create: true});
-    const writable = await testFile.createWritable();
-
     const testData = new Uint8Array([0, 1, 2, 3]);
-    await writable.write(testData);
-    await writable.close();
+
+    const factory = createPositionalWriteHandleFactory();
+    const handle = await factory.createHandle(testFileName, testData.length);
+
+    // Positional write at offset 0
+    await handle.write(testData, { at: 0 });
+    await handle.close();
+
+    // Verify write succeeded by checking file size
+    const verifyHandle = await factory.reopenHandle(testFileName);
+    const size = await verifyHandle.getSize();
+    await verifyHandle.close();
 
     // Clean up
     await root.removeEntry(testFileName);
@@ -265,7 +273,7 @@ export async function checkOPFS(): Promise<OPFSCheck> {
 
     return {
       available: true,
-      writeTestPassed: true,
+      writeTestPassed: size === testData.length,
       estimatedCapacity,
     };
   } catch (e) {

@@ -18,7 +18,8 @@ describe('Beacon CRC-32 validation (bf-312)', () => {
     return {
       streamId: 0x12345678,
       wireVersion: 1,
-      fileSize: 1024 * 1024, // 1 MB
+      originalSize: 1024 * 1024, // 1 MB
+      payloadLen: 1024 * 1024, // 1 MB (uncompressed)
       blockSize: 192 * 1024, // 192 KB
       blockCount: 6,
       fragmentLen: 256, // L
@@ -26,6 +27,7 @@ describe('Beacon CRC-32 validation (bf-312)', () => {
       flags: 0,
       blockHashLen: 4,
       wholeFileHash: new Uint8Array(32), // All zeros for testing
+      manifestHash: new Uint8Array(4), // CRC-32 of manifest
       filename: 'test.txt',
       mimeType: 'text/plain',
     };
@@ -40,7 +42,7 @@ describe('Beacon CRC-32 validation (bf-312)', () => {
       const parsed = parseBeacon(encoded, 1024, 10 * 1024 * 1024);
 
       expect(parsed.streamId).toBe(meta.streamId);
-      expect(parsed.fileSize).toBe(meta.fileSize);
+      expect(parsed.originalSize).toBe(meta.originalSize);
       expect(parsed.blockCount).toBe(meta.blockCount);
       expect(parsed.filename).toBe(meta.filename);
     });

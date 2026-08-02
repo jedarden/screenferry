@@ -94,7 +94,7 @@ describe('header (I8)', () => {
   it('round-trips every field at its boundary', () => {
     const cases = [
       { wireVersion: 1, flags: 0, streamId: 0, blockIndex: 0, seq: 0 },
-      { wireVersion: 15, flags: 255, streamId: 0xffffffff, blockIndex: 0xffffff, seq: 0xffffff },
+      { wireVersion: 1, flags: 255, streamId: 0xffffffff, blockIndex: 0xffffff, seq: 0xffffff },
       { wireVersion: 1, flags: 4, streamId: 0x80000000, blockIndex: 1, seq: 0x7fffff },
     ];
     for (const h of cases) {
@@ -126,6 +126,15 @@ describe('header (I8)', () => {
     foreign[0] = 0xa1;
     expect(readPacket(foreign)).toBeNull();
     expect(readPacket(p.subarray(0, PACKET - 1))).toBeNull();
+  });
+
+  it('rejects unknown wire version per §16.3', () => {
+    // Create a packet with a different wire version nibble
+    const p = writePacket({ wireVersion: 1, flags: 0, streamId: 1, blockIndex: 0, seq: 0 }, randomBytes(L));
+    const wrongVersion = Uint8Array.from(p);
+    // Change the version nibble to 2 (while keeping magic the same)
+    wrongVersion[0] = (wrongVersion[0]! & 0xf0) | 0x02;
+    expect(readPacket(wrongVersion)).toBeNull();
   });
 });
 

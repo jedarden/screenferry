@@ -26,7 +26,8 @@ describe('Compression/Resume integration (bf-vgtq)', () => {
     return {
       streamId: 12345,
       wireVersion: 1,
-      fileSize: 1024 * 1024, // 1 MB
+      originalSize: 1024 * 1024, // 1 MB (uncompressed)
+      payloadLen: 1024 * 1024, // 1 MB (same for uncompressed tests)
       blockSize: 196608,
       blockCount: 5,
       fragmentLen: 256,
@@ -34,6 +35,7 @@ describe('Compression/Resume integration (bf-vgtq)', () => {
       flags,
       blockHashLen: 4,
       wholeFileHash: new Uint8Array(32),
+      manifestHash: new Uint8Array(4), // CRC-32 of manifest
       filename: 'test.txt',
       mimeType: 'text/plain',
     };
@@ -78,7 +80,7 @@ describe('Compression/Resume integration (bf-vgtq)', () => {
       meta,
       complete: new Uint8Array([0b11111000]), // All blocks complete
       outputPath: '/output/test.txt',
-      outputSize: meta.fileSize,
+      outputSize: meta.originalSize,
       verified: true,
       compressed: false,
     };

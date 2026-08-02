@@ -9,6 +9,7 @@
 
 import {validateBeaconK} from '../../platform/ge-benchmark.js';
 import {crc32} from './crc.js';
+import {L, WIRE_VERSION} from '../params.js';
 
 /**
  * Beacon flags (1 byte).
@@ -53,7 +54,8 @@ export enum BeaconFlags {
 export interface BeaconMeta {
   streamId: number;
   wireVersion: number;
-  fileSize: number;
+  originalSize: number; // Original uncompressed file size
+  payloadLen: number; // Actual payload length (after compression if enabled)
   blockSize: number;
   blockCount: number;
   fragmentLen: number; // L
@@ -61,6 +63,7 @@ export interface BeaconMeta {
   flags: number;
   blockHashLen: number;
   wholeFileHash: Uint8Array; // 32 bytes
+  manifestHash: Uint8Array; // 4 bytes - CRC-32 of manifest (roots beacon->manifest->blocks chain)
   filename: string;
   mimeType: string;
 }
@@ -81,14 +84,54 @@ export class BeaconValidationError extends Error {
 
 /**
  * Maximum safe values for beacon fields (T1).
+ *
+ * **Beacon size bound calculation (R1's 256-byte payload):**
+ * - Fixed fields: 64 bytes (streamId, wireVersion, originalSize, payloadLen, blockSize,
+ *                  blockCount, fragmentLen, degreeCap, flags, blockHashLen,
+ *                  wholeFileHash, manifestHash)
+ * - CRC-32: 4 bytes
+ * - Length prefixes: 2 bytes (1 byte each for filename and mimeType)
+ * - Available for filename + mimeType: 256 - 64 - 4 - 2 = 186 bytes
+ *
+ * This yields a conservative allocation of 128 bytes for filename and 58 bytes for
+ * mimeType, ensuring the beacon never overflows R1's capacity while accommodating
+ * common filenames and MIME types.
  */
 export const BEACON_LIMITS = {
   MAX_L: 4096,
   MAX_BLOCK_COUNT: 16_700_000, // 16.7M blocks × 192 KB = 3.0 TB
   MAX_FILE_SIZE: 281_474_976_710_656, // 281 TB, 6-byte field max
-  MAX_FILENAME_LEN: 255,
-  MAX_MIMETYPE_LEN: 127,
+  /** Maximum number of blocks that the manifest itself can consume (T1). */
+  /** K_manifest = ceil(blockCount × blockHashLen / BLOCK). Limits DoS from unbounded manifest growth. */
+  MAX_K_MANIFEST_BLOCKS: 1000, // 1000 manifest blocks ≈ 195 MB of manifest data
+  /** Maximum UTF-8 encoded filename length in bytes (T2). Chosen to fit within R1's 256-byte payload. */
+  MAX_FILENAME_BYTES: 128,
+  /** Maximum UTF-8 encoded MIME type length in bytes (T2). Chosen to fit within R1's 256-byte payload. */
+  MAX_MIMETYPE_BYTES: 58,
+  /** Maximum UTF-8 codepoint count for filename (T2). A UTF-8 string can use up to 4 bytes per codepoint. */
+  MAX_FILENAME_CODEPOINTS: 32, // 32 × 4 = 128, guarantees never exceeds MAX_FILENAME_BYTES
+  /** Maximum UTF-8 codepoint count for MIME type (T2). */
+  MAX_MIMETYPE_CODEPOINTS: 14, // 14 × 4 = 56, fits within MAX_MIMETYPE_BYTES
 } as const;
+
+/**
+ * Calculate K_manifest from blockCount and blockHashLen.
+ *
+ * K_manifest is the number of blocks needed to store the block hash manifest.
+ * The manifest contains blockCount × blockHashLen bytes (all block hashes),
+ * divided into blocks of size BLOCK (196608 bytes = K × L).
+ *
+ * Formula: K_manifest = ceil(blockCount × blockHashLen / BLOCK)
+ *
+ * @param blockCount - Number of data blocks (from beacon)
+ * @param blockHashLen - Length of each block hash in bytes (from beacon)
+ * @returns Number of blocks needed to store the manifest
+ */
+function calculateKManifest(blockCount: number, blockHashLen: number): number {
+  const BLOCK = 196608; // K × L where K=768, L=256 (from core/params.ts)
+  const manifestBytes = blockCount * blockHashLen;
+  return Math.ceil(manifestBytes / BLOCK);
+}
 
 /**
  * Parse a beacon from bytes.
@@ -104,7 +147,7 @@ export const BEACON_LIMITS = {
  *
  * @param bytes - Beacon payload bytes (after QR decoding and header stripping)
  * @param localKMax - This device's benchmarked maximum K (from GE benchmark)
- * @param availableQuota - Available storage quota in bytes (for T1 fileSize check)
+ * @param availableQuota - Available storage quota in bytes (for T1 originalSize check)
  * @throws {BeaconValidationError} If any field fails validation or CRC-32 mismatch
  */
 export function parseBeacon(
@@ -172,10 +215,14 @@ export function parseBeacon(
 
   const streamId = readU32();
   const wireVersion = readU8();
-  // fileSize: 6 bytes, 48-bit
-  const fileSize = ((readU8() << 40) & 0xff0000000000) |
-                   ((readU32() << 8) & 0xffffffffff00) |
-                   (readU8() & 0xff);
+  // originalSize: 6 bytes, 48-bit (original uncompressed file size)
+  const originalSize = ((readU8() << 40) & 0xff0000000000) |
+                       ((readU32() << 8) & 0xffffffffff00) |
+                       (readU8() & 0xff);
+  // payloadLen: 6 bytes, 48-bit (actual payload length after compression)
+  const payloadLen = ((readU8() << 40) & 0xff0000000000) |
+                     ((readU32() << 8) & 0xffffffffff00) |
+                     (readU8() & 0xff);
 
   const blockSize = readU24();
   const blockCount = readU24();
@@ -184,10 +231,11 @@ export function parseBeacon(
   const flags = readU8();
   const blockHashLen = readU8();
   const wholeFileHash = readBytes(32); // Fixed 32-byte whole file hash
+  const manifestHash = readBytes(4); // Fixed 4-byte manifest hash (CRC-32)
 
   // Variable fields
-  const filename = readString(BEACON_LIMITS.MAX_FILENAME_LEN);
-  const mimeType = readString(BEACON_LIMITS.MAX_MIMETYPE_LEN);
+  const filename = readString(BEACON_LIMITS.MAX_FILENAME_BYTES);
+  const mimeType = readString(BEACON_LIMITS.MAX_MIMETYPE_BYTES);
 
   // ------------------------------------------------------------------ STEP 2: CRC-32 validation (MUST pass before any beacon values are trusted)
 
@@ -222,21 +270,48 @@ export function parseBeacon(
 
   // ------------------------------------------------------------------ STEP 3: T1/META bounds checks (now safe because CRC validated)
 
-  // T1: fileSize bounds check
-  if (fileSize > BEACON_LIMITS.MAX_FILE_SIZE) {
+  // T1: originalSize bounds check
+  if (originalSize > BEACON_LIMITS.MAX_FILE_SIZE) {
     throw new BeaconValidationError(
       'E-META-BOUNDS',
-      `Declared file size (${fileSize}) exceeds maximum (${BEACON_LIMITS.MAX_FILE_SIZE})`,
-      {fileSize, max: BEACON_LIMITS.MAX_FILE_SIZE}
+      `Declared original size (${originalSize}) exceeds maximum (${BEACON_LIMITS.MAX_FILE_SIZE})`,
+      {originalSize, max: BEACON_LIMITS.MAX_FILE_SIZE}
     );
   }
 
-  // T1: fileSize must fit in available quota
-  if (fileSize > availableQuota) {
+  // T1: originalSize must fit in available quota
+  if (originalSize > availableQuota) {
     throw new BeaconValidationError(
       'E-QUOTA-PREFLIGHT',
-      `File size (${fileSize}) exceeds available quota (${availableQuota})`,
-      {fileSize, availableQuota}
+      `Original size (${originalSize}) exceeds available quota (${availableQuota})`,
+      {originalSize, availableQuota}
+    );
+  }
+
+  // T1: payloadLen bounds check (same limit as originalSize)
+  if (payloadLen > BEACON_LIMITS.MAX_FILE_SIZE) {
+    throw new BeaconValidationError(
+      'E-META-BOUNDS',
+      `Declared payload length (${payloadLen}) exceeds maximum (${BEACON_LIMITS.MAX_FILE_SIZE})`,
+      {payloadLen, max: BEACON_LIMITS.MAX_FILE_SIZE}
+    );
+  }
+
+  // T1: payloadLen must fit in available quota
+  if (payloadLen > availableQuota) {
+    throw new BeaconValidationError(
+      'E-QUOTA-PREFLIGHT',
+      `Payload length (${payloadLen}) exceeds available quota (${availableQuota})`,
+      {payloadLen, availableQuota}
+    );
+  }
+
+  // Sanity: payloadLen should be ≤ originalSize (compression can only reduce)
+  if (payloadLen > originalSize) {
+    throw new BeaconValidationError(
+      'E-META-BOUNDS',
+      `Payload length (${payloadLen}) cannot exceed original size (${originalSize})`,
+      {payloadLen, originalSize}
     );
   }
 
@@ -249,6 +324,26 @@ export function parseBeacon(
     );
   }
 
+  // T1: K_manifest bounds check (bf-5fs)
+  // K_manifest is the number of blocks needed to store the block hash manifest.
+  // Unbounded K_manifest is a DoS vector: with MAX_BLOCK_COUNT (16.7M) and blockHashLen=4,
+  // the manifest would be 262,144 fragments and ~8.6 GB of matrix data.
+  const blockCountManifest = calculateKManifest(blockCount, blockHashLen);
+  if (blockCountManifest > BEACON_LIMITS.MAX_K_MANIFEST_BLOCKS) {
+    throw new BeaconValidationError(
+      'E-META-BOUNDS',
+      `Manifest block count (${blockCountManifest}) exceeds maximum (${BEACON_LIMITS.MAX_K_MANIFEST_BLOCKS}). ` +
+      `This would require ${blockCountManifest} blocks (${(blockCountManifest * 196608 / 1024 / 1024).toFixed(1)} MB) ` +
+      `to store the manifest for ${blockCount} data blocks.`,
+      {
+        blockCount,
+        blockHashLen,
+        blockCountManifest,
+        max: BEACON_LIMITS.MAX_K_MANIFEST_BLOCKS
+      }
+    );
+  }
+
   // Sanity: blockSize should be reasonable
   if (blockSize < 1 || blockSize > 10_485_760) { // Max 10 MB per block
     throw new BeaconValidationError(
@@ -258,7 +353,25 @@ export function parseBeacon(
     );
   }
 
-  // T1: L bounds check (I1 says L is fixed for session, but beacon declares it)
+  // T1: Wire version compatibility check
+  if (wireVersion !== WIRE_VERSION) {
+    throw new BeaconValidationError(
+      'E-VERSION',
+      `Wire version mismatch: sender is ${wireVersion}, receiver is ${WIRE_VERSION}`,
+      {senderVersion: wireVersion, receiverVersion: WIRE_VERSION}
+    );
+  }
+
+  // T1: L must match wire constant for this version
+  if (fragmentLen !== L) {
+    throw new BeaconValidationError(
+      'E-VERSION',
+      `Fragment length L mismatch: sender declared ${fragmentLen}, wire constant is ${L}`,
+      {senderL: fragmentLen, wireConstantL: L, wireVersion}
+    );
+  }
+
+  // T1: Secondary sanity check (should never fire if above checks pass)
   if (fragmentLen < 1 || fragmentLen > BEACON_LIMITS.MAX_L) {
     throw new BeaconValidationError(
       'E-META-BOUNDS',
@@ -300,21 +413,22 @@ export function parseBeacon(
 
   // ------------------------------------------------------------------ STEP 5: Sanity checks
 
-  // Sanity: blockCount × blockSize should approximately equal fileSize
+  // Sanity: blockCount × blockSize should approximately equal payloadLen
   // (last block may be short, so allow ±1 block tolerance)
   const estimatedSize = (blockCount - 1) * blockSize;
-  if (fileSize < estimatedSize - blockSize || fileSize > blockCount * blockSize + blockSize) {
+  if (payloadLen < estimatedSize - blockSize || payloadLen > blockCount * blockSize + blockSize) {
     throw new BeaconValidationError(
       'E-META-BOUNDS',
-      `Inconsistent beacon: fileSize=${fileSize}, blockCount=${blockCount}, blockSize=${blockSize}`,
-      {fileSize, blockCount, blockSize}
+      `Inconsistent beacon: payloadLen=${payloadLen}, blockCount=${blockCount}, blockSize=${blockSize}`,
+      {payloadLen, blockCount, blockSize}
     );
   }
 
   return {
     streamId,
     wireVersion,
-    fileSize,
+    originalSize,
+    payloadLen,
     blockSize,
     blockCount,
     fragmentLen,
@@ -322,6 +436,7 @@ export function parseBeacon(
     flags,
     blockHashLen,
     wholeFileHash,
+    manifestHash,
     filename,
     mimeType,
   };
@@ -330,31 +445,64 @@ export function parseBeacon(
 /**
  * Sanitize a filename for export (T2).
  *
- * Strips path separators, control bytes, and leading dots.
+ * **Truncation rules (T2):**
+ * 1. Strip path separators, control bytes, and leading dots (security)
+ * 2. Truncate to MAX_FILENAME_CODEPOINTS (32 UTF-8 codepoints max)
+ * 3. If truncated, preserve filename extension when possible
+ * 4. Validate final UTF-8 encoding fits in MAX_FILENAME_BYTES (128 bytes)
+ * 5. Fall back to "received-file" if empty after sanitization
+ *
+ * **Why both codepoint and byte limits:**
+ * - UTF-8 uses 1-4 bytes per codepoint
+ * - MAX_FILENAME_CODEPOINTS guarantees we never exceed MAX_FILENAME_BYTES
+ * - MAX_FILENAME_BYTES ensures the beacon fits in R1's 256-byte payload
+ *
+ * @param filename - Attacker-supplied filename from beacon
+ * @returns Sanitized filename safe for filesystem export and beacon encoding
  */
 export function sanitizeFilename(filename: string): string {
-  // Remove path separators
+  // Step 1: Remove path separators (prevents directory traversal)
   let sanitized = filename.replace(/[\/\\]/g, '_');
 
-  // Remove control bytes (0x00-0x1F, 0x7F)
+  // Step 2: Remove control bytes (0x00-0x1F, 0x7F) — invalid on most filesystems
   sanitized = sanitized.replace(/[\x00-\x1F\x7F]/g, '');
 
-  // Strip leading dots (avoid hidden files on Unix)
+  // Step 3: Strip leading dots (avoid hidden files on Unix, prevent dotfiles attack)
   sanitized = sanitized.replace(/^\.+/g, '');
 
-  // Cap length
-  const maxLength = 200;
-  if (sanitized.length > maxLength) {
-    // Try to preserve extension
+  // Step 4: Truncate to MAX_FILENAME_CODEPOINTS (32 codepoints)
+  if (sanitized.length > BEACON_LIMITS.MAX_FILENAME_CODEPOINTS) {
+    // Try to preserve extension: find last dot and keep extension
     const lastDot = sanitized.lastIndexOf('.');
-    if (lastDot > 0 && lastDot < maxLength - 10) {
-      sanitized = sanitized.substring(0, maxLength - (sanitized.length - lastDot)) + sanitized.substring(lastDot);
+
+    if (lastDot > 0 && lastDot < BEACON_LIMITS.MAX_FILENAME_CODEPOINTS - 5) {
+      // Keep extension: truncate base, preserve ".ext"
+      const ext = sanitized.substring(lastDot);
+      const baseAllowed = BEACON_LIMITS.MAX_FILENAME_CODEPOINTS - ext.length;
+      sanitized = sanitized.substring(0, baseAllowed) + ext;
     } else {
-      sanitized = sanitized.substring(0, maxLength);
+      // No extension or extension too long: simple truncate
+      sanitized = sanitized.substring(0, BEACON_LIMITS.MAX_FILENAME_CODEPOINTS);
     }
   }
 
-  // Fallback if empty after sanitization
+  // Step 5: Validate UTF-8 byte length fits in MAX_FILENAME_BYTES
+  const utf8Bytes = new TextEncoder().encode(sanitized);
+  if (utf8Bytes.length > BEACON_LIMITS.MAX_FILENAME_BYTES) {
+    // Byte overflow: truncate conservatively to UTF-8 safe boundary
+    // Conservative: each codepoint can be up to 4 bytes, so truncate to codepoints that fit
+    let byteLen = 0;
+    let cpIndex = 0;
+    for (let i = 0; i < sanitized.length; i++) {
+      const cpBytes = new TextEncoder().encode(sanitized[i]).length;
+      if (byteLen + cpBytes > BEACON_LIMITS.MAX_FILENAME_BYTES) break;
+      byteLen += cpBytes;
+      cpIndex = i + 1;
+    }
+    sanitized = sanitized.substring(0, cpIndex);
+  }
+
+  // Step 6: Fallback if empty after sanitization
   if (!sanitized) {
     sanitized = 'received-file';
   }
@@ -424,32 +572,49 @@ export function isResumeDisabled(flags: number): boolean {
  * @returns Uint8Array of encoded beacon with CRC-32
  */
 export function encodeBeacon(meta: BeaconMeta): Uint8Array {
+  // Validate wire version and fragmentLen before encoding
+  if (meta.wireVersion !== WIRE_VERSION) {
+    throw new BeaconValidationError(
+      'E-VERSION',
+      `Cannot encode beacon for wire version ${meta.wireVersion}, this implementation is ${WIRE_VERSION}`,
+      {requestedVersion: meta.wireVersion, supportedVersion: WIRE_VERSION}
+    );
+  }
+
+  if (meta.fragmentLen !== L) {
+    throw new BeaconValidationError(
+      'E-VERSION',
+      `Cannot encode beacon with fragmentLen ${meta.fragmentLen}, wire constant is ${L}`,
+      {requestedL: meta.fragmentLen, wireConstantL: L, wireVersion: meta.wireVersion}
+    );
+  }
+
   // Calculate total size
   const filenameBytes = new TextEncoder().encode(meta.filename);
   const mimeTypeBytes = new TextEncoder().encode(meta.mimeType);
 
-  if (filenameBytes.length > 255) {
+  if (filenameBytes.length > BEACON_LIMITS.MAX_FILENAME_BYTES) {
     throw new BeaconValidationError(
       'E-META-BOUNDS',
-      `Filename too long: ${filenameBytes.length} bytes`,
-      {length: filenameBytes.length, max: 255}
+      `Filename too long: ${filenameBytes.length} bytes (max ${BEACON_LIMITS.MAX_FILENAME_BYTES})`,
+      {length: filenameBytes.length, max: BEACON_LIMITS.MAX_FILENAME_BYTES}
     );
   }
 
-  if (mimeTypeBytes.length > 127) {
+  if (mimeTypeBytes.length > BEACON_LIMITS.MAX_MIMETYPE_BYTES) {
     throw new BeaconValidationError(
       'E-META-BOUNDS',
-      `MIME type too long: ${mimeTypeBytes.length} bytes`,
-      {length: mimeTypeBytes.length, max: 127}
+      `MIME type too long: ${mimeTypeBytes.length} bytes (max ${BEACON_LIMITS.MAX_MIMETYPE_BYTES})`,
+      {length: mimeTypeBytes.length, max: BEACON_LIMITS.MAX_MIMETYPE_BYTES}
     );
   }
 
-  // Fixed fields: streamId(4) + wireVersion(1) + fileSize(6) + blockSize(3) +
-  //              blockCount(3) + fragmentLen(2) + degreeCap(1) + flags(1) +
-  //              blockHashLen(1) + wholeFileHash(32) = 54 bytes
+  // Fixed fields: streamId(4) + wireVersion(1) + originalSize(6) + payloadLen(6) +
+  //              blockSize(3) + blockCount(3) + fragmentLen(2) + degreeCap(1) +
+  //              flags(1) + blockHashLen(1) + wholeFileHash(32) + manifestHash(4) = 64 bytes
   // Variable: filenameLen(1) + filename + mimeTypeLen(1) + mimeType
   // CRC-32: 4 bytes
-  const fixedSize = 54;
+  const fixedSize = 64;
   const variableSize = 2 + filenameBytes.length + mimeTypeBytes.length;
   const crcSize = 4;
   const totalSize = fixedSize + variableSize + crcSize;
@@ -484,10 +649,15 @@ export function encodeBeacon(meta: BeaconMeta): Uint8Array {
   writeU32(meta.streamId);
   writeU8(meta.wireVersion);
 
-  // fileSize: 6 bytes, 48-bit
-  writeU8((meta.fileSize >>> 40) & 0xff);       // Byte 0 (MSB)
-  writeU32((meta.fileSize >>> 8) & 0xffffffff); // Bytes 1-4
-  writeU8(meta.fileSize & 0xff);                // Byte 5 (LSB)
+  // originalSize: 6 bytes, 48-bit (original uncompressed file size)
+  writeU8((meta.originalSize >>> 40) & 0xff);       // Byte 0 (MSB)
+  writeU32((meta.originalSize >>> 8) & 0xffffffff); // Bytes 1-4
+  writeU8(meta.originalSize & 0xff);                // Byte 5 (LSB)
+
+  // payloadLen: 6 bytes, 48-bit (actual payload length after compression)
+  writeU8((meta.payloadLen >>> 40) & 0xff);       // Byte 0 (MSB)
+  writeU32((meta.payloadLen >>> 8) & 0xffffffff); // Bytes 1-4
+  writeU8(meta.payloadLen & 0xff);                // Byte 5 (LSB)
 
   writeU24(meta.blockSize);
   writeU24(meta.blockCount);
@@ -499,6 +669,10 @@ export function encodeBeacon(meta: BeaconMeta): Uint8Array {
   // wholeFileHash: 32 bytes
   bytes.set(meta.wholeFileHash, offset);
   offset += 32;
+
+  // manifestHash: 4 bytes (CRC-32 of manifest)
+  bytes.set(meta.manifestHash, offset);
+  offset += 4;
 
   // Variable fields
   writeU8(filenameBytes.length);

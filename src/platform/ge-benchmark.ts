@@ -186,7 +186,16 @@ export function deriveKMax(
     }
   }
 
-  return result;
+  // Apply safety margin: use 85% of the calculated K_max
+  // Per implementation requirements, K_max should include a safety margin
+  // (e.g., 80-90%) to account for variance in real-world conditions.
+  // Using 85% provides a reasonable buffer between the theoretical maximum
+  // and the safe operational limit.
+  const SAFETY_MARGIN = 0.85;
+  const safeKMax = Math.floor(result * SAFETY_MARGIN);
+
+  // Ensure we don't go below the minimum safe value
+  return Math.max(safeKMax, 256);
 }
 
 /**
@@ -203,11 +212,20 @@ export function deriveKMax(
 export function validateBeaconK(
   blockSize: number,
   L: number,
-  localKMax: number
+  localKMax: number,
+  deviceContext?: {deviceSignature: string; userAgent: string; platform: string}
 ): GEValidationResult {
   const beaconK = Math.ceil(blockSize / L);
 
   if (beaconK > localKMax) {
+    // Log the refusal with context as per D26 requirements
+    const contextMsg = deviceContext
+      ? ` [Device: ${deviceContext.platform}, Signature: ${deviceContext.deviceSignature}]`
+      : '';
+    console.error(
+      `[D26/T1] K validation refused: Sender K (${beaconK}) exceeds local K_max (${localKMax}).${contextMsg}`
+    );
+
     return {
       acceptable: false,
       beaconK,

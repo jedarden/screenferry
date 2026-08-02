@@ -27,7 +27,8 @@ describe('WritePositionTrackerImpl', () => {
     mockMeta = {
       streamId: 123,
       wireVersion: 1,
-      fileSize: 1000,
+      originalSize: 1000,
+      payloadLen: 1000,
       blockSize: 100,
       blockCount: 10,
       fragmentLen: 50,
@@ -35,6 +36,7 @@ describe('WritePositionTrackerImpl', () => {
       flags: 0,
       blockHashLen: 32,
       wholeFileHash: new Uint8Array(32),
+      manifestHash: new Uint8Array(4), // CRC-32 of manifest
       filename: 'test.dat',
       mimeType: 'application/octet-stream',
     };

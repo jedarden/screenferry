@@ -650,7 +650,31 @@ it can interpret any payload packet:
 | `blockHashLen` | 1 | Per-block hash truncation length |
 | `wholeFileHash` | 32 | **Mandatory.** concept.md constraint 4 makes byte-exact reconstruction non-negotiable and names this as the verification. An earlier revision made it optional "on very large files" — i.e. dropped the guarantee exactly where E5 (source mutated during a 10-hour read) is most likely and the stakes are highest. Computed by streaming the reassembled file through an incremental WASM hasher (§3.3); the cost is one extra read, not one extra copy |
 | `manifestHash` | 4 | **Mandatory.** CRC-32 of the manifest data (§7.6). Roots the cryptographic chain: **beacon → manifest → blocks → whole file**. Without this, a corrupted manifest packet would cause wrong block hashes, leading to infinite E12 failures with no error code or termination. The beacon already carries 32 bytes; adding 4 more is negligible. |
-| `filename`, `mimeType` | var | Length-prefixed UTF-8, **sanitised** (§12, T2) |
+| `filenameLen` | 1 | Length prefix for filename field |
+| `filename` | var | UTF-8 filename, **sanitised** (§12, T2). Capped at 128 bytes / 32 codepoints. See truncation rules below. |
+| `mimeTypeLen` | 1 | Length prefix for MIME type field |
+| `mimeType` | var | UTF-8 MIME type. Capped at 58 bytes / 14 codepoints. |
+| `beaconCRC` | 4 | **Mandatory.** CRC-32 covering all beacon fields above. Validated before any beacon metadata is trusted. |
+
+**Beacon size bound calculation (R1's 256-byte payload):**
+- Fixed fields: 64 bytes (streamId, wireVersion, originalSize, payloadLen, blockSize, blockCount, fragmentLen, degreeCap, flags, blockHashLen, wholeFileHash, manifestHash)
+- CRC-32: 4 bytes (beacon integrity)
+- Length prefixes: 2 bytes (filenameLen, mimeTypeLen)
+- **Available for filename + mimeType: 256 − 64 − 4 − 2 = 186 bytes**
+
+**Allocation:**
+- Filename: 128 bytes max, 32 UTF-8 codepoints max
+- MIME type: 58 bytes max, 14 UTF-8 codepoints max
+- Total: 186 bytes (exactly fits available space)
+
+**Filename truncation strategy (T2):**
+1. **Strip path separators, control bytes, and leading dots** — prevents directory traversal and filesystem attacks
+2. **Truncate to 32 UTF-8 codepoints max** — conservative bound ensuring we never exceed 128 bytes (worst case: 32 × 4 = 128)
+3. **Preserve file extension when possible** — if truncating, keep ".ext" suffix for usability
+4. **Validate UTF-8 byte length** — ensure final encoded string fits in 128-byte beacon budget
+5. **Fallback to "received-file"** — if filename is empty after sanitization
+
+This strategy ensures the beacon never overflows R1's 256-byte payload while accommodating common filenames and MIME types. A 255-byte UTF-8 filename (legal on most filesystems) is safely truncated with no ambiguity.
 
 The receiver shows "acquiring…" until its first beacon.
 

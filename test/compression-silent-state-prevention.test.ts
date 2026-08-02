@@ -34,7 +34,8 @@ describe('Silent invalid state prevention (bf-2w1a)', () => {
     const meta = {
       streamId: 12345,
       wireVersion: 1,
-      fileSize: 10_000_000,
+      originalSize: 10_000_000,
+      payloadLen: 10_000_000,
       blockSize: 196608,
       blockCount: 50,
       fragmentLen: 256,
@@ -42,6 +43,7 @@ describe('Silent invalid state prevention (bf-2w1a)', () => {
       flags,
       blockHashLen: 4,
       wholeFileHash: new Uint8Array(32),
+      manifestHash: new Uint8Array(4), // CRC-32 of manifest
       filename: 'test.mp4',
       mimeType: 'video/mp4',
     };
@@ -75,7 +77,7 @@ describe('Silent invalid state prevention (bf-2w1a)', () => {
         meta,
         complete: new Uint8Array([0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]),
         outputPath: '/output/test.mp4',
-        outputSize: meta.fileSize,
+        outputSize: meta.originalSize,
         verified: true,
         compressed: (flags & BeaconFlags.Compressed) !== 0,
       };

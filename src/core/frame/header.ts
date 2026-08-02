@@ -13,7 +13,7 @@
  *  12  1  fcrc        CRC-8 over bytes 0..11
  */
 
-import { HEADER, MAGIC, MAGIC_VER, PACKET } from '../params.js';
+import { HEADER, MAGIC, MAGIC_VER, PACKET, WIRE_VERSION } from '../params.js';
 import { crc8 } from './crc.js';
 
 export interface PacketHeader {
@@ -54,10 +54,15 @@ export function readPacket(
 ): { header: PacketHeader; payload: Uint8Array } | null {
   if (bytes.length !== expectLen) return null;
   if ((bytes[0]! >>> 4) !== MAGIC) return null;
+
+  // §16.3: Refuse packets with unknown wire version - never attempt a partial parse
+  const wireVersion = bytes[0]! & 0x0f;
+  if (wireVersion !== (WIRE_VERSION & 0x0f)) return null;
+
   if (crc8(bytes, 0, 12) !== bytes[12]) return null;
   return {
     header: {
-      wireVersion: bytes[0]! & 0x0f,
+      wireVersion,
       flags: bytes[1]!,
       streamId:
         ((bytes[2]! << 24) | (bytes[3]! << 16) | (bytes[4]! << 8) | bytes[5]!) >>> 0,

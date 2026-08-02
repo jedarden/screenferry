@@ -66,7 +66,8 @@ interface BaseRecvState {
 export interface BeaconMeta {
   streamId: number;
   wireVersion: number;
-  fileSize: number;
+  originalSize: number; // Original uncompressed file size
+  payloadLen: number; // Actual payload length (after compression if enabled)
   blockSize: number;
   blockCount: number;
   fragmentLen: number;
@@ -74,6 +75,7 @@ export interface BeaconMeta {
   flags: number;
   blockHashLen: number;
   wholeFileHash: Uint8Array;
+  manifestHash: Uint8Array; // 4 bytes - CRC-32 of manifest (roots beacon->manifest->blocks chain)
   filename: string;
   mimeType: string;
 }

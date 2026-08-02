@@ -10,6 +10,8 @@
  * Reference: docs/notes/bf-ho40-startup-cleanup.md
  */
 
+import {createPositionalWriteHandleFactory} from '../core/io/positional-write.js';
+
 /**
  * Output artefact metadata.
  */
@@ -160,16 +162,16 @@ class OPFSStorageManager implements StorageManager {
     const filePath = this.getFilePath(streamId);
     const metadataPath = this.getMetadataPath(streamId);
 
-    // Store file data
-    const fileHandle = await outputDir.getFileHandle(filePath, { create: true });
-    const writable = await fileHandle.createWritable();
-    await writable.write(data);
-    await writable.close();
+    // Store file data using positional write
+    const factory = createPositionalWriteHandleFactory();
+    const dataHandle = await factory.createHandle(
+      `${this.config.outputDirectory}/${filePath}`,
+      data.length
+    );
+    await dataHandle.write(data, { at: 0 });
+    await dataHandle.close();
 
-    // Store metadata
-    const metaHandle = await outputDir.getFileHandle(metadataPath, { create: true });
-    const metaWritable = await metaHandle.createWritable();
-
+    // Prepare metadata
     const metadata: OutputArtefact = {
       streamId,
       filename,
@@ -179,8 +181,14 @@ class OPFSStorageManager implements StorageManager {
       path: filePath,
     };
 
-    await metaWritable.write(JSON.stringify(metadata));
-    await metaWritable.close();
+    // Store metadata using positional write
+    const metadataBytes = new TextEncoder().encode(JSON.stringify(metadata));
+    const metaHandle = await factory.createHandle(
+      `${this.config.outputDirectory}/${metadataPath}`,
+      metadataBytes.length
+    );
+    await metaHandle.write(metadataBytes, { at: 0 });
+    await metaHandle.close();
 
     console.log(`[Storage] Stored output: streamId=${streamId}, filename=${filename}, size=${data.length}`);
   }

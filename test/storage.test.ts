@@ -12,6 +12,11 @@ import type { OutputArtefact, StorageManager } from '../src/platform/storage.js'
 class MockOPFSDirectory {
   files = new Map<string, { data: Uint8Array; metadata: OutputArtefact }>();
   subdirectories = new Map<string, MockOPFSDirectory>();
+  name: string;
+
+  constructor(name: string = 'root') {
+    this.name = name;
+  }
 
   async getFileHandle(name: string, options: { create?: boolean }) {
     if (!options?.create && !this.files.has(name)) {
@@ -21,13 +26,23 @@ class MockOPFSDirectory {
     return {
       getFile: async () => ({
         arrayBuffer: async () => this.files.get(name)!.data.buffer,
-        text: async () => JSON.stringify(this.files.get(name)!.metadata),
+        text: async () => {
+          if (name.endsWith('.meta.json')) {
+            return JSON.stringify(this.files.get(name)!.metadata);
+          }
+          return JSON.stringify(this.files.get(name)!.metadata);
+        },
         size: this.files.get(name)!.data.length,
       }),
       createWritable: async () => ({
-        write: async (data: Uint8Array) => {
+        write: async (data: Uint8Array | string) => {
           const existing = this.files.get(name) || { data: new Uint8Array(0), metadata: {} as OutputArtefact };
-          this.files.set(name, { ...existing, data });
+          if (typeof data === 'string') {
+            const uint8Array = new TextEncoder().encode(data);
+            this.files.set(name, { ...existing, data: uint8Array });
+          } else {
+            this.files.set(name, { ...existing, data });
+          }
         },
         close: async () => {},
       }),
@@ -39,7 +54,7 @@ class MockOPFSDirectory {
       if (!options?.create) {
         throw new Error('Directory not found');
       }
-      this.subdirectories.set(name, new MockOPFSDirectory());
+      this.subdirectories.set(name, new MockOPFSDirectory(name));
     }
     return this.subdirectories.get(name)!;
   }
@@ -51,9 +66,23 @@ class MockOPFSDirectory {
     this.files.delete(name);
   }
 
-  async *[Symbol.asyncIterator](): AsyncIterator<{ kind: string; name: string }> {
-    for (const name of this.files.keys()) {
-      yield { kind: 'file', name };
+  async *[Symbol.asyncIterator]() {
+    const fileKeys = [...this.files.keys()];
+    for (const name of fileKeys) {
+      yield {
+        kind: 'file' as const,
+        name,
+        getFile: async () => ({
+          arrayBuffer: async () => this.files.get(name)!.data.buffer,
+          text: async () => {
+            if (name.endsWith('.meta.json')) {
+              return JSON.stringify(this.files.get(name)!.metadata);
+            }
+            return JSON.stringify(this.files.get(name)!.metadata);
+          },
+          size: this.files.get(name)!.data.length,
+        }),
+      };
     }
   }
 
@@ -61,7 +90,7 @@ class MockOPFSDirectory {
     return this[Symbol.asyncIterator]();
   }
 
-  // Helper method to add test files
+  // Helper method to add test files directly to this directory
   addTestFile(streamId: number, age: number) {
     const filePath = `output-${streamId}.bin`;
     const metadataPath = `output-${streamId}.meta.json`;
@@ -96,6 +125,11 @@ const mockNavigator = {
 };
 
 vi.stubGlobal('navigator', mockNavigator);
+
+// Helper to get the output directory (where test files should be stored)
+async function getOutputDirectory(): Promise<MockOPFSDirectory> {
+  return await mockOPFS.getDirectoryHandle('screenferry-outputs', { create: true });
+}
 
 describe('StorageManager', () => {
   beforeEach(() => {
@@ -144,9 +178,13 @@ describe('StorageManager', () => {
 });
 
 describe('cleanupOrphanedOutputs()', () => {
-  beforeEach(() => {
+  let testDir: MockOPFSDirectory;
+
+  beforeEach(async () => {
     resetStorageManager();
     mockOPFS.files.clear();
+    mockOPFS.subdirectories.clear();
+    testDir = await getOutputDirectory();
   });
 
   afterEach(() => {
@@ -155,8 +193,8 @@ describe('cleanupOrphanedOutputs()', () => {
 
   it('removes outputs older than max age when not in active set', async () => {
     // Add test files: one old (25 hours), one recent (1 hour)
-    mockOPFS.addTestFile(100, 25 * 60 * 60 * 1000); // 25 hours old
-    mockOPFS.addTestFile(200, 1 * 60 * 60 * 1000);  // 1 hour old
+    testDir.addTestFile(100, 25 * 60 * 60 * 1000); // 25 hours old
+    testDir.addTestFile(200, 1 * 60 * 60 * 1000);  // 1 hour old
 
     const storage = getStorageManager();
     const activeIds = new Set<number>(); // No active sessions
@@ -164,13 +202,13 @@ describe('cleanupOrphanedOutputs()', () => {
     const cleaned = await storage.cleanupOrphanedOutputs(activeIds);
 
     expect(cleaned).toBe(1);
-    expect(mockOPFS.countFiles()).toBe(1); // Only recent file remains
+    expect(testDir.countFiles()).toBe(1); // Only recent file remains
   });
 
   it('keeps outputs that are in active set regardless of age', async () => {
     // Add test files: both old but one is active
-    mockOPFS.addTestFile(100, 25 * 60 * 60 * 1000); // 25 hours old, inactive
-    mockOPFS.addTestFile(200, 25 * 60 * 60 * 1000); // 25 hours old, ACTIVE
+    testDir.addTestFile(100, 25 * 60 * 60 * 1000); // 25 hours old, inactive
+    testDir.addTestFile(200, 25 * 60 * 60 * 1000); // 25 hours old, ACTIVE
 
     const storage = getStorageManager();
     const activeIds = new Set<number>([200]); // Stream 200 is active
@@ -178,13 +216,13 @@ describe('cleanupOrphanedOutputs()', () => {
     const cleaned = await storage.cleanupOrphanedOutputs(activeIds);
 
     expect(cleaned).toBe(1); // Only stream 100 cleaned up
-    expect(mockOPFS.countFiles()).toBe(1); // Stream 200 remains
+    expect(testDir.countFiles()).toBe(1); // Stream 200 remains
   });
 
   it('keeps recent outputs even if not in active set', async () => {
     // Add test files: both recent, neither active
-    mockOPFS.addTestFile(100, 1 * 60 * 60 * 1000); // 1 hour old
-    mockOPFS.addTestFile(200, 2 * 60 * 60 * 1000); // 2 hours old
+    testDir.addTestFile(100, 1 * 60 * 60 * 1000); // 1 hour old
+    testDir.addTestFile(200, 2 * 60 * 60 * 1000); // 2 hours old
 
     const storage = getStorageManager();
     const activeIds = new Set<number>(); // No active sessions
@@ -192,7 +230,7 @@ describe('cleanupOrphanedOutputs()', () => {
     const cleaned = await storage.cleanupOrphanedOutputs(activeIds);
 
     expect(cleaned).toBe(0); // Nothing cleaned up
-    expect(mockOPFS.countFiles()).toBe(2); // Both remain
+    expect(testDir.countFiles()).toBe(2); // Both remain
   });
 
   it('handles empty storage gracefully', async () => {
@@ -202,16 +240,16 @@ describe('cleanupOrphanedOutputs()', () => {
     const cleaned = await storage.cleanupOrphanedOutputs(activeIds);
 
     expect(cleaned).toBe(0);
-    expect(mockOPFS.countFiles()).toBe(0);
+    expect(testDir.countFiles()).toBe(0);
   });
 
   it('handles mixed ages correctly', async () => {
     // Add test files with various ages
-    mockOPFS.addTestFile(1, 30 * 60 * 1000);    // 30 min - keep
-    mockOPFS.addTestFile(2, 2 * 60 * 60 * 1000); // 2 hours - keep
-    mockOPFS.addTestFile(3, 25 * 60 * 60 * 1000); // 25 hours - clean
-    mockOPFS.addTestFile(4, 48 * 60 * 60 * 1000); // 48 hours - clean
-    mockOPFS.addTestFile(5, 1 * 60 * 60 * 1000);  // 1 hour - keep
+    testDir.addTestFile(1, 30 * 60 * 1000);    // 30 min - keep
+    testDir.addTestFile(2, 2 * 60 * 60 * 1000); // 2 hours - keep
+    testDir.addTestFile(3, 25 * 60 * 60 * 1000); // 25 hours - clean
+    testDir.addTestFile(4, 48 * 60 * 60 * 1000); // 48 hours - clean
+    testDir.addTestFile(5, 1 * 60 * 60 * 1000);  // 1 hour - keep
 
     const storage = getStorageManager();
     const activeIds = new Set<number>();
@@ -219,16 +257,16 @@ describe('cleanupOrphanedOutputs()', () => {
     const cleaned = await storage.cleanupOrphanedOutputs(activeIds);
 
     expect(cleaned).toBe(2); // Streams 3 and 4 cleaned
-    expect(mockOPFS.countFiles()).toBe(3); // Streams 1, 2, 5 remain
+    expect(testDir.countFiles()).toBe(3); // Streams 1, 2, 5 remain
   });
 
   it('handles deletion errors gracefully', async () => {
     // Add a test file
-    mockOPFS.addTestFile(100, 25 * 60 * 60 * 1000);
+    testDir.addTestFile(100, 25 * 60 * 60 * 1000);
 
     // Mock removeEntry to fail
-    const originalRemoveEntry = mockOPFS.removeEntry.bind(mockOPFS);
-    mockOPFS.removeEntry = vi.fn(async (name: string, options?: { recursive?: boolean }) => {
+    const originalRemoveEntry = testDir.removeEntry.bind(testDir);
+    testDir.removeEntry = vi.fn(async (name: string, options?: { recursive?: boolean }) => {
       if (name.startsWith('output-100')) {
         throw new Error('Simulated deletion failure');
       }
@@ -253,7 +291,7 @@ describe('cleanupOrphanedOutputs()', () => {
     });
 
     // Add test files: 10 minutes old (should be cleaned)
-    mockOPFS.addTestFile(100, 10 * 60 * 1000);
+    testDir.addTestFile(100, 10 * 60 * 1000);
 
     const storage = getStorageManager();
     const activeIds = new Set<number>();
@@ -265,9 +303,13 @@ describe('cleanupOrphanedOutputs()', () => {
 });
 
 describe('runStartupCleanup()', () => {
-  beforeEach(() => {
+  let testDir: MockOPFSDirectory;
+
+  beforeEach(async () => {
     resetStorageManager();
     mockOPFS.files.clear();
+    mockOPFS.subdirectories.clear();
+    testDir = await getOutputDirectory();
   });
 
   afterEach(() => {
@@ -275,7 +317,7 @@ describe('runStartupCleanup()', () => {
   });
 
   it('returns cleanup count on success', async () => {
-    mockOPFS.addTestFile(100, 25 * 60 * 60 * 1000);
+    testDir.addTestFile(100, 25 * 60 * 60 * 1000);
 
     const result = await runStartupCleanup(new Set());
 
@@ -308,7 +350,7 @@ describe('runStartupCleanup()', () => {
   });
 
   it('uses empty active set by default', async () => {
-    mockOPFS.addTestFile(100, 25 * 60 * 60 * 1000);
+    testDir.addTestFile(100, 25 * 60 * 60 * 1000);
 
     const result = await runStartupCleanup(); // No active set provided
 
@@ -316,8 +358,8 @@ describe('runStartupCleanup()', () => {
   });
 
   it('accepts custom active set', async () => {
-    mockOPFS.addTestFile(100, 25 * 60 * 60 * 1000);
-    mockOPFS.addTestFile(200, 25 * 60 * 60 * 1000);
+    testDir.addTestFile(100, 25 * 60 * 60 * 1000);
+    testDir.addTestFile(200, 25 * 60 * 60 * 1000);
 
     const activeIds = new Set<number>([200]); // Stream 200 is active
     const result = await runStartupCleanup(activeIds);

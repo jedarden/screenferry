@@ -47,18 +47,16 @@ export async function runAppInit(): Promise<InitResult> {
         errors.push(`Health check: ${e instanceof Error ? e.message : String(e)}`);
         return null;
       }),
-      runStartupCleanup(new Set()).catch(e => {
-        console.error('[Init] Startup cleanup failed:', e);
-        errors.push(`Startup cleanup: ${e instanceof Error ? e.message : String(e)}`);
-        return { cleaned: 0, error: String(e) };
-      }),
+      runStartupCleanup(new Set()),
     ]);
 
     const healthCheckPassed = healthCheckResult !== null;
     const orphanedOutputsCleaned = cleanupResult.cleaned;
 
+    // Check if cleanup had any errors
     if (cleanupResult.error) {
-      errors.push(cleanupResult.error);
+      console.error('[Init] Startup cleanup failed:', cleanupResult.error);
+      errors.push(`Startup cleanup: ${cleanupResult.error}`);
     }
 
     const duration = performance.now() - start;
