@@ -12,6 +12,11 @@
  */
 
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
+import { configureLocalZXingWASM } from '../src/modulation/qr-tiled/zxing-config';
+
+// Configure zxing-wasm to use local WASM files before any tests
+// This ensures the G2 no-network assertion can pass without CDN requests
+configureLocalZXingWASM();
 
 /**
  * Network request tracker for test assertions.

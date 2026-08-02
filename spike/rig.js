@@ -14,6 +14,11 @@
 
 import QRCode from 'qrcode';
 import { readBarcodesFromImageData, getZXingModule } from 'zxing-wasm/reader';
+import { configureLocalZXingWASM } from '../src/modulation/qr-tiled/zxing-config.ts';
+
+// Configure zxing-wasm to use local WASM files before any barcode operations
+// This prevents network requests and enables offline operation
+configureLocalZXingWASM();
 
 const HEADER = 13;
 
