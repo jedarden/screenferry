@@ -700,12 +700,17 @@ type SendSession = {
 type RecvSession = {
   streamId: number | null;                // locked on first valid header
   meta: BeaconMeta | null;                // gates everything
-  complete: Uint8Array;                   // block bitmap — the resume token
-  active: { blockIndex: number; pivots: Map<number, GERow>; rank: number } | null;  // I5
+  complete: Uint8Array;                   // block bitmap — tracks decoded blocks
+  writtenBlocks: Uint8Array;              // bitmap tracking blocks written to OPFS
+  active: { blockIndex: number; pivots: Map<number, GERow>; rank: number } | null;  // I5 — payload block GE context
+  manifestActive: { pivots: Map<number, GERow>; rank: number } | null;  // I5 — manifest block GE context
+  manifest: BlockHashManifest | null;    // §7.6 — persisted for resume
   out: FileSystemWritableFileStream;      // OPFS
   stats: { fps: number; cameraPxPerModule: number; packetsPerSec: number; eta: number };
 };
 ```
+
+**Two-bitmap system:** `complete` tracks blocks that have been fountain-decoded; `writtenBlocks` tracks blocks that have been written to OPFS. These separate because blocks may be decoded before their hashes arrive (§7.6), and they must not be surfaced to the user until verified.
 
 Partial state for a block the sender has moved past is **discarded, not persisted** — a
 badly damaged block rarely half-completes usefully, and persisting it would defeat I6.
@@ -805,9 +810,11 @@ geometry constraints, and is what makes small blocks (§3.4) affordable. Format:
 
 ### 8.3 Resume (D22)
 
-The receiver persists `{streamId, meta, bitmap, manifest}` plus the OPFS output after every completed
-block. On reload it offers to resume. At 2.7 KB per 4 GB this is nearly free; the manifest adds
-87 KB for a 4 GB file (21,845 blocks × 4-byte hashes).
+The receiver persists `{streamId, meta, complete, writtenBlocks, manifest}` plus the OPFS output after every completed
+block. On reload it offers to resume. At 2.7 KB per 4 GB for the bitmaps this is nearly free; the manifest adds
+87 KB for a 4 GB file (21,845 blocks × 4-byte hashes). **The manifest MUST be persisted** — without it,
+resume cannot re-verify blocks, and a reload during the ~12 minute manifest acquisition window would lose
+all received blocks.
 
 The sender is stateless across restarts by construction (D24) **when compression is disabled** —
 it needs only the same file and the same `streamId` (§7.4). **With compression enabled, resume is

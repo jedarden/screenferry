@@ -14,33 +14,58 @@ The manifest (§7.6) was not persisted alongside the bitmap for resume. This cau
 
 ## Solution
 
-Added `manifest: BlockHashManifest | null` to the `ResumeToken` interface and updated:
-- `createResumeToken()`: Now includes the manifest if available (may be null if not yet acquired)
-- `restoreFromResumeToken()`: Restores the manifest if persisted, allowing immediate verification
+**This was primarily a documentation fix.** The implementation was already correct - the `ResumeToken` interface already included `manifest: BlockHashManifest | null` and the resume functions already handled it properly.
 
-### Pre-manifest reload behavior
+The issue was that plan.md had inconsistent documentation:
+1. §8.3 claimed manifest was persisted
+2. But §7.3 showed an outdated `RecvSession` type missing both `manifest` and `writtenBlocks` fields
+3. This created confusion about whether the implementation was complete
 
-When `token.manifest` is null (reload before manifest acquisition):
-- The `complete` bitmap preserves which blocks were decoded before the reload
-- The written blocks remain in OPFS
-- The `writtenBlocks` bitmap is reset on resume (will be re-marked as verification proceeds)
-- The receiver continues acquiring the manifest and verifies blocks retroactively once it arrives
+### Documentation fixes applied
+
+1. **Updated §7.3 Session State Types**:
+   - Added `manifest: BlockHashManifest | null` field
+   - Added `writtenBlocks: Uint8Array` field
+   - Added explanation of the two-bitmap system (`complete` vs `writtenBlocks`)
+   - Added `manifestActive` for the separate GE context (I5 resolution)
+
+2. **Updated §8.3 Resume Documentation**:
+   - Changed persisted state from `{streamId, meta, bitmap, manifest}` to `{streamId, meta, complete, writtenBlocks, manifest}`
+   - Added explicit statement: "**The manifest MUST be persisted** — without it, resume cannot re-verify blocks"
+   - Added warning about data loss during ~12 minute acquisition window
+
+3. **Pre-manifest reload behavior** (already documented in §8.3):
+   When `token.manifest` is null (reload before manifest acquisition):
+   - The `complete` bitmap preserves which blocks were decoded before the reload
+   - The written blocks remain in OPFS
+   - The `writtenBlocks` bitmap is reset on resume (will be re-marked as verification proceeds)
+   - The receiver continues acquiring the manifest and verifies blocks retroactively once it arrives
 
 This prevents data loss during the manifest acquisition window.
 
 ## Changes
 
-### Code changes
-- `src/core/session/types.ts`:
-  - Added `manifest: BlockHashManifest | null` to `ResumeToken` interface
-  - Updated `createResumeToken()` to include the manifest
-  - Updated `restoreFromResumeToken()` to restore the manifest and document pre-manifest behavior
+### Primary fix: Documentation updates
+- `docs/plan/plan.md` §7.3:
+  - Updated `RecvSession` type to include `manifest: BlockHashManifest | null` field
+  - Added `writtenBlocks: Uint8Array` field to complete the two-bitmap system documentation
+  - Added `manifestActive` field for the separate GE context (per I5)
+  - Added explanation of the two-bitmap system and why it's needed
 
-### Documentation changes
 - `docs/plan/plan.md` §8.3:
-  - Added manifest to persisted state: `{streamId, meta, bitmap, manifest}`
-  - Documented pre-manifest reload behavior
-  - Added sizing note: 87 KB for 4 GB file
+  - Updated persisted state from `{streamId, meta, bitmap, manifest}` to `{streamId, meta, complete, writtenBlocks, manifest}`
+  - Added explicit requirement: "**The manifest MUST be persisted**"
+  - Added sizing note: 2.7 KB for bitmaps + 87 KB for manifest (4 GB file)
+  - Pre-manifest reload behavior was already correctly documented
+
+### Status: Implementation already correct
+The actual implementation in `src/core/session/types.ts` was already complete:
+- `ResumeToken` interface already included `manifest: BlockHashManifest | null`
+- `createResumeToken()` already preserved the manifest
+- `restoreFromResumeToken()` already restored the manifest and reset `writtenBlocks` bitmap
+- Comprehensive test coverage already existed in `test/compression-resume.test.ts`
+
+This bead fixed the documentation to accurately reflect the existing correct implementation.
 
 ## Size impact
 
