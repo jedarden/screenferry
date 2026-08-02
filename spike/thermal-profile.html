@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Long-run thermal profile — Phase 0.5 S11</title>
+  <style>
+    body { font-family: system-ui; margin: 20px; }
+    .section { margin: 20px 0; padding: 20px; border: 1px solid #ccc; border-radius: 8px; }
+    button { padding: 8px 16px; margin: 4px; font-size: 14px; }
+    input, select { padding: 4px; margin: 4px; }
+    .stats { font-family: monospace; white-space: pre; }
+    .warning { color: #c00; font-weight: bold; }
+    .good { color: #090; }
+    #log { max-height: 400px; overflow-y: auto; font-family: monospace; font-size: 12px; }
+    .log-entry { margin: 2px 0; padding: 2px 4px; border-bottom: 1px solid #eee; }
+  </style>
+</head>
+<body>
+  <h1>Long-run thermal profile test</h1>
+  <p>
+    <strong>Plan ref:</strong> R11, D27, §18.2 — THE most important unrun measurement.<br>
+    <strong>Purpose:</strong> Measure decode latency and camera fps over time to observe thermal throttling.<br>
+    <strong>Observation goal:</strong> 70°C and quiet_therm at mStatus=1 after 20–30 minutes (from spike-results.md).
+  </p>
+
+  <div class="section">
+    <h2>Setup (role selection)</h2>
+    <button id="btn-sender">Sender mode</button>
+    <button id="btn-receiver">Receiver mode</button>
+  </div>
+
+  <div class="section" id="sender-ui" style="display:none">
+    <h3>Sender configuration</h3>
+    <label>Rung: <select id="rung">
+      <option value="R1">R1 (v10, 1 packet/tile, conservative)</option>
+      <option value="R2" selected>R2 (v16, 2 packets/tile, nominal)</option>
+      <option value="R3">R3 (v20, 3 packets/tile, aggressive)</option>
+      <option value="R4">R4 (v23, 4 packets/tile, probe)</option>
+    </select></label>
+    <label>FPS: <input type="number" id="fps" value="8" min="1" max="30"></label>
+    <label>Cols: <input type="number" id="cols" value="5" min="1" max="10"></label>
+    <label>Rows: <input type="number" id="rows" value="3" min="1" max="10"></label>
+    <button id="btn-start-sender">Start</button>
+    <button id="btn-stop-sender">Stop</button>
+    <div id="sender-status"></div>
+    <canvas id="sender-canvas"></canvas>
+  </div>
+
+  <div class="section" id="receiver-ui" style="display:none">
+    <h3>Receiver configuration</h3>
+    <label>Fragment size L (bytes): <input type="number" id="L" value="256" min="1"></label>
+    <label>Log interval (seconds): <input type="number" id="log-interval" value="30" min="10" max="300"></label>
+    <button id="btn-start-receiver">Start thermal profile</button>
+    <button id="btn-stop-receiver">Stop</button>
+    <button id="btn-export">Export CSV</button>
+    <div id="receiver-status"></div>
+    <div id="current-stats" class="stats"></div>
+    <div id="log"></div>
+  </div>
+
+  <script type="module">
+    import { Sender, Receiver, RUNGS, makePacket } from './rig.js';
+
+    let sender = null;
+    let receiver = null;
+    let profileInterval = null;
+    let profileData = [];
+
+    // Temperature APIs (very limited availability)
+    const tempSensors = [];
+    if ('getThermalState' in navigator) {
+      tempSensors.push('navigator.getThermalState()');
+    }
+    if ('battery' in navigator) {
+      try {
+        const battery = await navigator.getBattery();
+        if (battery) tempSensors.push('battery temperature (may be available)');
+      } catch {}
+    }
+
+    document.getElementById('btn-sender').onclick = () => {
+      document.getElementById('sender-ui').style.display = 'block';
+      document.getElementById('receiver-ui').style.display = 'none';
+    };
+
+    document.getElementById('btn-receiver').onclick = () => {
+      document.getElementById('receiver-ui').style.display = 'block';
+      document.getElementById('sender-ui').style.display = 'none';
+    };
+
+    // Sender
+    document.getElementById('btn-start-sender').onclick = async () => {
+      const canvas = document.getElementById('sender-canvas');
+      const rung = RUNGS[document.getElementById('rung').value];
+      const L = 256;
+      const modulePx = 4;
+      const fps = parseInt(document.getElementById('fps').value);
+      const cols = parseInt(document.getElementById('cols').value);
+      const rows = parseInt(document.getElementById('rows').value);
+
+      canvas.width = cols * (rung.ver * modulePx + 4) * modulePx;
+      canvas.height = rows * (rung.ver * modulePx + 4) * modulePx;
+
+      sender = new Sender(canvas);
+      await sender.start({
+        rung: document.getElementById('rung').value,
+        L, modulePx, fps, cols, rows,
+      });
+      document.getElementById('sender-status').textContent = `Running at ${fps} fps, ${cols}×${rows} grid`;
+    };
+
+    document.getElementById('btn-stop-sender').onclick = () => {
+      sender?.stop();
+      document.getElementById('sender-status').textContent = 'Stopped';
+    };
+
+    // Receiver
+    document.getElementById('btn-start-receiver').onclick = async () => {
+      const L = parseInt(document.getElementById('L').value);
+      const logIntervalSec = parseInt(document.getElementById('log-interval').value);
+
+      const video = document.createElement('video');
+      document.getElementById('receiver-status').textContent = 'Requesting camera...';
+
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } },
+          audio: false,
+        });
+        video.srcObject = stream;
+        await video.play();
+
+        // Try to apply exposureCompensation
+        const track = stream.getVideoTracks()[0];
+        const capabilities = track.getCapabilities();
+        if (capabilities.exposureCompensation) {
+          const settings = track.getSettings();
+          try {
+            await track.applyConstraints({ advanced: [{ exposureCompensation: capabilities.exposureCompensation.min }] });
+          } catch {}
+        }
+
+        receiver = new Receiver(video, L);
+        document.getElementById('receiver-status').textContent = `Running (${video.videoWidth}×${video.videoHeight})`;
+
+        // Start periodic profiling
+        profileData = [];
+        document.getElementById('log').innerHTML = '';
+
+        profileInterval = setInterval(() => {
+          if (!receiver || !receiver.running) return;
+
+          const stats = receiver.stats();
+          const elapsedMin = ((performance.now() - receiver.t0) / 60000).toFixed(1);
+
+          // Check for thermal throttling indicators
+          const fpsTrend = fpsTrendDegradation(profileData, stats.cameraFps);
+          const decodeTrend = decodeTrendDegradation(profileData, stats.decodeMsP50);
+
+          const entry = {
+            elapsedMin,
+            elapsedSec: Math.floor((performance.now() - receiver.t0) / 1000),
+            cameraFps: stats.cameraFps.toFixed(2),
+            decodeP50: stats.decodeP50.toFixed(2),
+            decodeP99: stats.decodeP99.toFixed(2),
+            erasureRate: (stats.erasureRate * 100).toFixed(1),
+            framesWithZero: (stats.framesWithZero * 100).toFixed(1),
+            uniquePackets: stats.uniquePackets,
+            fpsTrend,
+            decodeTrend,
+          };
+
+          profileData.push(entry);
+
+          // Update log display
+          const logDiv = document.getElementById('log');
+          const logEntry = document.createElement('div');
+          logEntry.className = 'log-entry';
+
+          const statusClass = (fpsTrend === 'deg30' || decodeTrend === 'deg30') ? 'warning' : 'good';
+          logEntry.innerHTML = `<span class="${statusClass}">[${elapsedMin} min] fps: ${entry.cameraFps}, decode p50: ${entry.decodeP50}ms, erasure: ${entry.erasureRate}%</span>`;
+          logDiv.insertBefore(logEntry, logDiv.firstChild);
+
+          // Update current stats display
+          document.getElementById('current-stats').textContent = JSON.stringify(stats, null, 2);
+
+          // Check for thermal throttling
+          if (fpsTrend === 'deg30' || decodeTrend === 'deg30') {
+            logEntry.innerHTML += ` <strong>⚠️ POSSIBLE THERMAL THROTTLING — ${fpsTrend === 'deg30' ? 'FPS' : 'decode'} degraded >30% from cool start</strong>`;
+          }
+
+        }, logIntervalSec * 1000);
+
+      } catch (err) {
+        document.getElementById('receiver-status').textContent = `Error: ${err.message}`;
+        console.error(err);
+      }
+    };
+
+    document.getElementById('btn-stop-receiver').onclick = () => {
+      receiver?.stop();
+      clearInterval(profileInterval);
+      document.getElementById('receiver-status').textContent = 'Stopped';
+    };
+
+    document.getElementById('btn-export').onclick = () => {
+      if (profileData.length === 0) {
+        alert('No data to export');
+        return;
+      }
+
+      const csv = [
+        'elapsed_min,elapsed_sec,camera_fps,decode_p50_ms,decode_p99_ms,erasure_pct,frames_zero_pct,unique_packets,fps_trend,decode_trend',
+        ...profileData.map(d =>
+          `${d.elapsedMin},${d.elapsedSec},${d.cameraFps},${d.decodeP50},${d.decodeP99},${d.erasureRate},${d.framesWithZero},${d.uniquePackets},${d.fpsTrend},${d.decodeTrend}`
+        )
+      ].join('\n');
+
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `thermal-profile-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    };
+
+    // Helper functions to detect degradation trends
+    function fpsTrendDegradation(data, currentFps) {
+      if (data.length < 2) return 'insufficient';
+      const firstDataPoints = data.slice(0, Math.min(5, data.length));
+      const baselineFps = parseFloat(firstDataPoints[0].cameraFps);
+      const degradation = ((baselineFps - currentFps) / baselineFps) * 100;
+
+      if (degradation > 30) return 'deg30';
+      if (degradation > 20) return 'deg20';
+      if (degradation > 10) return 'deg10';
+      return 'stable';
+    }
+
+    function decodeTrendDegradation(data, currentDecodeP50) {
+      if (data.length < 2) return 'insufficient';
+      const firstDataPoints = data.slice(0, Math.min(5, data.length));
+      const baselineDecode = parseFloat(firstDataPoints[0].decodeP50);
+      const degradation = ((currentDecodeP50 - baselineDecode) / baselineDecode) * 100;
+
+      if (degradation > 30) return 'deg30';
+      if (degradation > 20) return 'deg20';
+      if (degradation > 10) return 'deg10';
+      return 'stable';
+    }
+
+    // Initial status
+    document.getElementById('receiver-status').textContent =
+      `Note: This test requires continuous decoding for 60+ minutes. ` +
+      `Ensure the device is in a cool state before starting. ` +
+      `Available temperature sensors: ${tempSensors.join(', ') || 'none (thermal state inferred from fps/decode degradation)'}`;
+  </script>
+</body>
+</html>

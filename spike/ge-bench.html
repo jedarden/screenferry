@@ -1,0 +1,167 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GE Benchmark - On-Device</title>
+<style>
+  :root { color-scheme: dark }
+  body { margin:0; font:14px/1.5 system-ui,sans-serif; background:#111; color:#eee; padding:1rem }
+  h1 { margin:0 0 1rem 0; font-size:1.4rem }
+  button { font:inherit; padding:.5rem 1rem; border:1px solid #555; background:#2a5a2a; color:#eee; border-radius:4px; cursor:pointer; margin-right:.5rem; margin-bottom:.5rem }
+  button:hover { background:#3a7a3a }
+  button:disabled { opacity:.5; cursor:not-allowed }
+  #results { margin-top:1rem; white-space:pre-wrap; font-family:monospace; font-size:12px; line-height:1.4; background:#0a0a0a; padding:1rem; border-radius:4px; max-height:80vh; overflow:auto }
+  .status { padding:.5rem; margin:1rem 0; border-radius:4px; font-weight:600 }
+  .status.running { background:#354; color:#dfc }
+  .status.done { background:#242; color:#dfd }
+  .status.error { background:#422; color:#fcc }
+  .big { font-size:1.8rem; font-weight:700; margin:.5rem 0 }
+  .ok { color:#5d5 }
+  .fail { color:#f66 }
+  .warn { color:#fb4 }
+  .controls { display:flex; flex-wrap:wrap; gap:.5rem; margin-bottom:1rem; align-items:center }
+  label { display:flex; gap:.3rem; align-items:center }
+  input { font:inherit; background:#222; color:#eee; border:1px solid #444; border-radius:3px; padding:.3rem; width:3rem }
+</style>
+
+<h1>GE Benchmark - On-Device Measurement</h1>
+
+<div class="controls">
+  <button id="runSingle">Run single (K=768)</button>
+  <button id="runSweep">Run full sweep</button>
+  <label>WARMUP rounds: <input id="warmup" type="number" value="3" min="0" max="10"></label>
+  <label>MEASURE rounds: <input id="measure" type="number" value="3" min="1" max="10"></label>
+</div>
+
+<div id="status" class="status"></div>
+
+<div class="big" id="summary"></div>
+
+<div id="results"></div>
+
+<script type="module">
+import { run, requiredMBs } from './ge-bench.mjs';
+
+const STAGES = [["Stage 1", 30], ["Stage 2", 60], ["Stage 3", 106]];
+const BUDGET = 200;                  // MB/s — the plan's assumed phone-JS figure
+const PHONE_FACTOR = 4;              // desktop → mid-range phone, conservative
+
+const $ = (id) => document.getElementById(id);
+
+function setStatus(msg, cls = '') {
+  const el = $('status');
+  el.textContent = msg;
+  el.className = 'status ' + cls;
+}
+
+function addResult(text) {
+  $('results').textContent += text + '\n';
+}
+
+function clearResults() {
+  $('results').textContent = '';
+  $('summary').textContent = '';
+}
+
+async function runBenchmark(K, L, warmupRounds, measureRounds) {
+  const results = [];
+
+  // Warmup rounds
+  for (let i = 0; i < warmupRounds; i++) {
+    setStatus(`Warmup ${i+1}/${warmupRounds}...`, 'running');
+    await new Promise(r => setTimeout(r, 10));
+    run(K, L, { seed: 0xC0FFEE + i });
+  }
+
+  // Measure rounds - take best
+  let best = null;
+  for (let i = 0; i < measureRounds; i++) {
+    setStatus(`Measure ${i+1}/${measureRounds}...`, 'running');
+    await new Promise(r => setTimeout(r, 10));
+    const r = run(K, L, { seed: 0xC0FFEE + i });
+    results.push(r);
+    if (!best || r.throughputMBs > best.throughputMBs) best = r;
+  }
+
+  return { best, all: results };
+}
+
+function formatReport(r) {
+  const phone = r.throughputMBs / PHONE_FACTOR;
+  let out = `\nK=${r.K}  L=${r.L}  cap=${r.cap}\n`;
+  out += `  block ${(r.blockBytes / 1024).toFixed(0)} KB · matrix ${(r.matrixBytes / 1024).toFixed(0)} KB\n`;
+  out += `  packets ${r.packets} (overhead ${r.overheadPct >= 0 ? '+' : ''}${r.overheadPct.toFixed(2)}%) · row-ops ${r.rowOps.toLocaleString()}\n`;
+  out += `  decode ${r.ms.toFixed(0)} ms · XOR ${(r.xorBytes / 1e6).toFixed(0)} MB\n`;
+  out += `  THIS DEVICE: ${r.throughputMBs.toFixed(0)} MB/s\n`;
+  out += `  est. phone (÷${PHONE_FACTOR}): ${phone.toFixed(0)} MB/s   [plan assumes ${BUDGET} MB/s]\n`;
+
+  for (const [name, kb] of STAGES) {
+    const need = requiredMBs(r.K, r.L, kb * 1024);
+    const ok = phone >= need;
+    out += `    ${name.padEnd(8)} needs ${need.toFixed(0).padStart(4)} MB/s  → ${ok ? 'OK' : 'FAILS'}  (${(phone / need).toFixed(2)}x margin)\n`;
+  }
+
+  return { text: out, phone, r };
+}
+
+$('runSingle').onclick = async () => {
+  clearResults();
+  const warmup = +$('warmup').value;
+  const measure = +$('measure').value;
+
+  try {
+    const { best } = await runBenchmark(768, 256, warmup, measure);
+    const { text, phone } = formatReport(best);
+
+    addResult(text);
+    $('summary').innerHTML = `K=768 phone est: <span class="${phone >= 114.6 ? 'ok' : 'fail'}">${phone.toFixed(0)} MB/s</span> (target: 114.6 MB/s)`;
+    setStatus('Benchmark complete', 'done');
+  } catch (e) {
+    addResult('ERROR: ' + e.message);
+    setStatus('Benchmark failed', 'error');
+  }
+};
+
+$('runSweep').onclick = async () => {
+  clearResults();
+  const warmup = +$('warmup').value;
+  const measure = +$('measure').value;
+
+  try {
+    const Ks = [512, 768, 1024, 1152];
+    let allPassed = true;
+
+    for (const K of Ks) {
+      setStatus(`Running K=${K}...`, 'running');
+      const { best } = await runBenchmark(K, 256, warmup, measure);
+      const { text, phone } = formatReport(best);
+      addResult(text);
+
+      if (phone < 114.6) allPassed = false;
+    }
+
+    const lastResult = $('results').textContent.split('\n').slice(-10).join('\n');
+    const finalPhone = /est\. phone.*?(\d+) MB/.exec(lastResult)?.[1];
+    if (finalPhone) {
+      const phoneVal = +finalPhone;
+      $('summary').innerHTML = `Sweep complete - Final K=1152 phone est: <span class="${phoneVal >= 114.6 ? 'ok' : 'fail'}">${phoneVal} MB/s</span> (target: 114.6 MB/s)`;
+    }
+
+    setStatus(allPassed ? 'Sweep complete - all passed' : 'Sweep complete - some failed', allPassed ? 'done' : 'error');
+  } catch (e) {
+    addResult('ERROR: ' + e.message);
+    setStatus('Sweep failed', 'error');
+  }
+};
+
+// Initial status
+setStatus('Ready to run benchmark - Click a button above', '');
+addResult('Device info:');
+addResult(`  UA: ${navigator.userAgent}`);
+addResult(`  Hardware concurrency: ${navigator.hardwareConcurrency || 'unknown'}`);
+addResult(`  Device memory: ${navigator.deviceMemory || 'unknown'} GB`);
+addResult(`  Platform: ${navigator.platform}`);
+addResult('');
+addResult('Plan.md §18.2 R1 target: phone GE ≥ 114.6 MB/s sustained while thermally throttled');
+addResult('Plan.md §18.2 S1 target: validate ÷4 phone factor (desktop-to-phone JS gap ≤ 4×)');
+addResult('');
+</script>

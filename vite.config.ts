@@ -22,4 +22,9 @@ const https =
 export default defineConfig({
   server: { host: '0.0.0.0', port: 5173, https, strictPort: true },
   build: { target: 'es2022' },
+  test: {
+    environment: 'jsdom',
+    globals: true,
+    setupFiles: ['./test/setup.ts'],
+  },
 });

@@ -6,6 +6,8 @@
  * Reference: docs/notes/session-state-machine.md
  */
 
+import type {PositionalWriteHandle} from '../io/positional-write.js';
+
 /**
  * Common metadata shared across multiple receiver states.
  */
@@ -108,7 +110,7 @@ export interface ReceivingState extends BaseRecvState {
     consecutiveHigher: number;  // count of consecutive packets with blockIndex > current
     switchThreshold: number;   // N consecutive packets to trigger block switch (default 32)
   } | null;
-  out: FileSystemWritableFileStream;
+  out: PositionalWriteHandle | null;
   manifest: BlockHashManifest | null;
   stats: {
     fps: number;
@@ -124,7 +126,7 @@ export interface ReceivingState extends BaseRecvState {
  */
 export interface VerifyingState extends BaseRecvState {
   type: 'verifying';
-  out: FileSystemWritableFileStream;
+  out: PositionalWriteHandle | null;
   manifest: BlockHashManifest;
   verificationProgress: {
     verified: number;
@@ -339,9 +341,32 @@ export function assertSendTransition(from: string, to: string): void {
 
 /**
  * Check if a receiver state can be resumed (D22).
+ *
+ * Resume is NOT supported when compression is enabled because:
+ * - CompressionStream offers no determinism guarantee across browser restarts
+ * - Re-compression after staging reaping (E11) may produce different bytes
+ * - Different bytes → different block boundaries → different hashes
+ * - Receiver's persisted bitmap would become silently invalid
+ *
+ * Returns false if:
+ * - State type is not paused/complete, OR
+ * - Beacon flags indicate resume is disabled (e.g., compression enabled)
+ *
+ * See: docs/notes/bf-17s0-resume-compression-conflict.md
+ *      docs/notes/bf-2vke-compression-resume-t4-reap-interaction.md
  */
 export function canResumeRecv(state: RecvSessionState): boolean {
-  return state.type === 'paused' || state.type === 'complete';
+  if (state.type !== 'paused' && state.type !== 'complete') {
+    return false;
+  }
+
+  // Check beacon flags for resume disabled
+  const meta = state.type === 'paused' ? state.previousState.meta : state.meta;
+  if (isResumeDisabled(meta.flags)) {
+    return false;
+  }
+
+  return true;
 }
 
 /**
@@ -405,9 +430,28 @@ export interface ResumeToken {
 
 /**
  * Create a resume token from a resumable state.
+ *
+ * When compression is enabled, resume is NOT supported because:
+ * - CompressionStream offers no determinism guarantee across browser restarts
+ * - Re-compression after staging reaping (E11) may produce different bytes
+ * - Different bytes → different block boundaries → different hashes
+ * - Receiver's persisted bitmap would become silently invalid
+ *
+ * See: docs/notes/bf-17s0-resume-compression-conflict.md
+ *      docs/notes/bf-2vke-compression-resume-t4-reap-interaction.md
  */
+import {isResumeDisabled} from '../frame/beacon.js';
+
 export function createResumeToken(state: RecvSessionState): ResumeToken | null {
   if (!canResumeRecv(state)) {
+    return null;
+  }
+
+  // Check beacon flags for resume disabled (e.g., when compression is enabled)
+  const meta = state.type === 'paused' ? state.previousState.meta : state.meta;
+  if (isResumeDisabled(meta.flags)) {
+    // Do NOT persist resume state when compression is enabled
+    // This prevents silent corruption from non-deterministic compression
     return null;
   }
 
@@ -437,6 +481,7 @@ export function createResumeToken(state: RecvSessionState): ResumeToken | null {
  */
 export function restoreFromResumeToken(token: ResumeToken): RecvSessionState {
   // Restores to PAUSED state, user must resume to RECEIVING
+  // Note: PositionalWriteHandle must be recreated after OPFS reopen using factory.reopenHandle()
   return {
     type: 'paused',
     previousState: {
@@ -445,7 +490,7 @@ export function restoreFromResumeToken(token: ResumeToken): RecvSessionState {
       meta: token.meta,
       complete: token.complete,
       active: null,
-      out: null as any,  // Must be recreated after OPFS reopen
+      out: null,  // Must be recreated after OPFS reopen
       manifest: null,
       stats: {
         fps: 0,
