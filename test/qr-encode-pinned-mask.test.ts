@@ -63,11 +63,12 @@ describe('QR encoder with D4 pinned mask', () => {
     expect(r1Version).toBeGreaterThanOrEqual(10); // v10 or higher fits 269 bytes
 
     // R2 nominal: 2 packets = 538 bytes
-    // Note: qrcode library requires v16 minimum for 538 bytes (per library error message)
+    // Library requires v16 minimum for 538 bytes (per library error message)
     const r2Version = calculateQRVersion(269, 2);
     expect(r2Version).toBeGreaterThanOrEqual(16); // v16 or higher fits 538 bytes
 
     // R3 aggressive: 3 packets = 807 bytes
+    // Library requires v20 minimum for 807 bytes
     const r3Version = calculateQRVersion(269, 3);
     expect(r3Version).toBeGreaterThanOrEqual(20); // v20 or higher fits 807 bytes
 
