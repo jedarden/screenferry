@@ -1195,6 +1195,15 @@ A phase is done when: its exit criteria (§17) are met; G1–G5 are green on one
 new failure mode has a test; every new error code has a user-facing string; and the plan
 is updated if any decision changed.
 
+**Dependency wiring rule.** When adding or materially updating a section, all sections that
+reference or depend on it MUST be updated in the same commit. This applies symmetrically:
+if §A cites §B and §B changes, §A's citation or derivation must be re-checked and updated
+if the change affects it. Owner: whoever edits the section. Three consecutive reviews found
+the same pattern: critical findings in newly added material each time because a section's
+internal logic was sound but was never wired back into the sections it depends on. §7.6
+names eleven dependents and is referenced by one line. D27 was never checked against §8.1.
+§7.2's mandatory hash left "optional" standing in two places. This rule closes that gap.
+
 **Stop-ship criteria** — do not release if: any A-scenario fails; I1–I10 are unenforced;
 a data-loss path exists without a test; or the version footer is absent (a user cannot
 tell what they are running).
@@ -1341,6 +1350,16 @@ justifies" listing five; none was applied until a review caught it. §14.6 requi
 updated "if any decision changed" — but a **measurement** is not a **decision**, so nothing
 triggered. **Rule: any spike or hardware measurement MUST be folded into §13.1, §18 and the
 revision history in the same commit that records it.** Owner: whoever runs the measurement.
+
+**Dependency wiring gap.** Three consecutive reviews found the same pattern: every critical
+finding was in material added in the preceding commits, each time because a new section's
+internal logic was sound but was never wired back into the sections it depends on. §7.6 names
+eleven dependents and is referenced by one line. D27 was never checked against §8.1. §7.2's
+mandatory hash left "optional" standing in two places. **Rule: when adding or materially
+updating a section, all sections that reference or depend on it MUST be updated in the same
+commit.** This applies symmetrically: if §A cites §B and §B changes, §A's citation or
+derivation must be re-checked and updated if the change affects it. Owner: whoever edits the
+section.
 
 ### 17.1 Phase 0.5 — why a spike, and why here
 
