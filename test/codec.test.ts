@@ -7,7 +7,12 @@ import { describe, expect, it } from 'vitest';
 import { BLOCK, DEGREE_CAP, K, L, PACKET, RUNGS } from '../src/core/params.js';
 import { crc8, crc32 } from '../src/core/frame/crc.js';
 import { readPacket, writePacket } from '../src/core/frame/header.js';
-import { deriveIndices, makeDegreeTable, packetSeed } from '../src/core/fountain/prng.js';
+import { deriveIndices, makeDegreeTable, packetSeed, splitmix32 } from '../src/core/fountain/prng.js';
+import { readFileSync } from 'fs';
+import { resolve } from 'path';
+
+// Load golden vectors for wire format verification (I3, AP10)
+const vectors = JSON.parse(readFileSync(resolve(__dirname, '../test/fixtures/vectors.json'), 'utf-8'));
 import { LTEncoder } from '../src/core/fountain/encoder.js';
 import { GEDecoder } from '../src/core/fountain/decoder.js';
 import {
@@ -155,6 +160,42 @@ describe('prng (I3)', () => {
       const s = new Set(Array.from(idx));
       expect(s.size).toBe(idx.length);
       for (const v of idx) expect(v).toBeGreaterThanOrEqual(0), expect(v).toBeLessThan(K);
+    }
+  });
+
+  it('matches golden vectors — wire format is pinned (I3, AP10)', () => {
+    // This test prevents silent wire-breaking changes to the PRNG.
+    // Any change to splitmix32, packetSeed, makeDegreeTable, or deriveIndices
+    // that changes these outputs is a wire-breaking change (§16.3).
+
+    for (const v of vectors.vectors) {
+      switch (v.type) {
+        case 'packetSeed': {
+          const result = packetSeed(v.input.streamId, v.input.blockIndex, v.input.seq);
+          expect(result).toBe(v.output);
+          break;
+        }
+        case 'splitmix32': {
+          const rnd = splitmix32(v.input.seed);
+          for (let i = 0; i < v.output.length; i++) {
+            expect(rnd()).toBeCloseTo(v.output[i], 15);
+          }
+          break;
+        }
+        case 'deriveIndices': {
+          const t = makeDegreeTable(v.input.k, v.input.degreeCap);
+          const result = deriveIndices(v.input.streamId, v.input.blockIndex, v.input.seq, v.input.k, t);
+          expect(Array.from(result)).toEqual(v.output);
+          break;
+        }
+        case 'makeDegreeTable': {
+          const result = makeDegreeTable(v.input.k, v.input.cap);
+          expect(Array.from(result)).toEqual(v.output);
+          break;
+        }
+        default:
+          throw new Error(`Unknown vector type: ${(v as { type: string }).type}`);
+      }
     }
   });
 });
