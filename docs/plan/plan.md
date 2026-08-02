@@ -785,6 +785,37 @@ SF1-<streamId36>-<ranges36>-<check>
   user photographs), and say so. A 100 GB file with scattered misses can exceed any
   reasonable typing length, and silently truncating the set would be a correctness bug.
 
+### 7.7 Normative wire constants
+
+The following constants are **fixed in code** and **MUST** be reproduced exactly by any
+third-party implementation. They are not subject to negotiation or configuration; changing
+any of these is a wire-format breaking change (§16.3). These are what §14.3's conformance
+vectors exist to validate.
+
+| Constant | Value | Purpose | Location |
+|---|---|---|---|
+| **MAGIC** | `0x5` | 4-bit magic in header `magic_ver` field; used for fast rejection of foreign QR symbols. The high nibble of byte 0 in every packet header. | `src/core/params.ts` |
+| **WIRE_VERSION** | `1` | 4-bit wire version in header `magic_ver` field; indicates wire format revision. Packets with mismatched versions are rejected with `E-VERSION`. | `src/core/params.ts` |
+| **CRC-8 polynomial** | `0x31` | CRC-8 polynomial used for `fcrc` field in packet headers (covers bytes 0–11 only). | `src/core/frame/crc.ts` |
+| **CRC-8 initial value** | `0xff` | Initial CRC value for CRC-8 computation. | `src/core/frame/crc.ts` |
+| **CRC-32 polynomial** | `0xedb88320` | IEEE 802.3 CRC-32 polynomial used for `streamId` derivation (§7.4), `manifestHash` (§7.2), and `beaconCRC` (§7.2). This is the standard IEEE polynomial (reversed representation). | `src/core/frame/crc.ts` |
+| **CRC-32 initial value** | `0xffffffff` | Initial CRC value for CRC-32 computation (XORed with seed, final XOR with `0xffffffff`). | `src/core/frame/crc.ts` |
+| **SplitMix32 increment** | `0x9e3779b9` | Golden ratio φ = 2³²/φ, used to increment state in SplitMix32 PRNG. | `src/core/fountain/prng.ts` |
+| **SplitMix32 round 1 multiplier** | `0x21f0aaad` | First mixing constant in SplitMix32 avalanche. | `src/core/fountain/prng.ts` |
+| **SplitMix32 round 2 multiplier** | `0x735a2d97` | Second mixing constant in SplitMix32 avalanche. | `src/core/fountain/prng.ts` |
+| **packetSeed round 1 multiplier** | `0x85ebca6b` | First mixing constant when combining `(streamId, blockIndex, seq)`. **Order is normative** — changing the order of operations or the constants changes the derived index set. | `src/core/fountain/prng.ts` |
+| **packetSeed round 2 multiplier** | `0xc2b2ae35` | Second mixing constant when combining `(streamId, blockIndex, seq)`. | `src/core/fountain/prng.ts` |
+| **Partial Fisher-Yates algorithm** | Fisher-Yates shuffle truncated at `d` iterations | Generates `d` distinct indices from `[0, k)` without rejection sampling. Critical for bounded-time index derivation. The algorithm is: (1) initialize `pool[i] = i` for `i in [0, k)`, (2) for `i in [0, d)`: `j = i + floor(rnd() * (k - i))`, swap `pool[i]` and `pool[j]`, return `pool[i]`. **This exact algorithm is normative** — any change produces different index sets. | `src/core/fountain/prng.ts` |
+
+**Implementation notes:**
+
+- All CRC implementations use the standard definitions: CRC-8 uses polynomial `0x31` (ITU-T I.432.1 / ATM HEC) with initial value `0xff`; CRC-32 uses the IEEE 802.3 polynomial with initial/final XOR `0xffffffff`.
+- SplitMix32 is a simple PRNG sufficient for fountain code index selection. The constants shown are the standard ones from the algorithm's definition.
+- `packetSeed` mixes three 32-bit values (streamId, blockIndex, seq) into one 32-bit seed for SplitMix32. The exact mixing order and constants are **normative** — a different implementation must produce identical output for the same inputs, or index sets will not match and fountain decoding will fail.
+- The partial Fisher-Yates shuffle is critical: it produces exactly `d` distinct indices in `[0, k)` with O(d) time and O(k) space. A naïve rejection-sampling approach would have unbounded time and is **forbidden**.
+
+**Conformance testing:** §14.3 requires test vectors covering `(streamId, blockIndex, seq) → index set` to validate the entire PRNG chain (packetSeed → SplitMix32 → partial Fisher-Yates). Any implementation change to the constants or algorithms above breaks these vectors and is a wire-format violation.
+
 ---
 
 ## 8. Behaviour at gigabyte scale
