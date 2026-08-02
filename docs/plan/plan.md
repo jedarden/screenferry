@@ -543,6 +543,16 @@ docs/                   # plan, notes, research, sim
 - `modulation/qr-tiled/ladder.ts` — D16 ladder rung logic
 - `workers/opfs.worker.ts` — OPFS worker (may be inline elsewhere)
 
+**Module-to-phase map.** Each unwritten core module is assigned to a specific phase based on when its functionality is first required by exit criteria or invariants. This map prevents "module exists but has no owner" gaps.
+
+| Module | Phase | Rationale |
+|---|---|---|
+| `core/frame/beacon.ts` | **1** | Beacon packet encoding/decoding (§7.2, D17/D21) is framing — Phase 1's "framing" deliverable. Required for the receiver to learn file metadata (`streamId`, `blockCount`, `K`, etc.) before it can interpret any payload packet. |
+| `core/hash/stream-id.ts` | **1** | `streamId` derivation (§7.4, D7) is required by the fountain encoder's PRNG seeding. Phase 1's "LT encode" and "GE decode" cannot work without `streamId`, and I3's conformance vector depends on it. |
+| `core/hash/block-hash.ts` | **1** | Per-block hashes (§7.6) are the only application-layer integrity check on payload bytes (§7.1). Phase 1's "byte-exact" requirement (property tests) and I9's verification invariant cannot be enforced without them. |
+| `core/block/schedule.ts` | **4** | Dwell scheduling (§8.1) and repair code targeting (§8.2) are large-file machinery. Phase 4's A5 (synthetic 4 GB), A6 (resume), and A7 (repair) exit criteria require block scheduling. |
+| `core/frame/repair-code.ts` | **4** | Repair code format (§7.5, §8.2) is the human-mediated recovery path. Phase 4's A7 exit criterion ("Only the missing blocks retransmit") requires encoding/decoding repair codes. |
+
 **Rules.** `core/` MUST NOT import from `modulation/`, `workers/`, `platform/` or `ui/` —
 it is the layer the property tests own. Nothing outside `modulation/` may reference QR
 (D-modulation-swappable). Every browser capability check lives in
