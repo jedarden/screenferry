@@ -85,9 +85,26 @@ The receiver reports, live:
 | **S2** | Rung sweep, laptop→phone, tripod, 30 cm | R1→R4 at fixed module px | Which rungs decode at all; the tiling gain |
 | **S3** | Distance sweep at the best rung | 20/30/40/50/60 cm | The px/module → yield curve. **Is it a cliff or a slope?** |
 | **S4** | Handheld, then phone→phone at 15 cm | mounting, device pair | Real erasure rate and burst structure; the R4 risk |
+| **D14** | exposureCompensation A/B test | With/without `exposureCompensation: min` | Isolate fps effect of D14 lever alone |
 
 Also worth 10 minutes: toggle fps 8/12/15/20 at a fixed rung to find where torn
 frames overtake the gain (D9's "≤ half the measured camera fps").
+
+---
+
+## D14 A/B test — exposureCompensation
+
+Open `exposure-compensation-test.html` in Chrome on the target device. The test:
+
+1. Measures camera fps for 10 seconds **without** exposureCompensation (control)
+2. Measures camera fps for 10 seconds **with** exposureCompensation set to min (treatment)
+3. Reports the improvement and effect size
+
+This isolates the D14 lever's contribution to fps from the other changes (ROI, worker pool, etc.)
+that were mixed together in earlier spike runs.
+
+**Quick start:** Click "Run Both Tests (Automated A/B)" — it runs control then treatment automatically
+and shows the comparison.
 
 ---
 

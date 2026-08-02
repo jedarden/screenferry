@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>exposureCompensation A/B Test — D14</title>
+  <style>
+    body { font-family: system-ui; max-width: 900px; margin: 0 auto; padding: 20px; }
+    .section { background: #f5f5f5; padding: 15px; margin: 10px 0; border-radius: 8px; }
+    .test-result { background: white; padding: 12px; margin: 10px 0; border-radius: 4px; border-left: 4px solid #4caf50; }
+    .test-result.control { border-left-color: #ff9800; }
+    .test-result.treatment { border-left-color: #4caf50; }
+    .summary { background: #e3f2fd; padding: 15px; border-radius: 8px; margin-top: 20px; }
+    .metric { display: inline-block; margin: 0 15px; }
+    .metric-label { font-size: 0.85em; color: #666; }
+    .metric-value { font-size: 1.4em; font-weight: bold; }
+    button { background: #2196F3; color: white; border: none; padding: 12px 24px; border-radius: 4px; cursor: pointer; font-size: 16px; }
+    button:disabled { background: #ccc; cursor: not-allowed; }
+    .status { padding: 8px 12px; background: #fff3cd; border-radius: 4px; margin: 10px 0; }
+  </style>
+</head>
+<body>
+  <h1>exposureCompensation A/B Test — D14</h1>
+  <p>
+    This test measures the effect of the <code>exposureCompensation: min</code> lever
+    on camera fps, as specified in D14 of the plan.
+  </p>
+
+  <div class="section">
+    <h2>Test Protocol</h2>
+    <p><strong>Goal:</strong> Isolate the fps improvement from exposureCompensation alone</p>
+    <p><strong>Method:</strong> Measure camera fps for 10 seconds with and without the setting</p>
+    <p><strong>Control:</strong> No exposureCompensation applied (browser default)</p>
+    <p><strong>Treatment:</strong> exposureCompensation set to min (D14 lever)</p>
+    <p><strong>Duration:</strong> 10 seconds per condition</p>
+  </div>
+
+  <div class="status" id="status">Ready to begin. Select camera and start the test.</div>
+
+  <div class="section">
+    <label><strong>Camera:</strong></label>
+    <select id="camera-select">
+      <option value="">Loading cameras...</option>
+    </select>
+    <br><br>
+    <button id="btn-control" disabled>Run Control (No exposureCompensation)</button>
+    <button id="btn-treatment" disabled>Run Treatment (exposureCompensation: min)</button>
+    <button id="btn-both" disabled>Run Both Tests (Automated A/B)</button>
+    <button id="btn-copy">Copy Results</button>
+  </div>
+
+  <div class="section">
+    <h2>Live Results</h2>
+    <div id="live-results">
+      <p style="color: #666;">Run a test to see live fps measurements...</p>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Test Results</h2>
+    <div id="results">
+      <p style="color: #666;">No results yet. Run the test to populate this section.</p>
+    </div>
+  </div>
+
+  <div class="summary" id="comparison" style="display: none;">
+    <h2>A/B Comparison</h2>
+    <div class="metric">
+      <div class="metric-label">Control fps</div>
+      <div class="metric-value" id="control-fps">--</div>
+    </div>
+    <div class="metric">
+      <div class="metric-label">Treatment fps</div>
+      <div class="metric-value" id="treatment-fps">--</div>
+    </div>
+    <div class="metric">
+      <div class="metric-label">Improvement</div>
+      <div class="metric-value" id="improvement">--</div>
+    </div>
+    <div class="metric">
+      <div class="metric-label">Effect Size</div>
+      <div class="metric-value" id="effect-size">--</div>
+    </div>
+    <p id="conclusion" style="margin-top: 15px; font-weight: 500;"></p>
+  </div>
+
+  <script type="module">
+    import { readBarcodesFromImageData, getZXingModule } from 'zxing-wasm/reader';
+
+    const statusEl = document.getElementById('status');
+    const liveResultsEl = document.getElementById('live-results');
+    const resultsEl = document.getElementById('results');
+    const comparisonEl = document.getElementById('comparison');
+    const cameraSelect = document.getElementById('camera-select');
+    const btnControl = document.getElementById('btn-control');
+    const btnTreatment = document.getElementById('btn-treatment');
+    const btnBoth = document.getElementById('btn-both');
+    const btnCopy = document.getElementById('btn-copy');
+
+    let currentStream = null;
+    let testResults = { control: null, treatment: null };
+    let animationId = null;
+
+    // Load cameras
+    async function loadCameras() {
+      try {
+        await navigator.mediaDevices.getUserMedia({ video: true });
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const videoDevices = devices.filter(d => d.kind === 'videoinput');
+
+        cameraSelect.innerHTML = '';
+        videoDevices.forEach((device, i) => {
+          const opt = document.createElement('option');
+          opt.value = device.deviceId;
+          opt.textContent = device.label || `Camera ${i + 1}`;
+          cameraSelect.appendChild(opt);
+        });
+
+        btnControl.disabled = false;
+        btnTreatment.disabled = false;
+        btnBoth.disabled = false;
+      } catch (err) {
+        statusEl.textContent = `Error accessing camera: ${err.message}`;
+        statusEl.style.background = '#ffebee';
+      }
+    }
+
+    loadCameras();
+
+    // Run a single test
+    async function runTest(useExposureCompensation) {
+      const deviceId = cameraSelect.value;
+      if (!deviceId) {
+        statusEl.textContent = 'Please select a camera first.';
+        return null;
+      }
+
+      statusEl.textContent = useExposureCompensation
+        ? 'Running TREATMENT (exposureCompensation: min)...'
+        : 'Running CONTROL (no exposureCompensation)...';
+      statusEl.style.background = '#e3f2fd';
+
+      try {
+        // Start camera
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            deviceId: { exact: deviceId },
+            width: { ideal: 1920 },
+            height: { ideal: 1080 }
+          }
+        });
+        currentStream = stream;
+        const video = document.createElement('video');
+        video.srcObject = stream;
+        video.play();
+
+        await new Promise(r => setTimeout(r, 1000)); // Wait for video to stabilize
+
+        const track = stream.getVideoTracks()[0];
+        const caps = track.getCapabilities?.() ?? {};
+
+        // Apply exposureCompensation if requested
+        let exposureApplied = false;
+        if (useExposureCompensation && caps.exposureCompensation) {
+          try {
+            await track.applyConstraints({
+              advanced: [{ exposureCompensation: caps.exposureCompensation.min }]
+            });
+            exposureApplied = true;
+          } catch (e) {
+            console.warn('Failed to apply exposureCompensation:', e);
+          }
+        }
+
+        // Warm up the decoder
+        await getZXingModule();
+
+        // Measure fps for 10 seconds
+        const testDuration = 10000; // 10 seconds
+        const startTime = performance.now();
+        const frameTimes = [];
+        let frameCount = 0;
+
+        const videoEl = document.createElement('video');
+        videoEl.srcObject = stream;
+        videoEl.play();
+
+        const canvas = new OffscreenCanvas(videoEl.videoWidth, videoEl.videoHeight);
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+        const measureFrame = async (time) => {
+          frameCount++;
+          frameTimes.push(time);
+
+          // Draw frame to canvas to ensure camera is actually delivering
+          ctx.drawImage(videoEl, 0, 0);
+
+          const elapsed = time - startTime;
+          const fps = frameCount / (elapsed / 1000);
+
+          // Update live display
+          liveResultsEl.innerHTML = `
+            <div style="font-family: monospace; font-size: 1.2em;">
+              <strong>Running...</strong><br>
+              Frames: ${frameCount}<br>
+              Elapsed: ${(elapsed / 1000).toFixed(1)}s<br>
+              Current fps: ${fps.toFixed(1)}
+            </div>
+          `;
+
+          if (elapsed < testDuration) {
+            videoEl.requestVideoFrameCallback(measureFrame);
+          } else {
+            // Test complete
+            const totalElapsed = (frameTimes[frameTimes.length - 1] - frameTimes[0]) / 1000;
+            const measuredFps = frameCount / totalElapsed;
+
+            const result = {
+              condition: useExposureCompensation ? 'treatment' : 'control',
+              exposureCompensation: useExposureCompensation ? caps.exposureCompensation?.min : 'N/A',
+              exposureApplied,
+              deviceCaps: {
+                exposureCompensationRange: caps.exposureCompensation ?
+                  `${caps.exposureCompensation.min} to ${caps.exposureCompensation.max}` : 'N/A'
+              },
+              totalFrames: frameCount,
+              duration: totalElapsed.toFixed(2),
+              measuredFps: measuredFps.toFixed(2),
+              timestamp: new Date().toISOString()
+            };
+
+            // Stop camera
+            stream.getTracks().forEach(t => t.stop());
+            currentStream = null;
+
+            return result;
+          }
+        };
+
+        const result = await videoEl.requestVideoFrameCallback(measureFrame);
+        return result;
+
+      } catch (err) {
+        statusEl.textContent = `Error during test: ${err.message}`;
+        statusEl.style.background = '#ffebee';
+        if (currentStream) {
+          currentStream.getTracks().forEach(t => t.stop());
+          currentStream = null;
+        }
+        return null;
+      }
+    }
+
+    // Display result
+    function displayResult(result) {
+      if (!result) return;
+
+      testResults[result.condition] = result;
+
+      const resultHtml = `
+        <div class="test-result ${result.condition}">
+          <h3>${result.condition === 'control' ? 'Control' : 'Treatment'} — ${result.timestamp}</h3>
+          <div class="metric">
+            <div class="metric-label">Measured fps</div>
+            <div class="metric-value">${result.measuredFps}</div>
+          </div>
+          <div class="metric">
+            <div class="metric-label">Total frames</div>
+            <div class="metric-value">${result.totalFrames}</div>
+          </div>
+          <div class="metric">
+            <div class="metric-label">Duration</div>
+            <div class="metric-value">${result.duration}s</div>
+          </div>
+          <div class="metric">
+            <div class="metric-label">exposureCompensation</div>
+            <div class="metric-value">${result.exposureCompensation}</div>
+          </div>
+          <div class="metric">
+            <div class="metric-label">Capability range</div>
+            <div class="metric-value">${result.deviceCaps.exposureCompensationRange}</div>
+          </div>
+        </div>
+      `;
+
+      if (resultsEl.querySelector('p')) {
+        resultsEl.innerHTML = '';
+      }
+      resultsEl.innerHTML += resultHtml;
+
+      // Update comparison if both results are available
+      if (testResults.control && testResults.treatment) {
+        updateComparison();
+      }
+
+      statusEl.textContent = `${result.condition === 'control' ? 'Control' : 'Treatment'} complete. ${testResults.control && testResults.treatment ? 'Both tests done — see comparison below.' : 'Run the other test to see comparison.'}`;
+      statusEl.style.background = '#e8f5e9';
+      liveResultsEl.innerHTML = `<p style="color: #666;">Test complete. Results recorded above.</p>`;
+    }
+
+    // Update comparison
+    function updateComparison() {
+      const control = testResults.control;
+      const treatment = testResults.treatment;
+
+      const controlFps = parseFloat(control.measuredFps);
+      const treatmentFps = parseFloat(treatment.measuredFps);
+      const improvement = treatmentFps - controlFps;
+      const percentImprovement = ((improvement / controlFps) * 100).toFixed(1);
+
+      document.getElementById('control-fps').textContent = controlFps.toFixed(2);
+      document.getElementById('treatment-fps').textContent = treatmentFps.toFixed(2);
+      document.getElementById('improvement').textContent = `${improvement >= 0 ? '+' : ''}${improvement.toFixed(2)} fps`;
+      document.getElementById('effect-size').textContent = `${percentImprovement}%`;
+
+      const conclusion = improvement > 0
+        ? `✓ Treatment improves fps by ${percentImprovement}% (${improvement.toFixed(2)} fps). D14 lever is effective on this device.`
+        : `✗ No improvement measured. Effect may be device- or condition-specific.`;
+
+      document.getElementById('conclusion').textContent = conclusion;
+      comparisonEl.style.display = 'block';
+
+      statusEl.textContent = 'A/B test complete! Comparison shown below.';
+      statusEl.style.background = '#e8f5e9';
+    }
+
+    // Button handlers
+    btnControl.addEventListener('click', async () => {
+      const result = await runTest(false);
+      if (result) displayResult(result);
+    });
+
+    btnTreatment.addEventListener('click', async () => {
+      const result = await runTest(true);
+      if (result) displayResult(result);
+    });
+
+    btnBoth.addEventListener('click', async () => {
+      testResults = { control: null, treatment: null };
+      resultsEl.innerHTML = '<p style="color: #666;">Running both tests sequentially...</p>';
+      comparisonEl.style.display = 'none';
+
+      const controlResult = await runTest(false);
+      if (controlResult) {
+        displayResult(controlResult);
+        await new Promise(r => setTimeout(r, 2000)); // Brief pause
+      }
+
+      const treatmentResult = await runTest(true);
+      if (treatmentResult) {
+        displayResult(treatmentResult);
+      }
+    });
+
+    btnCopy.addEventListener('click', () => {
+      const data = {
+        testType: 'exposureCompensation A/B test — D14',
+        userAgent: navigator.userAgent,
+        timestamp: new Date().toISOString(),
+        results: testResults,
+        comparison: testResults.control && testResults.treatment ? {
+          controlFps: testResults.control.measuredFps,
+          treatmentFps: testResults.treatment.measuredFps,
+          improvement: (parseFloat(testResults.treatment.measuredFps) - parseFloat(testResults.control.measuredFps)).toFixed(2),
+          percentImprovement: (((parseFloat(testResults.treatment.measuredFps) - parseFloat(testResults.control.measuredFps)) / parseFloat(testResults.control.measuredFps)) * 100).toFixed(1) + '%'
+        } : null
+      };
+
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `exposure-compensation-ab-test-${Date.now()}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+
+      statusEl.textContent = 'Results exported to JSON file.';
+    });
+
+    // Cleanup on page unload
+    window.addEventListener('beforeunload', () => {
+      if (currentStream) {
+        currentStream.getTracks().forEach(t => t.stop());
+      }
+    });
+  </script>
+</body>
+</html>
