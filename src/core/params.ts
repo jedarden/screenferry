@@ -6,7 +6,19 @@
  * docs/research/sim/ge_cost_model.py, which is the authority.
  */
 
-/** Fragment length. FIXED for a session — invariant I1 / D15. */
+/**
+ * Fragment length (L). Wire constant for wireVersion 1.
+ *
+ * **NOT session-negotiable.** L is part of the wire format and is fixed per wire version.
+ * For wireVersion 1, L is 256 bytes and MUST NOT change.
+ *
+ * The beacon transmits fragmentLen as a validity check: receivers MUST reject any beacon
+ * where fragmentLen != L with E-VERSION. This protects against version skew and ensures
+ * both ends use identical codec parameters.
+ *
+ * invariant I1 / D15 — L is fixed for a session
+ * wireVersion 1 constant — L cannot change without incrementing WIRE_VERSION
+ */
 export const L = 256;
 
 /** Per-packet header bytes — §7.1 / D21. */
@@ -45,8 +57,6 @@ export const MAGIC_VER = (MAGIC << 4) | (WIRE_VERSION & 0x0f);
 export const enum PacketFlags {
   Payload = 0x00,
   Beacon = 0x01,
-  /** K < 8: plain repetition instead of LT — edge case E2. */
-  Repetition = 0x02,
   Compressed = 0x04,
   /** Manifest packet — block-hash manifest stream (§7.6). */
   Manifest = 0x08,
