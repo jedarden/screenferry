@@ -641,8 +641,9 @@ it can interpret any payload packet:
 |---|---|---|
 | `streamId` | 4 | Must match payload packets |
 | `wireVersion` | 1 | Full version, not the 4-bit nibble |
-| `fileSize` | 6 | 281 TB addressable — **MUST be bounds-checked** (§12, T1) |
-| `blockSize`, `blockCount` | 3 + 3 | Yields K and the last block's short length |
+| `originalSize` | 6 | Original uncompressed file size — 281 TB addressable, **MUST be bounds-checked** (§12, T1) |
+| `payloadLen` | 6 | Actual payload length after compression (if enabled); required to compute the last block's short length — `blockCount * blockSize` is an upper bound only |
+| `blockSize`, `blockCount` | 3 + 3 | Yields K (blockSize / L). Last block short length is derived from `payloadLen`, not from blockSize alone. |
 | `fragmentLen` (L) | 2 | Fixed for the session (I1) |
 | `degreeCap` | 1 | D25; receiver MUST use the same cap |
 | `flags` | 1 | compressed / hash alg / colour profile |
@@ -869,7 +870,7 @@ stop and reconsider the design, not retry.
 | **A7** | Repair | A1 setup, 10 MB file, 5 blocks deliberately dropped | Enter the repair code on the sender | Only the missing blocks retransmit; completes in < 60 s | Full pass required |
 | **A8** | Offline | Both devices in airplane mode, app previously loaded | Full A1 transfer | Completes normally | Any network request attempted (asserted by CI, §14.4) |
 | **A9** | Wrong stream | Two senders visible in frame | Receiver points at both | Locks one `streamId`, ignores the other, says so | Mixes packets from both |
-| **A10** | Hostile beacon | Crafted beacon declaring `fileSize` = 281 TB | Receiver parses it | Refuses with `E-META-BOUNDS`; no allocation attempted | Allocates or crashes |
+| **A10** | Hostile beacon | Crafted beacon declaring `originalSize` = 281 TB | Receiver parses it | Refuses with `E-META-BOUNDS`; no allocation attempted | Allocates or crashes |
 
 **Adoption metrics are deliberately absent.** With no backend and no telemetry there is no
 way to measure them, and the ledger consciously cut the voluntary-benchmark idea. This is a
@@ -883,7 +884,7 @@ stated limitation, not an oversight — see §18 R8.
 |---|---|---|
 | E1 | **Zero-byte file** | Reject at selection with a clear message. `K = 0` is undefined. |
 | E2 | **File smaller than one fragment** (< 256 B) | Pad to one fragment; `K = 1`; the fountain code degenerates to repetition, which is correct. Research specifies a `K < 8` guard — adopt it: below 8 fragments, send plain repetition, no LT. **Repetition is derived per-block** (not signalled): both encoder and decoder derive `repetition = (k < MIN_LT_K)` from the block's K using the shared per-block derivation E3a already mandates. A session-wide flag would force repetition on all 21,845 blocks or none; per-block derivation allows the last block (K=1-7) to use repetition while all other blocks (K=768) use LT. |
-| E3a | **The last block is short** — its K is `ceil(lastLen / L)`, not 768. Both sides derive K per block, and D7's PRNG is seeded with it. A mismatch produces wrong index sets, so the block never decodes and nothing says why. | Derive per-block K from `(blockIndex, blockSize, fileSize)` in **one shared function** used by both encoder and decoder; conformance vector covers the last block explicitly. |
+| E3a | **The last block is short** — its K is `ceil(lastLen / L)`, not 768. Both sides derive K per block, and D7's PRNG is seeded with it. A mismatch produces wrong index sets, so the block never decodes and nothing says why. | Derive per-block K from `(blockIndex, blockSize, payloadLen)` in **one shared function** used by both encoder and decoder; conformance vector covers the last block explicitly. The beacon's `payloadLen` field (§7.2) is critical — without it, the receiver cannot compute the last block's actual length (`lastLen = payloadLen − (blockCount − 1) × blockSize`), leading to PRNG index mismatch and silent decode failure. |
 | E3b | **`blockCount == 1`** | Normal path; no special case, but tested explicitly since off-by-one in block iteration is likely. |
 | E4 | **Incompressible input where deflate expands it** | D8 samples first; if the sample ratio > 0.92, skip compression. If compression still expands, discard the staging file and send raw. |
 | E5 | **Source file changes mid-transfer** | A 10-hour read of a live `File` handle is the *normal* case. Re-check `file.size` and `lastModified` before each block read; on mismatch abort with `E-SOURCE-CHANGED`. Emitting blocks from two versions would produce a file that passes per-block hashes and fails the whole-file hash after hours. |
@@ -970,9 +971,9 @@ That claim needs backing. In scope for v1:
 
 | # | Threat | Stance | Test |
 |---|---|---|---|
-| **T1** | **Crafted optical stream — resource exhaustion.** Beacon-declared `fileSize` (281 TB), `blockCount` (16.7 M) and `L` are attacker-controlled and size allocations. | **Mitigated.** Bounds-check every beacon field before use: `L` ∈ [1, 4096], `K` ≤ locally benchmarked max (D26), `blockCount` ≤ 16.7 M, `fileSize` ≤ available quota. Reject with `E-META-BOUNDS`. Never allocate from a declared size. | A10 + fuzz beacon fields |
+| **T1** | **Crafted optical stream — resource exhaustion.** Beacon-declared `originalSize` and `payloadLen` (281 TB each), `blockCount` (16.7 M) and `L` are attacker-controlled and size allocations. | **Mitigated.** Bounds-check every beacon field before use: `L` ∈ [1, 4096], `K` ≤ locally benchmarked max (D26), `blockCount` ≤ 16.7 M, `originalSize` ≤ available quota, `payloadLen` ≤ available quota. Reject with `E-META-BOUNDS`. Never allocate from a declared size. | A10 + fuzz beacon fields |
 | **T2** | **Path traversal / hostile filename.** `filename` is attacker-supplied and reaches a save dialog. | **Mitigated.** Strip path separators, control bytes and leading dots; cap length; never pass through unsanitised. | unit: filenames with `../`, NUL, control bytes |
-| **T3** | **Decompression bomb.** The receiver decompresses attacker-supplied data. | **Mitigated.** Enforce a max expansion ratio (100:1) and an absolute cap = declared `fileSize`; abort with `E-DECOMPRESS` on overrun. | unit: 1 GB-expanding zip bomb → `E-DECOMPRESS` |
+| **T3** | **Decompression bomb.** The receiver decompresses attacker-supplied data. | **Mitigated.** Enforce a max expansion ratio (100:1) and an absolute cap = declared `originalSize`; abort with `E-DECOMPRESS` on overrun. | unit: 1 GB-expanding zip bomb → `E-DECOMPRESS` |
 | **T4a** | **Sender-side plaintext residue.** D8 writes a *decompressed-equivalent* copy of the user's file to OPFS as staging. For the flagship use case (SSH keys, PSBTs, TOTP seeds) this is real exposure. | **Mitigated.** Wipe staging on completion, on cancel, and on startup-reap (E11). Document that OPFS is not encrypted at rest and the OS/browser may retain it. | integration: assert sender OPFS empty after complete/cancel/reap |
 | **T4b** | **Receiver-side plaintext residue.** The receiver stages the complete decoded file in OPFS. The output **is** the deliverable — it cannot be deleted immediately. For sensitive files (SSH keys, PSBTs, TOTP seeds) indefinite storage is exposure. | **Mitigated.** Implement a deletion lifecycle: (1) delete after successful `share()`/`save()`; (2) reap orphaned outputs on startup; (3) warn before keeping partial artefacts (E10, E15); (4) provide a user-visible delete control. Document that OPFS is not encrypted at rest. | integration: assert receiver OPFS empty after successful save; reap deletes orphans; UI has delete control; warning shown for partial artefacts |
 | **T5** | **Supply chain.** The security claim depends on the bundle being what was audited. | **Partially mitigated.** `bf-13h` covers the output half (version footer + published hash). The input half — pinned dependency versions, WASM integrity, no post-install scripts — is a Phase 0 requirement (§14.5). | G3: lockfile diff + SRI check in CI |
