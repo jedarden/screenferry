@@ -495,9 +495,11 @@ export class CameraPipeline {
         const height = yMax - yMin;
         const margin = this.ROI_MARGIN * Math.max(width, height);
 
-        // Constrain to frame bounds (assume 1080p max - will be adjusted based on actual capture)
-        const maxWidth = 1920; // Will be updated based on actual capture resolution
-        const maxHeight = 1080;
+        // Constrain to frame bounds
+        // Get actual capture dimensions from the video track settings
+        const trackSettings = this.videoTrack?.getSettings();
+        const maxWidth = trackSettings?.width ? trackSettings.width : 1920;
+        const maxHeight = trackSettings?.height ? trackSettings.height : 1080;
 
         this.currentROI = {
           x: Math.max(0, Math.round(offsetX + xMin - margin)),

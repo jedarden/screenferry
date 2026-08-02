@@ -25,6 +25,24 @@ import { configureLocalZXingWASM } from '../modulation/qr-tiled/zxing-config.js'
 import type { DecodedFrameResult, TileDiagnostics, QRPosition } from '../modulation/types.js';
 
 /**
+ * Region of Interest for frame cropping (plan.md §6.4).
+ *
+ * Used to crop camera frames to the bounding box of detected QR codes,
+ * reducing decode time by 8.6× when the code occupies part of the frame.
+ * Includes AP2's ratchet guard to prevent one-way ratchet problem.
+ */
+export interface ROI {
+  /** X coordinate of top-left corner (frame pixels) */
+  x: number;
+  /** Y coordinate of top-left corner (frame pixels) */
+  y: number;
+  /** Width of ROI region (frame pixels) */
+  w: number;
+  /** Height of ROI region (frame pixels) */
+  h: number;
+}
+
+/**
  * Configure zxing-wasm to use local WASM files.
  *
  * This MUST be called before any zxing-wasm functions are used. Workers run in
