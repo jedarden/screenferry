@@ -97,10 +97,10 @@ describe('block-hash', () => {
     it('should validate correct manifest hash', () => {
       const manifest = new Uint8Array([1, 2, 3, 4]);
       const beaconHash = new Uint8Array([
-        (0x5f0f8f5b >>> 24) & 0xff,
-        (0x5f0f8f5b >>> 16) & 0xff,
-        (0x5f0f8f5b >>> 8) & 0xff,
-        0x5f0f8f5b & 0xff,
+        (0xb63cfbcd >>> 24) & 0xff,
+        (0xb63cfbcd >>> 16) & 0xff,
+        (0xb63cfbcd >>> 8) & 0xff,
+        0xb63cfbcd & 0xff,
       ]);
 
       expect(validateManifestHash(manifest, beaconHash)).toBe(true);
@@ -135,10 +135,10 @@ describe('block-hash', () => {
       const originalManifest = new Uint8Array([1, 2, 3, 4]);
       const corruptedManifest = new Uint8Array([1, 2, 3, 5]); // One bit flipped
       const beaconHash = new Uint8Array([
-        (0x5f0f8f5b >>> 24) & 0xff,
-        (0x5f0f8f5b >>> 16) & 0xff,
-        (0x5f0f8f5b >>> 8) & 0xff,
-        0x5f0f8f5b & 0xff,
+        (0xb63cfbcd >>> 24) & 0xff,
+        (0xb63cfbcd >>> 16) & 0xff,
+        (0xb63cfbcd >>> 8) & 0xff,
+        0xb63cfbcd & 0xff,
       ]);
 
       expect(validateManifestHash(originalManifest, beaconHash)).toBe(true);
