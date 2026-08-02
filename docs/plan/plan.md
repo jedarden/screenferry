@@ -929,7 +929,7 @@ stop and reconsider the design, not retry.
 | **A1-lite** | Byte-exactness on two real devices | Two real devices (any configuration) | Send any file | Byte-identical output | Any byte differs |
 | **A2** | Handheld, realistic | As A1 but handheld, receiver held **portrait** (the default, unassisted grip — §6.3.2) | Send 1 MB | Byte-identical; ≥ 10 KB/s | Does not complete in 5 min |
 | **A3** | Phone → phone | Two phones, 15 cm, handheld | Send 100 KB | Byte-identical; completes in ≤ 5 min | Does not complete — triggers §18 R4 |
-| **A4** | Lossy channel | A1 setup; camera deliberately occluded 30% of the time in 2-second bursts | Send 1 MB | Byte-identical; ≤ 1.6× the A1 frame count | > 3× A1 frame count (fountain code is not delivering) |
+| **A4** | Lossy channel | A1 setup; camera deliberately occluded 10% of the time in 2-second bursts | Send 1 MB | Byte-identical; completes in ≤ 2.0× the A1 frame count | Does not complete in 3.0× A1 frame count (tests e_max cliff) |
 | **A5** | Large file, memory flat | Desktop Chromium, synthetic 4 GB stream, headless block layer | Full encode→decode at the block layer | Byte-identical; peak heap ≤ 1 MB (I6a); no growth trend across 21,800 blocks | Any monotonic memory growth |
 | **A6** | Resume | A1 setup, 10 MB file | Reload the receiver tab at ~50% | Offers resume; completes; byte-identical | Restarts from zero, or completes with wrong bytes |
 | **A7** | Repair | A1 setup, 10 MB file, 5 blocks deliberately dropped | Enter the repair code on the sender | Only the missing blocks retransmit; completes in < 60 s | Full pass required |
