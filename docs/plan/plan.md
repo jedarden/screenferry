@@ -20,6 +20,7 @@ evidence behind every number lives in [`../research/`](../research/).
 | 2026-07-31 | **Phases 0 (partial) and 1 built** — `src/core/`, 22 tests, gate G7 live | — |
 | 2026-07-31 | **Re-review corrections** — §3.1 formula was 2× wrong (fixed); L reverted 507 → 256 B because 507 broke D16's conservative rung (§3.1.1); D18 split into D18a/b/c with the erasure band restored to 20–30%; I6 split; module layout added; numbers now emitted by the model and diffed in CI (G7) | `sim/ge_cost_model.py` (rewritten), `sim/degree_cap_sim.py` (K=768) |
 | 2026-07-31 | **Plan review corrections** — D19 re-derived (K 16,384 → 768; see §3.1), degree cap added (D25), K made device-measured (D26), dwell/erasure inconsistency fixed, and §2/§5/§6/§9–§14/§16/§18 added | `sim/ge_cost_model.py`, `sim/degree_cap_sim.py` |
+| 2026-08-01 | **Portrait made the default supported receiver orientation, not a fallback** — §6.3.2 reframed (sender-side portrait code region is primary; landscape rotation is an optional bonus, not required to meet Phase 3's gate); `E-ORIENTATION` (§11) reworded from a rotate-now blocker to an optional-margin tip; A2 (§9) now states the receiver is held portrait; R2 (§18) mitigation leads with the portrait code-region shaping | `docs/notes/spike-results.md` §"What 1 Mbps needs" |
 
 **Normative language.** **MUST** / **MUST NOT** are invariants (§5) — violating one is a
 correctness bug. **SHOULD** is a strong default, overridable with a recorded reason.
@@ -418,18 +419,23 @@ Same tile count and same bytes per frame as the naive layout, but *above* the cl
 below it — so yield goes from roughly a fifth to near-total. **The sender MUST size the code
 region to the receiver's capture aspect, not to its own display.** Since there is no
 back-channel, it cannot know that aspect: expose it as a user-visible setting (portrait /
-landscape receiver) defaulting to portrait, which is how phones are held.
+landscape receiver) **defaulting to portrait, which is how phones are held — and portrait is
+a fully supported mode, not a degraded one.** The 540×960 portrait region above clears the
+cliff (4.00 camera px/module) at the *same* 8.6 KB/frame as the naive landscape layout would
+need physical rotation to reach. **Phase 3's ≥ 20 KB/s gate MUST pass with the receiver held
+portrait, unaided** — that is the default, unassisted case, not a stretch goal.
 
-**Two routes to the same M, and the receiver-side one is better.** Physically holding the
-receiver in landscape puts the screen's long axis on the camera's long axis — **1.78×, free,
-and it does not require halving screen px/module the way the portrait-region layout does.**
-That makes it the *preferred* route; the sender-side portrait region is the fallback for when
-the receiver cannot be turned.
+**Two routes to the same M; landscape is a free bonus, not a requirement.** Physically holding
+the receiver in landscape puts the screen's long axis on the camera's long axis — **1.78×,
+free, and it does not require halving screen px/module the way the portrait-region layout
+does** — so it is worth *offering* to a user willing to turn the phone. But the app MUST NOT
+depend on the user doing so: the sender-side portrait region (above) is the primary,
+always-on path, and landscape is strictly an optional upgrade for extra margin on top of it.
 
 Verified negative: forcing the receiver's *OS* orientation does not help — sensor mapping
-follows the device body, not the UI. So this is **coaching, not configuration**: the receiver
-UI must tell the user to turn the phone sideways (§11 `E-ORIENTATION`, and in `bf-1g0`'s
-scope), and Phase 3's ≥ 20 KB/s gate depends on it.
+follows the device body, not the UI. Since portrait is the supported default, this mostly
+doesn't matter; it only matters for the optional landscape upgrade, which needs a *physical*
+turn (§11 `E-ORIENTATION`, reframed below as a tip, not a requirement).
 
 ### 6.4 Receiver pipeline
 
@@ -806,7 +812,7 @@ stop and reconsider the design, not retry.
 | # | Scenario | Setup | Action | Pass | Fail |
 |---|---|---|---|---|---|
 | **A1** | Small file, ideal conditions | Laptop (1080p, 50% brightness min) → Pixel-class phone, 30 cm, office lighting (~300 lux), tripod | Send a 1 MB binary file (random bytes, incompressible) | Byte-identical output; ≥ 20 KB/s sustained; completes in ≤ 60 s | < 10 KB/s, or any byte differs |
-| **A2** | Handheld, realistic | As A1 but handheld | Send 1 MB | Byte-identical; ≥ 10 KB/s | Does not complete in 5 min |
+| **A2** | Handheld, realistic | As A1 but handheld, receiver held **portrait** (the default, unassisted grip — §6.3.2) | Send 1 MB | Byte-identical; ≥ 10 KB/s | Does not complete in 5 min |
 | **A3** | Phone → phone | Two phones, 15 cm, handheld | Send 100 KB | Byte-identical; completes in ≤ 5 min | Does not complete — triggers §18 R4 |
 | **A4** | Lossy channel | A1 setup; camera deliberately occluded 30% of the time in 2-second bursts | Send 1 MB | Byte-identical; ≤ 1.6× the A1 frame count | > 3× A1 frame count (fountain code is not delivering) |
 | **A5** | Large file, memory flat | Desktop Chromium, synthetic 4 GB stream, headless block layer | Full encode→decode at the block layer | Byte-identical; peak heap ≤ 1 MB (I6a); no growth trend across 21,800 blocks | Any monotonic memory growth |
@@ -865,7 +871,7 @@ now, before Phase 5 designs any UI — after that, taxonomies get retrofitted to
 | `E-DARK` | Insufficient exposure | "Too dark — raise the sender's screen brightness." |
 | `E-GLARE` | Saturated region over the code | "Tilt to avoid the reflection." |
 | `E-FOCUS-HUNT` | Focus oscillating | "Tap the screen to lock focus." |
-| `E-ORIENTATION` | Receiver held portrait against a landscape code region (M < 1) | "Turn your phone sideways — it nearly doubles the detail the camera sees." |
+| `E-ORIENTATION` | Detected capture aspect doesn't match the sender's configured setting (§6.3.2) — e.g. sender is shaping the code for landscape but the receiver is held portrait | "This app works fine held normally — but if you'd like more margin, match the orientation setting on the sending device, or turn the phone sideways." (tip, not a blocker — portrait is fully supported) |
 | `E-SENDER-STALLED` | Identical frames repeating | "The sending device seems paused." |
 | `E-TORN` | Torn-frame rate high | "Lower the sender's frame rate." |
 
@@ -1222,7 +1228,7 @@ coaching ≈ 1500 — **Phase 5 is the largest single phase**, which the phase o
 | # | Risk | Likelihood | Impact | Mitigation | Trigger → fallback |
 |---|---|---|---|---|---|
 | **R1** | **GE still too slow at K=768 on real phones** | ~~Medium~~ **Low** | High — blocks Phase 1 | Cost model + conservative K (D19/D26). **S1 measured 3,260 MB/s desktop = 7.1× margin at Stage 3 after a ÷4 phone factor; provisionally closed pending an on-device re-run** | Measured need > budget → drop to K=512 (2.88× margin), then re-open D5 against wirehair/RaptorQ (whose linear-time decode is what libcimbar uses) |
-| **R2** | **4 camera px/module cliff makes handheld use impractical** | Medium | High | Aim reticle + coach (`bf-1g0`), ladder (D16) | A2 fails → mandate a stand in the UI and reposition as a mounted-device tool |
+| **R2** | **4 camera px/module cliff makes handheld use impractical** | Medium | High | **Sender shapes the code region to the receiver's portrait aspect by default (§6.3.2) — clears the cliff without any user action.** Aim reticle + coach (`bf-1g0`), ladder (D16) as secondary aids | A2 fails → mandate a stand in the UI and reposition as a mounted-device tool |
 | **R3** | **Stage 1 measures far below 20 KB/s** | Medium | High — undermines the multi-GB objective | Tiling (D1) is the measured 10× | < 10 KB/s → cap the advertised file size, move Stage 2 earlier |
 | **R4** | **Phone→phone unusable at 54 cells** | **High** | Medium | Separate profile with bigger modules | A3 fails → document phone→phone as a small-file-only mode |
 | **R5** | **iOS cannot export multi-GB** | **High** | Medium | Detect and cap up front | `share()` fails > 1 GB → iOS is receive-capped, stated at file selection |
