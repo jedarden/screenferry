@@ -1179,9 +1179,9 @@ assembled from different commits is not a green build.
 
 ### 14.6 Definition of done
 
-A phase is done when: its exit criteria (§17) are met; G1–G5 are green on one commit; every
-new failure mode has a test; every new error code has a user-facing string; and the plan
-is updated if any decision changed.
+A phase is done when: its exit criteria (§17) are met; G1–G4 and G7 are green on one commit
+(G5 is nightly and gates the nightly build per §14.5); every new failure mode has a test;
+every new error code has a user-facing string; and the plan is updated if any decision changed.
 
 **Stop-ship criteria** — do not release if: any A-scenario fails; I1–I10 are unenforced;
 a data-loss path exists without a test; or the version footer is absent (a user cannot
