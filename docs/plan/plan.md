@@ -228,8 +228,10 @@ block resident at a time.
 `crypto.subtle.digest` has **no streaming API** — it takes one buffer.
 
 **Fix:** per-block hashes (cheap, and they let each block be written as it completes,
-then verified retroactively once the manifest arrives) plus an optional whole-file hash
-from an incremental WASM hasher. See §7.4 for how this interacts with `streamId`.
+then verified retroactively once the manifest arrives) plus a mandatory whole-file hash
+from an incremental WASM hasher. concept.md constraint 4 makes byte-exact reconstruction
+non-negotiable and names the whole-file hash as the verification (see §7.2). See §7.4
+for how this interacts with `streamId`.
 
 ### 3.4 Miss recovery gets expensive as blocks multiply
 
@@ -545,28 +547,41 @@ exactly one implementation.
 
 | Dependency | Pin | If unavailable |
 |---|---|---|
-| `zxing-wasm` | exact version + SRI on the `.wasm`. **MUST call `setZXingModuleOverrides({ locateFile })` pointing at a bundle-local, service-worker-precached `.wasm`.** See the warning below | Fatal on the receiver — surface `E-WASM-LOAD`; the sender still works |
+| `zxing-wasm` | exact version + SRI on the `.wasm`. **MUST call `setZXingModuleOverrides({ locateFile })` pointing at a bundle-local, service-worker-precached `.wasm`.** See the general WASM rule below | Fatal on the receiver — surface `E-WASM-LOAD`; the sender still works |
+| `incremental-wasm-hash` | exact version + SRI on the `.wasm`. **MUST be bundle-local and service-worker-precached.** See the general WASM rule below | Optional — skip whole-file hash if unavailable (per-block hashes still mandatory) |
 | `node-qrcode` | exact version | Fatal on the sender; the receiver still works |
 | `CompressionStream` | platform | Skip compression (D8 is already conditional) |
 | `MediaStreamTrackProcessor` | platform | Fall back to `requestVideoFrameCallback` + `drawImage` — MUST be implemented, it is not Chromium-only |
 | OPFS | platform | Refuse large files; cap at in-memory size and say so |
 | Wake Lock | platform | Warn before a long transfer (`E-WAKELOCK-LOST`) |
 
-> ### ⚠️ `zxing-wasm` fetches its WASM from a CDN by default — this voids the entire premise
+> ### ⚠️ EVERY WASM dependency MUST be bundle-local and SRI-pinned
 >
-> Verified in the installed package: `dist/es/core-*.js` hard-codes
-> `https://fastly.jsdelivr.net/npm/zxing-wasm@<ver>/dist/…` and fetches the `.wasm`
-> **lazily on the first decode call**, not at page load. Shipping the default means the
-> receiver:
+> **This is a general rule, not specific to zxing.** Any package that loads WASM from a
+> CDN by default voids the entire premise. The receiver:
 >
 > 1. makes a **third-party network request mid-session** — voiding T7, concept.md
 >    constraint 1, and the README's "provably no exfiltration";
 > 2. **fails completely in airplane mode** — i.e. in the flagship air-gapped use case (A8);
 > 3. **executes remotely-fetched WASM** — precisely the supply-chain surface T5 exists for.
 >
-> The `.wasm` MUST be bundled, precached by the service worker, and located via
-> `setZXingModuleOverrides`. §14.4's assertion covers this, and it is a **Phase 2 entry
-> criterion** because Phase 2 is the first phase that loads a decoder.
+> **Every WASM dependency MUST:**
+>
+> - Be bundled with the application (not fetched from a CDN)
+> - Have its `.wasm` file SRI-pinned in the lockfile (integrity hash)
+> - Be precached by the service worker for offline operation
+> - Be loaded via bundle-local overrides, not default CDN paths
+>
+> **Current WASM dependencies covered by this rule:**
+>
+> - `zxing-wasm`: MUST call `setZXingModuleOverrides({ locateFile })` pointing at a
+>   bundle-local, service-worker-precached `.wasm`
+> - `incremental-wasm-hash` (the whole-file hasher): MUST be bundle-local and
+>   service-worker-precached; used for the mandatory whole-file hash (§7.2)
+>
+> §14.4's no-network assertion covers this — it MUST exercise every WASM code path to
+> detect CDN fetches. For zxing, this means the assertion must perform a decode; for the
+> hasher, it must hash a non-empty stream.
 
 **Cross-origin isolation.** The pipeline uses transferable `VideoFrame`s and
 `ArrayBuffer`s, **not** `SharedArrayBuffer` — so COOP/COEP headers are **not** required.
@@ -766,8 +781,8 @@ size, so it is instant even for 4 TB.
 - ✅ Different files → different `streamId` with overwhelming probability.
 - ⚠️ A file edited **only in the middle**, keeping size and mtime, collides. Mitigated by
   including `lastModified`, and by per-block hashes catching the mismatch at block level.
-- ⚠️ This is **not** a content-integrity hash. The whole-file hash (§7.2) is, and is
-  optional. `streamId` is an *identifier*.
+- ⚠️ This is **not** a content-integrity hash. The whole-file hash (§7.2) **is** a
+  content-integrity hash and is mandatory per concept.md constraint 4. `streamId` is an *identifier*.
 
 Deliberately **not** `crc32(payload)` — the research's original design — because the
 block layer made a full-payload pass unaffordable.
