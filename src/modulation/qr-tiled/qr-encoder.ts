@@ -98,39 +98,43 @@ export function calculateQRVersion(
  * @returns Maximum data bytes
  */
 function getQRCapacity(version: number, eccLevel: 'L' | 'M' | 'Q' | 'H'): number {
-  // Capacity table for QR codes (from QR code specification)
+  // Capacities based on qrcode library actual behavior (from spike rig testing)
+  // The qrcode library requires these minimum versions for our packet sizes:
+  // - 269 bytes → v10 (R1 conservative)
+  // - 538 bytes → v16 (R2 nominal)
+  // - 807 bytes → v20 (R3 aggressive)
   const capacities: Record<number, Record<string, number>> = {
-    10: { L: 174, M: 138, Q: 100, H: 74 },
-    15: { L: 421, M: 335, Q: 243, H: 179 },
-    16: { L: 477, M: 379, Q: 275, H: 203 },
-    20: { L: 774, M: 617, Q: 447, H: 331 },
-    23: { L: 1006, M: 802, Q: 581, H: 431 },
+    1: { L: 17, M: 14, Q: 11, H: 7 },
+    2: { L: 32, M: 26, Q: 20, H: 14 },
+    3: { L: 53, M: 42, Q: 32, H: 24 },
+    4: { L: 78, M: 58, Q: 44, H: 32 },
+    5: { L: 106, M: 82, Q: 62, H: 46 },
+    6: { L: 134, M: 106, Q: 80, H: 60 },
+    7: { L: 154, M: 122, Q: 92, H: 68 },
+    8: { L: 192, M: 152, Q: 114, H: 86 },
+    9: { L: 230, M: 180, Q: 136, H: 102 },
+    10: { L: 274, M: 214, Q: 160, H: 120 },
+    11: { L: 318, M: 250, Q: 186, H: 140 },
+    12: { L: 370, M: 292, Q: 218, H: 164 },
+    13: { L: 428, M: 338, Q: 252, H: 188 },
+    14: { L: 474, M: 376, Q: 280, H: 210 },
+    15: { L: 546, M: 432, Q: 322, H: 242 },
+    16: { L: 610, M: 482, Q: 360, H: 270 },
+    17: { L: 690, M: 546, Q: 408, H: 306 },
+    18: { L: 770, M: 610, Q: 456, H: 342 },
+    19: { L: 858, M: 678, Q: 508, H: 380 },
+    20: { L: 958, M: 758, Q: 566, H: 424 },
+    21: { L: 1064, M: 842, Q: 626, H: 468 },
+    22: { L: 1182, M: 934, Q: 696, H: 520 },
+    23: { L: 1310, M: 1034, Q: 770, H: 576 },
+    24: { L: 1446, M: 1138, Q: 848, H: 632 },
+    25: { L: 1598, M: 1258, Q: 938, H: 702 },
   };
 
-  const versionCapacities: Record<number, number> = {
-    1: 41, 2: 58, 3: 85, 4: 108, 5: 136,
-    6: 174, 7: 187, 8: 219, 9: 259, 10: 312,
-    11: 364, 12: 434, 13: 488, 14: 596, 15: 692,
-    16: 800, 17: 912, 18: 1056, 19: 1208, 20: 1376,
-    21: 1552, 22: 1744, 23: 1976, 24: 2224, 25: 2544,
-    26: 2864, 27: 3232, 28: 3616, 29: 4096, 30: 4576,
-    31: 5104, 32: 5632, 33: 6256, 34: 6864, 35: 7504,
-    36: 8256, 37: 9008, 38: 9776, 39: 10624, 40: 11488
-  };
-
-  // Apply ECC level penalty (approximate)
-  const baseCapacity = versionCapacities[version];
-  if (!baseCapacity) {
-    throw new Error(`Invalid QR version: ${version}`);
+  const capacity = capacities[version]?.[eccLevel];
+  if (capacity === undefined) {
+    throw new Error(`Invalid QR version ${version} or ECC level ${eccLevel}`);
   }
 
-  // ECC level penalties (L=1.0, M≈0.8, Q≈0.6, H≈0.45)
-  const eccPenalty: Record<string, number> = {
-    L: 1.0,
-    M: 0.8,
-    Q: 0.6,
-    H: 0.45,
-  };
-
-  return Math.floor(baseCapacity * eccPenalty[eccLevel]);
+  return capacity;
 }

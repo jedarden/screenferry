@@ -218,7 +218,8 @@ describe('Regression: Original failure chain (bf-2w1a)', () => {
           meta: {
             streamId: 12345,
             wireVersion: 1,
-            fileSize: 10_000_000,
+            originalSize: 10_000_000,
+            payloadLen: 10_000_000,
             blockSize: 196608,
             blockCount: 50,
             fragmentLen: 256,

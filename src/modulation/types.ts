@@ -85,6 +85,17 @@ export interface DecodedFrameResult {
 }
 
 /**
+ * Position of a detected QR code in the frame.
+ * Used for ROI tracking and crop optimization (plan.md §6.4).
+ */
+export interface QRPosition {
+  /** X coordinate in frame pixels */
+  readonly x: number;
+  /** Y coordinate in frame pixels */
+  readonly y: number;
+}
+
+/**
  * Per-tile quality metrics and error conditions for D18b adaptation and §11 error codes.
  */
 export interface TileDiagnostics {
@@ -93,6 +104,13 @@ export interface TileDiagnostics {
 
   /** Whether this tile was successfully decoded */
   readonly decoded: boolean;
+
+  /**
+   * Position of this QR code in the frame (if decoded).
+   * Used for ROI tracking and crop optimization (plan.md §6.4).
+   * Array of corner points in order: top-left, top-right, bottom-right, bottom-left.
+   */
+  readonly position?: readonly QRPosition[];
 
   /**
    * Camera pixels per QR module (the critical decode cliff metric).

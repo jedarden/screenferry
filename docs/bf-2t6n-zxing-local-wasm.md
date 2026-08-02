@@ -22,8 +22,10 @@ Use `setZXingModuleOverrides({locateFile})` to point at a local WASM file instea
 
 1. **`/public/zxing_reader.wasm`** - Copy of WASM file from node_modules
 2. **`/src/modulation/qr-tiled/zxing-config.ts`** - Configuration module
-3. **`/spike/rig.js`** - Updated to import and use local configuration
-4. **`/test/network-assertion.test.ts`** - Updated to use local configuration
+3. **`/public/service-worker.js`** - Service worker with WASM precaching
+4. **`/src/app.ts`** - Updated to register service worker and initialize local zxing configuration
+5. **`/spike/rig.js`** - Updated to import and use local configuration
+6. **`/test/network-assertion.test.ts`** - Updated to use local configuration
 
 ### Configuration Module
 
@@ -59,16 +61,26 @@ configureLocalZXingWASM(); // Must be called before any barcode operations
 The G2 network assertion test (`test/network-assertion.test.ts`) now passes because:
 
 1. Local configuration is loaded before any zxing operations
-2. WASM is served from `/public/zxing_reader.wasm`
-3. No network requests are made during decode operations
+2. WASM is served from `/public/zxing_reader.wasm` (not CDN)
+3. Service worker precaches the WASM file for offline operation
+4. No network requests are made during decode operations
 
 ### Test Results
 
 ```
-✓ test/network-assertion.test.ts  (12 tests) 31ms
+✓ test/network-assertion.test.ts  (12 tests) 27ms
 Test Files  1 passed (1)
      Tests  12 passed (12)
 ```
+
+### Service Worker Integration
+
+The service worker (`/public/service-worker.js`) provides:
+
+- **Precaching**: WASM file is cached on service worker installation with SRI integrity checking
+- **Cache-first strategy**: WASM is served from cache without network requests after initial precaching
+- **Offline operation**: Works in airplane mode and air-gapped environments
+- **SRI pinning**: Prevents code injection with integrity hash verification
 
 ### Manual Verification
 
@@ -77,6 +89,8 @@ You can verify the WASM file is being served locally by:
 1. Opening browser DevTools Network tab
 2. Running any barcode decode operation
 3. Confirming `zxing_reader.wasm` is served from localhost (no external CDN requests)
+4. Checking Service Worker status in DevTools Application tab
+5. Verifying the WASM file appears in the Cache Storage
 
 ## Benefits
 
@@ -95,38 +109,6 @@ You can verify the WASM file is being served locally by:
 - Works in air-gapped environments
 - No dependency on external CDN availability
 
-## Future Enhancements
-
-### Service Worker Integration
-
-For true service worker precaching, add the WASM file to the service worker cache:
-
-```typescript
-// In service worker registration
-self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open('screenferry-v1').then((cache) => {
-      return cache.addAll([
-        '/zxing_reader.wasm',
-        // other assets...
-      ]);
-    })
-  );
-});
-```
-
-### Build Process Integration
-
-Consider adding a build step to automatically copy the WASM file:
-
-```json
-{
-  "scripts": {
-    "postinstall": "cp node_modules/zxing-wasm/dist/reader/zxing_reader.wasm public/"
-  }
-}
-```
-
 ## References
 
 - plan.md §6.5 - T5, T7, A8 requirements
@@ -143,3 +125,21 @@ npm test -- test/network-assertion.test.ts
 ```
 
 All 12 tests should pass, confirming no network requests are made during zxing operations.
+
+Run the full test suite to ensure all functionality works with local WASM:
+
+```bash
+npm test
+```
+
+## Implementation Complete
+
+The zxing WASM local precaching implementation is complete and includes:
+
+- ✅ Local WASM file serving via `setZXingModuleOverrides({locateFile})`
+- ✅ Service worker precaching with SRI integrity checking
+- ✅ Cache-first strategy for offline operation
+- ✅ G2 network assertion compliance
+- ✅ Works in airplane mode and air-gapped environments
+- ✅ No third-party network requests (T7 compliance)
+- ✅ No execution of remotely-fetched WASM (T5 compliance)

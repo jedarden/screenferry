@@ -123,7 +123,7 @@ On beacon receipt, before allocating any GE structures:
 ```typescript
 // src/core/frame/beacon.ts (or validation layer)
 export function validateBeacon(meta: BeaconMeta, localKMax: number): void {
-  // ... existing bounds checks (fileSize, blockCount, L, etc.)
+  // ... existing bounds checks (originalSize, payloadLen, blockCount, L, etc.)
   
   // NEW: D26 K validation
   const derivedK = Math.ceil(meta.blockSize / L);

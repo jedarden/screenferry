@@ -78,9 +78,9 @@ describe('Beacon CRC-32 validation (bf-312)', () => {
       const meta = createValidMeta();
       const encoded = encodeBeacon(meta);
 
-      // Find and corrupt blockCount (after streamId, wireVersion, fileSize, blockSize)
-      // blockCount is at offset 13 (4 + 1 + 6 + 3)
-      const blockCountOffset = 4 + 1 + 6 + 3;
+      // Find and corrupt blockCount (after streamId, wireVersion, originalSize, payloadLen, blockSize)
+      // blockCount is at offset 20 (4 + 1 + 6 + 6 + 3)
+      const blockCountOffset = 4 + 1 + 6 + 6 + 3;
       encoded[blockCountOffset] = (encoded[blockCountOffset]! + 1) & 0xff;
 
       expect(() => {
@@ -156,18 +156,18 @@ describe('Beacon CRC-32 validation (bf-312)', () => {
   });
 
   describe('CRC-32 prevents silent corruption', () => {
-    it('catches fileSize corruption that passes T1 bounds', () => {
+    it('catches originalSize corruption that passes T1 bounds', () => {
       const meta = createValidMeta();
       const encoded = encodeBeacon(meta);
 
-      // Corrupt fileSize but keep it within T1 bounds
-      // fileSize is at offset 5 (after streamId:4 + wireVersion:1)
+      // Corrupt originalSize but keep it within T1 bounds
+      // originalSize is at offset 5 (after streamId:4 + wireVersion:1)
       // It's 6 bytes, corrupt the middle ones
-      encoded[7] = (encoded[7]! + 0x10) & 0xff; // Change fileSize slightly
+      encoded[7] = (encoded[7]! + 0x10) & 0xff; // Change originalSize slightly
 
       try {
         parseBeacon(encoded, 1024, 10 * 1024 * 1024);
-        expect.fail('Should have thrown BeaconValidationError for corrupted fileSize');
+        expect.fail('Should have thrown BeaconValidationError for corrupted originalSize');
       } catch (e) {
         expect(e).toBeInstanceOf(BeaconValidationError);
         if (e instanceof BeaconValidationError) {
@@ -181,7 +181,7 @@ describe('Beacon CRC-32 validation (bf-312)', () => {
       const encoded = encodeBeacon(meta);
 
       // Corrupt blockCount but keep it within T1 bounds
-      const blockCountOffset = 4 + 1 + 6 + 3; // streamId + wireVersion + fileSize + blockSize
+      const blockCountOffset = 4 + 1 + 6 + 6 + 3; // streamId + wireVersion + originalSize + payloadLen + blockSize
       encoded[blockCountOffset + 1] = (encoded[blockCountOffset + 1]! + 0x01) & 0xff;
 
       try {

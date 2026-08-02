@@ -96,7 +96,7 @@ describe('A10: Hostile beacon fuzzer (bf-5fs)', () => {
     return encodeBeacon(meta);
   }
 
-  describe('A10 original threat: fileSize manipulation', () => {
+  describe('A10 original threat: originalSize/payloadLen manipulation', () => {
     it('accepts beacon with reasonable originalSize and blockCount', () => {
       const encoded = createEncodedBeacon({blockCount: 1000});
 

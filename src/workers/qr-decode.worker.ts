@@ -21,7 +21,7 @@
  */
 
 import { readBarcodes } from 'zxing-wasm/reader';
-import type { DecodedFrameResult, TileDiagnostics } from '../modulation/types.js';
+import type { DecodedFrameResult, TileDiagnostics, QRPosition } from '../modulation/types.js';
 
 /**
  * Worker message types
@@ -200,7 +200,7 @@ async function videoFrameToImageData(frame: VideoFrame): Promise<ImageData> {
  * This is the main worker entry point. It:
  * 1. Converts VideoFrame to ImageData if needed
  * 2. Calls zxing-wasm to decode QR symbols
- * 3. Extracts packets from decoded results
+ * 3. Extracts packets and position data from decoded results
  * 4. Computes diagnostics for quality assessment
  * 5. Closes the VideoFrame to prevent pipeline stalls
  */
@@ -248,6 +248,9 @@ async function processFrame(request: DecodeRequest): Promise<DecodeResponse> {
       const packet = new Uint8Array(barcode.bytes);
       packets.push(packet);
 
+      // Extract position data from barcode
+      const position = extractPosition(barcode);
+
       // Calculate diagnostics for this tile
       const cameraPxPerModule = estimateCameraPxPerModule(
         barcode,
@@ -258,6 +261,7 @@ async function processFrame(request: DecodeRequest): Promise<DecodeResponse> {
       diagnosticsMap.set(tileIndex, {
         tileIndex,
         decoded: true,
+        position,
         cameraPxPerModule,
         sharpness,
         isTorn,
@@ -311,6 +315,39 @@ async function processFrame(request: DecodeRequest): Promise<DecodeResponse> {
       }
     }
   }
+}
+
+/**
+ * Extract position data from a decoded barcode.
+ *
+ * zxing-wasm returns position as an object with top-left, top-right, etc.
+ * We convert this to our QRPosition format.
+ */
+function extractPosition(
+  barcode: ReturnType<typeof readBarcodes>[0]
+): readonly QRPosition[] | undefined {
+  if (!barcode.position || typeof barcode.position !== 'object') {
+    return undefined;
+  }
+
+  const pos = barcode.position as Record<string, { x: number; y: number }>;
+
+  // Extract corner points if available
+  const corners: QRPosition[] = [];
+  if (pos.topLeft && typeof pos.topLeft.x === 'number') {
+    corners.push({ x: pos.topLeft.x, y: pos.topLeft.y });
+  }
+  if (pos.topRight && typeof pos.topRight.x === 'number') {
+    corners.push({ x: pos.topRight.x, y: pos.topRight.y });
+  }
+  if (pos.bottomRight && typeof pos.bottomRight.x === 'number') {
+    corners.push({ x: pos.bottomRight.x, y: pos.bottomRight.y });
+  }
+  if (pos.bottomLeft && typeof pos.bottomLeft.x === 'number') {
+    corners.push({ x: pos.bottomLeft.x, y: pos.bottomLeft.y });
+  }
+
+  return corners.length >= 4 ? corners : undefined;
 }
 
 /**

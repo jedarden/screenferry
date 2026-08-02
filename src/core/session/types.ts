@@ -420,7 +420,7 @@ export function canResumeRecv(state: RecvSessionState): boolean {
   }
 
   // Check beacon flags for resume disabled
-  const meta = state.type === 'paused' ? state.previousState.meta : state.meta;
+  const meta = state.type === 'paused' ? state.previousState.meta : (state as CompleteState).meta;
   if (isResumeDisabled(meta.flags)) {
     return false;
   }
@@ -436,7 +436,8 @@ export function getMissingBlocks(bitmap: Uint8Array): number[] {
   for (let i = 0; i < bitmap.length * 8; i++) {
     const byteIndex = Math.floor(i / 8);
     const bitIndex = i % 8;
-    if (!(bitmap[byteIndex] & (1 << bitIndex))) {
+    const byte = bitmap[byteIndex]!; // Typed array access is always defined
+    if (!(byte & (1 << bitIndex))) {
       missing.push(i);
     }
   }
@@ -461,7 +462,7 @@ export function isBitmapComplete(bitmap: Uint8Array): boolean {
 export function clearBitmapBit(bitmap: Uint8Array, blockIndex: number): void {
   const byteIndex = Math.floor(blockIndex / 8);
   const bitIndex = blockIndex % 8;
-  bitmap[byteIndex] &= ~(1 << bitIndex);
+  bitmap[byteIndex]! &= ~(1 << bitIndex);
 }
 
 /**
@@ -470,7 +471,7 @@ export function clearBitmapBit(bitmap: Uint8Array, blockIndex: number): void {
 export function setBitmapBit(bitmap: Uint8Array, blockIndex: number): void {
   const byteIndex = Math.floor(blockIndex / 8);
   const bitIndex = blockIndex % 8;
-  bitmap[byteIndex] |= (1 << bitIndex);
+  bitmap[byteIndex]! |= (1 << bitIndex);
 }
 
 // ==============================================================================
@@ -603,7 +604,7 @@ export class WritePositionTrackerImpl implements WritePositionTracker {
 export function isBlockWritten(state: BaseRecvState, blockIndex: number): boolean {
   const byteIndex = Math.floor(blockIndex / 8);
   const bitIndex = blockIndex % 8;
-  return (state.writtenBlocks[byteIndex] & (1 << bitIndex)) !== 0;
+  return (state.writtenBlocks[byteIndex]! & (1 << bitIndex)) !== 0;
 }
 
 /**
@@ -612,7 +613,7 @@ export function isBlockWritten(state: BaseRecvState, blockIndex: number): boolea
 export function markBlockWritten(state: BaseRecvState, blockIndex: number): void {
   const byteIndex = Math.floor(blockIndex / 8);
   const bitIndex = blockIndex % 8;
-  state.writtenBlocks[byteIndex] |= (1 << bitIndex);
+  state.writtenBlocks[byteIndex]! |= (1 << bitIndex);
 }
 
 /**
@@ -647,8 +648,8 @@ export function getUnwrittenBlocks(state: BaseRecvState): number[] {
     const byteIndex = Math.floor(i / 8);
     const bitIndex = i % 8;
 
-    const complete = (state.complete[byteIndex] & (1 << bitIndex)) !== 0;
-    const written = (state.writtenBlocks[byteIndex] & (1 << bitIndex)) !== 0;
+    const complete = (state.complete[byteIndex]! & (1 << bitIndex)) !== 0;
+    const written = (state.writtenBlocks[byteIndex]! & (1 << bitIndex)) !== 0;
 
     if (complete && !written) {
       unwritten.push(i);
@@ -668,8 +669,8 @@ export function areAllBlocksWritten(state: BaseRecvState): boolean {
     const byteIndex = Math.floor(i / 8);
     const bitIndex = i % 8;
 
-    const complete = (state.complete[byteIndex] & (1 << bitIndex)) !== 0;
-    const written = (state.writtenBlocks[byteIndex] & (1 << bitIndex)) !== 0;
+    const complete = (state.complete[byteIndex]! & (1 << bitIndex)) !== 0;
+    const written = (state.writtenBlocks[byteIndex]! & (1 << bitIndex)) !== 0;
 
     if (complete && !written) {
       return false;
@@ -753,7 +754,7 @@ export async function writeTrackedBlock(
 export function resetBlockWriteTracking(state: BaseRecvState, blockIndex: number): void {
   const byteIndex = Math.floor(blockIndex / 8);
   const bitIndex = blockIndex % 8;
-  state.writtenBlocks[byteIndex] &= ~(1 << bitIndex);
+  state.writtenBlocks[byteIndex]! &= ~(1 << bitIndex);
 }
 
 /**

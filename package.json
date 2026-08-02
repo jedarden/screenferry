@@ -12,7 +12,8 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "gate:numbers": "python3 docs/research/sim/ge_cost_model.py --check",
-    "gate": "npm run typecheck && npm run lint && npm run test && npm run gate:numbers"
+    "gate:bundle": "node scripts/check-bundle-size.mjs",
+    "gate": "npm run typecheck && npm run lint && npm run test && npm run gate:numbers && npm run gate:bundle"
   },
   "dependencies": {
     "qrcode": "1.5.4",

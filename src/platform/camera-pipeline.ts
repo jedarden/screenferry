@@ -14,9 +14,10 @@
  */
 
 import { createDecodePool, type QRDecodePool } from '../workers/qr-decode-pool.js';
-import type { DecodedFrameResult } from '../modulation/types.js';
+import type { DecodedFrameResult, QRPosition } from '../modulation/types.js';
 import { getConstraints, toMediaTrackConstraints, type CaptureResolution } from './capture-resolution.js';
 import type { SubmitResult } from '../workers/qr-decode-pool.js';
+import type { ROI } from '../workers/qr-decode.worker.js';
 
 /**
  * Pipeline configuration
@@ -96,7 +97,8 @@ export type ErrorCallback = (error: Error) => void;
 /**
  * Camera capture pipeline
  *
- * Manages the full camera-to-decode pipeline with worker pool parallelization.
+ * Manages the full camera-to-decode pipeline with worker pool parallelization
+ * and ROI cropping with AP2's ratchet guard (plan.md §6.4).
  */
 export class CameraPipeline {
   private config: Required<CameraPipelineConfig>;
@@ -117,6 +119,14 @@ export class CameraPipeline {
   private currentCaptureFps: number = 0;
   private currentDecodeFps: number = 0;
   private currentPacketsPerSec: number = 0;
+
+  // ROI tracking with AP2's ratchet guard (plan.md §6.4)
+  private currentROI: ROI | null = null;
+  private roiMisses: number = 0;
+  private cameraFrames: number = 0; // Total frames captured for ratchet guard
+  private readonly ROI_MARGIN = 0.35; // 35% margin per spike/plan.md §6.4
+  private readonly ROI_MAX_MISSES = 8; // Reset after 8 consecutive misses
+  private readonly ROI_RESCAN_INTERVAL = 20; // Full-frame rescan every 20 frames
 
   // Callbacks
   private onFrameResult?: FrameResultCallback;
@@ -314,11 +324,26 @@ export class CameraPipeline {
     const frameIndex = this.frameCount++;
     const timestamp = performance.now();
 
-    // Submit to decode pool
-    const submitResult: SubmitResult = this.decodePool!.submitFrame(frame);
+    // AP2's ratchet guard: Force full-frame rescan every N frames
+    // This prevents the one-way ratchet problem where ROI shrinks to
+    // a few tiles and never recovers (plan.md §6.4)
+    if (this.cameraFrames > 0 && (this.cameraFrames % this.ROI_RESCAN_INTERVAL) === this.ROI_RESCAN_INTERVAL - 1) {
+      this.currentROI = null;
+      console.debug('[Camera Pipeline] Ratchet guard: forcing full-frame rescan');
+    }
+
+    // Apply ROI crop if active
+    let processedFrame = frame;
+    if (this.currentROI) {
+      processedFrame = this.cropFrame(frame, this.currentROI);
+    }
+
+    // Submit to decode pool with current ROI
+    const submitResult: SubmitResult = this.decodePool!.submitFrame(processedFrame);
 
     // Track timing
     this.frameTimestamps.push(timestamp);
+    this.cameraFrames++;
 
     if (!submitResult.accepted && submitResult.dropped) {
       this.droppedCount++;
@@ -337,6 +362,9 @@ export class CameraPipeline {
     this.decodedCount++;
     this.decodeLatencies.push(decodeMs);
     this.packetsPerFrame.push(result.packets.length);
+
+    // Update ROI based on decoded positions (AP2's ratchet guard)
+    this.updateROI(result);
 
     // Invoke callback if set
     if (this.onFrameResult) {
@@ -426,6 +454,136 @@ export class CameraPipeline {
    */
   setErrorCallback(callback: ErrorCallback): void {
     this.onError = callback;
+  }
+
+  /**
+   * Update ROI based on decoded QR positions (AP2's ratchet guard).
+   *
+   * Implements the tight quad ROI with wide margin (35%) and periodic
+   * full-frame rescan to prevent one-way ratchet problem (plan.md §6.4).
+   *
+   * Logic from spike/rig.js lines 237-263:
+   * - Extract bounding box of all detected QR codes
+   * - Add 35% margin for drift
+   * - Reset ROI after 8 consecutive misses
+   * - Periodic full-frame rescan (handled in processFrame)
+   */
+  private updateROI(result: DecodedFrameResult): void {
+    const decodedTiles = result.diagnostics.filter(d => d.decoded && d.position);
+
+    if (decodedTiles.length > 0) {
+      // Extract bounding box from all detected positions
+      let xMin = Infinity, yMin = Infinity, xMax = -Infinity, yMax = -Infinity;
+
+      for (const tile of decodedTiles) {
+        if (!tile.position) continue;
+        for (const pt of tile.position) {
+          xMin = Math.min(xMin, pt.x);
+          yMin = Math.min(yMin, pt.y);
+          xMax = Math.max(xMax, pt.x);
+          yMax = Math.max(yMax, pt.y);
+        }
+      }
+
+      if (isFinite(xMin) && isFinite(yMin) && isFinite(xMax) && isFinite(yMax)) {
+        // Apply ROI offset if currently cropped
+        const offsetX = this.currentROI?.x || 0;
+        const offsetY = this.currentROI?.y || 0;
+
+        // Calculate dimensions with margin
+        const width = xMax - xMin;
+        const height = yMax - yMin;
+        const margin = this.ROI_MARGIN * Math.max(width, height);
+
+        // Constrain to frame bounds (assume 1080p max - will be adjusted based on actual capture)
+        const maxWidth = 1920; // Will be updated based on actual capture resolution
+        const maxHeight = 1080;
+
+        this.currentROI = {
+          x: Math.max(0, Math.round(offsetX + xMin - margin)),
+          y: Math.max(0, Math.round(offsetY + yMin - margin)),
+          w: Math.min(maxWidth, Math.round(width + 2 * margin)),
+          h: Math.min(maxHeight, Math.round(height + 2 * margin)),
+        };
+
+        this.roiMisses = 0; // Reset miss counter
+        console.debug('[Camera Pipeline] ROI updated:', this.currentROI);
+      }
+    } else if (this.currentROI) {
+      // No QR codes detected - increment miss counter
+      this.roiMisses++;
+      if (this.roiMisses > this.ROI_MAX_MISSES) {
+        // Lost lock - go wide again
+        this.currentROI = null;
+        this.roiMisses = 0;
+        console.debug('[Camera Pipeline] ROI lost lock - going wide');
+      }
+    }
+  }
+
+  /**
+   * Crop a frame to the specified ROI.
+   */
+  private cropFrame(frame: VideoFrame | ImageData, roi: ROI): VideoFrame | ImageData {
+    // For VideoFrame, we need to draw to a canvas and extract the ROI
+    if ('format' in frame && 'close' in frame) {
+      // It's a VideoFrame - convert to ImageData with crop
+      return this.cropVideoFrame(frame as VideoFrame, roi);
+    } else {
+      // It's already ImageData - crop directly
+      return this.cropImageData(frame as ImageData, roi);
+    }
+  }
+
+  /**
+   * Crop a VideoFrame to the specified ROI.
+   */
+  private cropVideoFrame(frame: VideoFrame, roi: ROI): ImageData {
+    const canvas = new OffscreenCanvas(frame.width, frame.height);
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      throw new Error('Failed to get 2D context for ROI crop');
+    }
+
+    // Draw the full frame
+    ctx.drawImage(frame, 0, 0);
+
+    // Extract the ROI region
+    const imageData = ctx.getImageData(roi.x, roi.y, roi.w, roi.h);
+
+    // Close the original frame
+    frame.close();
+
+    return imageData;
+  }
+
+  /**
+   * Crop ImageData to the specified ROI.
+   */
+  private cropImageData(imageData: ImageData, roi: ROI): ImageData {
+    const { width, height, data } = imageData;
+
+    // Validate ROI bounds
+    if (roi.x < 0 || roi.y < 0 || roi.x + roi.w > width || roi.y + roi.h > height) {
+      console.warn('[Camera Pipeline] ROI out of bounds, using full frame:', roi);
+      return imageData;
+    }
+
+    // Create new ImageData for the cropped region
+    const cropped = new ImageData(roi.w, roi.h);
+    const srcData = data;
+    const dstData = cropped.data;
+
+    for (let y = 0; y < roi.h; y++) {
+      const srcY = roi.y + y;
+      const srcOffset = srcY * width * 4 + roi.x * 4;
+      const dstOffset = y * roi.w * 4;
+
+      // Copy one row of pixels
+      dstData.set(srcData.subarray(srcOffset, srcOffset + roi.w * 4), dstOffset);
+    }
+
+    return cropped;
   }
 
   /**

@@ -13,7 +13,7 @@ Define the beacon size bound and filename truncation rules per plan.md §7.2, T2
 
 ### Beacon Size Calculation (R1's 256-byte payload)
 - **Fixed fields:** 64 bytes
-  - streamId(4) + wireVersion(1) + fileSize(6) + payloadLen(6) +
+  - streamId(4) + wireVersion(1) + originalSize(6) + payloadLen(6) +
   - blockSize(3) + blockCount(3) + fragmentLen(2) + degreeCap(1) +
   - flags(1) + blockHashLen(1) + wholeFileHash(32) + manifestHash(4)
 - **CRC-32:** 4 bytes
