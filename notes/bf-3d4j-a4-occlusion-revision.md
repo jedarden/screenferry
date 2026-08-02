@@ -9,7 +9,7 @@
 A4 ("Lossy channel") is currently unpassable:
 - Camera occluded 30% of the time ON TOP OF baseline erasure (20-30% per D18c)
 - Total erasure: 50-60%
-- Completion cliff (e_max) for dwell = 1.6 K: **35.6%**
+- Completion cliff (e_max) for dwell = 1.6 K: **34.9%** (using p99 overhead +4.2%)
 - Above e_max, zero blocks ever complete → transfer never finishes
 
 The pass criterion also has no achievable middle:
@@ -22,8 +22,8 @@ From plan.md §8.1:
 
 ```
 e_max = 1 - (1 + overhead) / dwell
-      = 1 - 1.0297 / 1.6
-      = 35.6%
+      = 1 - 1.042 / 1.6
+      = 34.9%
 ```
 
 A block completes on a pass iff `dwell × (1 - e) ≥ 1 + overhead`. Above e_max, every pass delivers fewer than K independent packets — the block never reaches full rank, and the transfer NEVER finishes.
@@ -32,21 +32,21 @@ A block completes on a pass iff `dwell × (1 - e) ≥ 1 + overhead`. Above e_max
 
 ### Constraint 1: Stay Below Completion Cliff
 
-For A4 to be passable, total erasure must be < e_max = 35.6%:
+For A4 to be passable, total erasure must be < e_max = 34.9%:
 
 ```
-baseline_erasure + occlusion < 35.6%
+baseline_erasure + occlusion < 34.9%
 ```
 
 Given baseline erasure band (20-30%):
 
-| Baseline | Max occlusion to stay < 35.6% |
+| Baseline | Max occlusion to stay < 34.9% |
 |----------|------------------------------|
-| 20%      | 15.6%                        |
-| 25%      | 10.6%                        |
-| 30%      | 5.6%                         |
+| 20%      | 14.9%                        |
+| 25%      | 9.9%                         |
+| 30%      | 4.9%                         |
 
-To be passable across the entire baseline band, occlusion should be **≤ 5%**.
+To be passable across the entire baseline band, occlusion should be **≤ 4.9%** (round to 5%).
 
 ### Constraint 2: A4 Should Test Lossy Conditions
 
@@ -72,14 +72,14 @@ However, the dwell mechanism (1.6 K packets spread across multiple passes) alrea
 
 Rationale:
 - Total erasure: 25-35% (within baseline band for most cases)
-- Stays below 35.6% cliff even at 30% baseline
+- Stays below 34.9% cliff even at 30% baseline
 - Still tests lossy conditions (5% on top of baseline)
 - Realistic: occasional obstruction (finger, reflection, etc.)
 - **Pass criterion: ≤ 1.3× A1 frame count**
 
 Calculation:
 - At 5% occlusion on top of 25% baseline = 30% total
-- Well below 35.6% cliff → blocks complete
+- Well below 34.9% cliff → blocks complete
 - Fountain overhead at 30% erasure: slightly elevated but manageable
 - Expected frame ratio: ~1.15-1.25× A1
 
@@ -103,7 +103,7 @@ Risk: Some runs may not complete if baseline erasure is high.
 Rationale:
 - Total erasure: 35-45%
 - Requires higher dwell to stay below cliff
-- At dwell = 2.0 K: e_max = 1 - 1.0297/2.0 = 48.5%
+- At dwell = 2.0 K: e_max = 1 - 1.042/2.0 = 47.9%
 - **Pass criterion: ≤ 2.0× A1 frame count**
 - Tests both loss tolerance AND dwell adjustment
 

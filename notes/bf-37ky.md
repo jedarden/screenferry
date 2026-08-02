@@ -2,7 +2,7 @@
 
 ## Decision
 
-**Remain at dwell 1.6 K (e_max = 35.6%) for v1.**
+**Remain at dwell 1.6 K (e_max = 34.9%) for v1.**
 
 The 48% erasure measured in spike-results.md does not justify changing the dwell strategy because:
 1. The measurement was under non-qualifying conditions that deviated from §13.2

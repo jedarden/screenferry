@@ -10,7 +10,7 @@ A4 is currently unpassable due to flawed parameter selection:
 - Total erasure: 50-60% in worst case
 
 **Why it fails:**
-- e_max completion cliff = 35.6% (from plan.md §8.1)
+- e_max completion cliff = 34.9% (from plan.md §8.1)
 - Above e_max, `dwell × (1 - e) < 1 + overhead`, so blocks never reach full rank
 - The decoder resets each pass, and transfer NEVER finishes
 
@@ -23,12 +23,12 @@ A4 is currently unpassable due to flawed parameter selection:
 ## Mathematical Constraints
 
 From plan.md:
-- e_max = 1 - 1.0297/1.6 = 35.6%
-- Dwell = 1.6K (designed to survive 30% erasure with +12% margin)
+- e_max = 1 - 1.042/1.6 = 34.9% (using p99 overhead +4.2%)
+- Dwell = 1.6K (designed to survive 30% erasure with margin)
 - Assumed erasure band: 20-30% (D18c)
 
 **For A4 to be passable:**
-- Worst-case total erasure < e_max (35.6%)
+- Worst-case total erasure < e_max (34.9%)
 - Need margin below cliff for reliable completion
 
 ## Derivation
@@ -44,7 +44,7 @@ Worst-case baseline = 30% (top of assumed band)
 To ensure blocks CAN complete:
 - occlusion = 5% (at worst baseline, total = 35%)
 - At best baseline (20%), total = 25%
-- At 30% baseline, total = 35% (right at cliff edge - risky)
+- At 30% baseline, total = 35% (0.1% above cliff edge - risky)
 
 ### Option 3: Test moderate erasure (RECOMMENDED)
 
@@ -61,7 +61,7 @@ This shows A4 is sensitive to baseline conditions. To make it robust:
 
 **Occlusion: 10%**
 - At 10% baseline: total = 20% → reliable first-pass completion
-- At 20% baseline: total = 30% → completes with margin (5.6% below e_max)
+- At 20% baseline: total = 30% → completes with margin (4.9% below e_max)
 - At 30% baseline: total = 40% → FAILS (as designed - tests upper bound)
 
 **Pass criterion revision:**
@@ -105,7 +105,7 @@ Option C: Explicit block miss allowance
 
 ### 3. Add A4 rationale
 
-"Tests the fountain code's tolerance to moderate, predictable loss. 10% occlusion on top of baseline erasure keeps total erasure below e_max (35.6%) in typical conditions, ensuring the transfer can complete while demonstrating the dwell margin's purpose."
+"Tests the fountain code's tolerance to moderate, predictable loss. 10% occlusion on top of baseline erasure keeps total erasure below e_max (34.9%) in typical conditions, ensuring the transfer can complete while demonstrating the dwell margin's purpose."
 
 ## Verification
 
@@ -120,12 +120,12 @@ With occlusion = 10%:
 
 **Worst case (30% baseline):**
 - A4 total = 40% erasure
-- Above e_max (35.6%) → blocks never complete
+- Above e_max (34.9%) → blocks never complete
 - This is intentional: tests the failure mode
 
 **Typical case (20% baseline):**
 - A4 total = 30% erasure
-- 5.6% below e_max → completes but slowly
+- 4.9% below e_max → completes but slowly
 - Frame count: ~1.5-2.0× A1
 
 The new parameters make A4:
