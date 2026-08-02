@@ -334,11 +334,11 @@ CHECKED_CLAIMS = [
     # Tile counts (§6.3.2)
     ("tiles", str(TILES)),
     ("7.5 KB/frame", f"{USER_VISIBLE_PAYLOAD/1024:.1f} KB/frame"),
-    ("8.8 KB/frame", f"{QR_FRAME_CAPACITY/1024:.1f} KB/frame"),
+    ("8.6 KB/frame", f"{QR_FRAME_CAPACITY/1024:.1f} KB/frame"),
     ("112.5 KB/s", f"{PAYLOAD_RATE/1024:.1f} KB/s"),
     # Manifest arithmetic (§7.6)
     ("21,845 blocks", f"{BLOCKS_PER_4GB:,}"),
-    ("87 KB", f"{MANIFEST_SIZE_4GB_BYTES/1024:.0f} KB"),
+    ("87 KB", f"{MANIFEST_SIZE_4GB_BYTES/1000:.0f} KB"),
     # Dwell table (§8.1)
     ("1.6 K", f"{DWELL_MULTIPLIER} K"),
     ("34.9%", f"{E_MAX*100:.1f}%"),

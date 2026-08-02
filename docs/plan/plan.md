@@ -472,7 +472,9 @@ getUserMedia ──► exposureCompensation:min (D14) ──► measure real fps
 `drawImage` is the universal fallback and MUST be implemented (§16.3).
 
 **Block-layer working set: 264.0 KB** — 72.0 KB matrix + 192.0 KB block — flat regardless
-of file size. This is *not* the whole-receiver figure; see I6a/I6b in §5.
+of file size. This is *not* the whole-receiver figure; see I6a/I6b in §5. The **total peak
+working set is 528.0 KB** when including the manifest GE context (72.0 KB matrix + 192.0 KB block)
+and recover()'s second K*L array, still well under I6a's 1 MB limit (0.52×).
 
 Three rules that are cheap to implement and expensive to omit:
 
