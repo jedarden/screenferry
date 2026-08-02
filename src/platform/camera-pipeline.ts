@@ -124,9 +124,9 @@ export class CameraPipeline {
   private currentROI: ROI | null = null;
   private roiMisses: number = 0;
   private cameraFrames: number = 0; // Total frames captured for ratchet guard
-  private readonly ROI_MARGIN = 0.35; // 35% margin per spike/plan.md §6.4
-  private readonly ROI_MAX_MISSES = 8; // Reset after 8 consecutive misses
-  private readonly ROI_RESCAN_INTERVAL = 20; // Full-frame rescan every 20 frames
+  private readonly ROI_MARGIN = 0.08; // 8% margin - tight ROI per spike-results.md S3
+  private readonly ROI_MAX_MISSES = 16; // Reset after 16 consecutive misses (more tolerant with tight ROI)
+  private readonly ROI_RESCAN_INTERVAL = 120; // Full-frame rescan every 120 frames (less frequent with tight ROI)
 
   // Callbacks
   private onFrameResult?: FrameResultCallback;
@@ -459,14 +459,19 @@ export class CameraPipeline {
   /**
    * Update ROI based on decoded QR positions (AP2's ratchet guard).
    *
-   * Implements the tight quad ROI with wide margin (35%) and periodic
+   * Implements the tight quad ROI with narrow margin (8%) and periodic
    * full-frame rescan to prevent one-way ratchet problem (plan.md §6.4).
+   *
+   * Per spike-results.md S3: The current ROI (35% margin, full-frame rescans)
+   * is far too loose. A tight ROI crop to the screen quad is what makes 4K
+   * affordable - decoding only the screen region keeps px/module high while
+   * bounding pixel count.
    *
    * Logic from spike/rig.js lines 237-263:
    * - Extract bounding box of all detected QR codes
-   * - Add 35% margin for drift
-   * - Reset ROI after 8 consecutive misses
-   * - Periodic full-frame rescan (handled in processFrame)
+   * - Add 8% margin for drift (tight vs previous 35%)
+   * - Reset ROI after 16 consecutive misses (more tolerant with tight margin)
+   * - Periodic full-frame rescan every 120 frames (less frequent than before)
    */
   private updateROI(result: DecodedFrameResult): void {
     const decodedTiles = result.diagnostics.filter(d => d.decoded && d.position);
