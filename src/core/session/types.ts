@@ -88,6 +88,16 @@ export interface AcquiringState {
 
 /**
  * 3. RECEIVING - Normal operation, collecting blocks.
+ *
+ * Block-switch policy (bf-2t1k): The receiver holds the current active block until:
+ * 1. Block completion (rank === K), OR
+ * 2. N consecutive higher-index packets arrive (default N=32)
+ *
+ * This prevents discarding nearly-complete blocks (e.g., 95% done) when camera
+ * frames straddle sender block transitions, which would otherwise waste hours
+ * of work waiting for a full pass.
+ *
+ * See: docs/notes/bf-2t1k-block-switch-policy.md
  */
 export interface ReceivingState extends BaseRecvState {
   type: 'receiving';
@@ -95,6 +105,8 @@ export interface ReceivingState extends BaseRecvState {
     blockIndex: number;
     pivots: Map<number, GERow>;
     rank: number;
+    consecutiveHigher: number;  // count of consecutive packets with blockIndex > current
+    switchThreshold: number;   // N consecutive packets to trigger block switch (default 32)
   } | null;
   out: FileSystemWritableFileStream;
   manifest: BlockHashManifest | null;

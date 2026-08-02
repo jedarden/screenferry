@@ -109,7 +109,9 @@ type ReceivingState = {
   active: {                           // current block being decoded
     blockIndex: number,
     pivots: Map<number, GERow>,
-    rank: number
+    rank: number,
+    consecutiveHigher: number,        // count of consecutive packets with higher blockIndex
+    switchThreshold: number          // N consecutive packets to trigger block switch (default 32)
   } | null,                           // null = between blocks
   out: FileSystemWritableFileStream,
   manifest: BlockHashManifest | null,  // from §7.6
@@ -122,6 +124,11 @@ type ReceivingState = {
   }
 }
 ```
+
+**Block-switch policy (bf-2t1k):**
+- The receiver holds the current active block until: (1) block completion (rank === K), OR (2) N consecutive higher-index packets arrive (default N=32)
+- This prevents discarding nearly-complete blocks when camera frames straddle sender block transitions
+- See: `docs/notes/bf-2t1k-block-switch-policy.md`
 
 **Transitions:**
 - **→ VERIFYING**: `bitmap.allSet()` && `manifest !== null`
