@@ -97,6 +97,11 @@ export const BEACON_LIMITS = {
  * The CRC-32 covers all beacon body fields and MUST be validated before
  * any metadata (including streamId) is trusted.
  *
+ * **Validation order is critical:**
+ * 1. Read all fields (no validation yet)
+ * 2. Validate CRC-32 (if this fails, ALL other values are suspect)
+ * 3. Then do bounds/K/quota checks (safe now because CRC validated)
+ *
  * @param bytes - Beacon payload bytes (after QR decoding and header stripping)
  * @param localKMax - This device's benchmarked maximum K (from GE benchmark)
  * @param availableQuota - Available storage quota in bytes (for T1 fileSize check)
@@ -163,106 +168,28 @@ export function parseBeacon(
     }
   };
 
-  // ------------------------------------------------------------------ Fixed fields
+  // ------------------------------------------------------------------ STEP 1: Read all fields (no validation yet)
 
   const streamId = readU32();
   const wireVersion = readU8();
-  const fileSize = (readU32() << 8) | readU8(); // 6 bytes, 48-bit
-
-  // T1: fileSize bounds check
-  if (fileSize > BEACON_LIMITS.MAX_FILE_SIZE) {
-    throw new BeaconValidationError(
-      'E-META-BOUNDS',
-      `Declared file size (${fileSize}) exceeds maximum (${BEACON_LIMITS.MAX_FILE_SIZE})`,
-      {fileSize, max: BEACON_LIMITS.MAX_FILE_SIZE}
-    );
-  }
-
-  // T1: fileSize must fit in available quota
-  if (fileSize > availableQuota) {
-    throw new BeaconValidationError(
-      'E-QUOTA-PREFLIGHT',
-      `File size (${fileSize}) exceeds available quota (${availableQuota})`,
-      {fileSize, availableQuota}
-    );
-  }
+  // fileSize: 6 bytes, 48-bit
+  const fileSize = ((readU8() << 40) & 0xff0000000000) |
+                   ((readU32() << 8) & 0xffffffffff00) |
+                   (readU8() & 0xff);
 
   const blockSize = readU24();
   const blockCount = readU24();
-
-  // T1: blockCount bounds check
-  if (blockCount > BEACON_LIMITS.MAX_BLOCK_COUNT) {
-    throw new BeaconValidationError(
-      'E-META-BOUNDS',
-      `Block count (${blockCount}) exceeds maximum (${BEACON_LIMITS.MAX_BLOCK_COUNT})`,
-      {blockCount, max: BEACON_LIMITS.MAX_BLOCK_COUNT}
-    );
-  }
-
-  // Sanity: blockSize should be reasonable
-  if (blockSize < 1 || blockSize > 10_485_760) { // Max 10 MB per block
-    throw new BeaconValidationError(
-      'E-META-BOUNDS',
-      `Invalid block size: ${blockSize}`,
-      {blockSize}
-    );
-  }
-
   const fragmentLen = readU16();
-
-  // T1: L bounds check (I1 says L is fixed for session, but beacon declares it)
-  if (fragmentLen < 1 || fragmentLen > BEACON_LIMITS.MAX_L) {
-    throw new BeaconValidationError(
-      'E-META-BOUNDS',
-      `Fragment length L (${fragmentLen}) outside valid range [1, ${BEACON_LIMITS.MAX_L}]`,
-      {L: fragmentLen, max: BEACON_LIMITS.MAX_L}
-    );
-  }
-
   const degreeCap = readU8();
-
-  // Sanity: degreeCap should be within reasonable bounds (D25 says 64)
-  if (degreeCap < 1 || degreeCap > 256) {
-    throw new BeaconValidationError(
-      'E-META-BOUNDS',
-      `Invalid degree cap: ${degreeCap}`,
-      {degreeCap}
-    );
-  }
-
   const flags = readU8();
   const blockHashLen = readU8();
-
-  // Sanity: blockHashLen should be reasonable (SHA-256 truncated to 4 bytes per plan)
-  if (blockHashLen < 1 || blockHashLen > 64) {
-    throw new BeaconValidationError(
-      'E-META-BOUNDS',
-      `Invalid block hash length: ${blockHashLen}`,
-      {blockHashLen}
-    );
-  }
-
   const wholeFileHash = readBytes(32); // Fixed 32-byte whole file hash
 
-  // ------------------------------------------------------------------ Variable fields
-
+  // Variable fields
   const filename = readString(BEACON_LIMITS.MAX_FILENAME_LEN);
   const mimeType = readString(BEACON_LIMITS.MAX_MIMETYPE_LEN);
 
-  // ------------------------------------------------------------------ D26/T1: K validation
-
-  // Derive K from blockSize and L
-  const kValidation = validateBeaconK(blockSize, fragmentLen, localKMax);
-
-  if (!kValidation.acceptable) {
-    throw new BeaconValidationError(
-      kValidation.error!.code,
-      kValidation.error!.message,
-      kValidation.error!.details
-    );
-  }
-
-  // ------------------------------------------------------------------ CRC-32 validation (MUST pass before streamId is trusted)
+  // ------------------------------------------------------------------ STEP 2: CRC-32 validation (MUST pass before any beacon values are trusted)
 
   const CRC_SIZE = 4;
   const beaconBodySize = offset;
@@ -293,7 +220,85 @@ export function parseBeacon(
     );
   }
 
-  // ------------------------------------------------------------------ Sanity checks
+  // ------------------------------------------------------------------ STEP 3: T1/META bounds checks (now safe because CRC validated)
+
+  // T1: fileSize bounds check
+  if (fileSize > BEACON_LIMITS.MAX_FILE_SIZE) {
+    throw new BeaconValidationError(
+      'E-META-BOUNDS',
+      `Declared file size (${fileSize}) exceeds maximum (${BEACON_LIMITS.MAX_FILE_SIZE})`,
+      {fileSize, max: BEACON_LIMITS.MAX_FILE_SIZE}
+    );
+  }
+
+  // T1: fileSize must fit in available quota
+  if (fileSize > availableQuota) {
+    throw new BeaconValidationError(
+      'E-QUOTA-PREFLIGHT',
+      `File size (${fileSize}) exceeds available quota (${availableQuota})`,
+      {fileSize, availableQuota}
+    );
+  }
+
+  // T1: blockCount bounds check
+  if (blockCount > BEACON_LIMITS.MAX_BLOCK_COUNT) {
+    throw new BeaconValidationError(
+      'E-META-BOUNDS',
+      `Block count (${blockCount}) exceeds maximum (${BEACON_LIMITS.MAX_BLOCK_COUNT})`,
+      {blockCount, max: BEACON_LIMITS.MAX_BLOCK_COUNT}
+    );
+  }
+
+  // Sanity: blockSize should be reasonable
+  if (blockSize < 1 || blockSize > 10_485_760) { // Max 10 MB per block
+    throw new BeaconValidationError(
+      'E-META-BOUNDS',
+      `Invalid block size: ${blockSize}`,
+      {blockSize}
+    );
+  }
+
+  // T1: L bounds check (I1 says L is fixed for session, but beacon declares it)
+  if (fragmentLen < 1 || fragmentLen > BEACON_LIMITS.MAX_L) {
+    throw new BeaconValidationError(
+      'E-META-BOUNDS',
+      `Fragment length L (${fragmentLen}) outside valid range [1, ${BEACON_LIMITS.MAX_L}]`,
+      {L: fragmentLen, max: BEACON_LIMITS.MAX_L}
+    );
+  }
+
+  // Sanity: degreeCap should be within reasonable bounds (D25 says 64)
+  if (degreeCap < 1 || degreeCap > 256) {
+    throw new BeaconValidationError(
+      'E-META-BOUNDS',
+      `Invalid degree cap: ${degreeCap}`,
+      {degreeCap}
+    );
+  }
+
+  // Sanity: blockHashLen should be reasonable (SHA-256 truncated to 4 bytes per plan)
+  if (blockHashLen < 1 || blockHashLen > 64) {
+    throw new BeaconValidationError(
+      'E-META-BOUNDS',
+      `Invalid block hash length: ${blockHashLen}`,
+      {blockHashLen}
+    );
+  }
+
+  // ------------------------------------------------------------------ STEP 4: D26/T1: K validation
+
+  // Derive K from blockSize and L
+  const kValidation = validateBeaconK(blockSize, fragmentLen, localKMax);
+
+  if (!kValidation.acceptable) {
+    throw new BeaconValidationError(
+      kValidation.error!.code,
+      kValidation.error!.message,
+      kValidation.error!.details
+    );
+  }
+
+  // ------------------------------------------------------------------ STEP 5: Sanity checks
 
   // Sanity: blockCount × blockSize should approximately equal fileSize
   // (last block may be short, so allow ±1 block tolerance)
@@ -480,8 +485,9 @@ export function encodeBeacon(meta: BeaconMeta): Uint8Array {
   writeU8(meta.wireVersion);
 
   // fileSize: 6 bytes, 48-bit
-  writeU32((meta.fileSize >>> 8) & 0xffffffff);
-  writeU8(meta.fileSize & 0xff);
+  writeU8((meta.fileSize >>> 40) & 0xff);       // Byte 0 (MSB)
+  writeU32((meta.fileSize >>> 8) & 0xffffffff); // Bytes 1-4
+  writeU8(meta.fileSize & 0xff);                // Byte 5 (LSB)
 
   writeU24(meta.blockSize);
   writeU24(meta.blockCount);
