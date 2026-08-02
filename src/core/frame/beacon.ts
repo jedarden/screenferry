@@ -134,6 +134,18 @@ function calculateKManifest(blockCount: number, blockHashLen: number): number {
 }
 
 /**
+ * Device context for K validation logging.
+ */
+export interface DeviceContext {
+  /** Device signature from GE benchmark cache */
+  deviceSignature: string;
+  /** User agent string */
+  userAgent: string;
+  /** Platform identifier */
+  platform: string;
+}
+
+/**
  * Parse a beacon from bytes.
  *
  * Beacon format: [body fields...][crc32(4)]
@@ -148,12 +160,14 @@ function calculateKManifest(blockCount: number, blockHashLen: number): number {
  * @param bytes - Beacon payload bytes (after QR decoding and header stripping)
  * @param localKMax - This device's benchmarked maximum K (from GE benchmark)
  * @param availableQuota - Available storage quota in bytes (for T1 originalSize check)
+ * @param deviceContext - Optional device context for K validation logging
  * @throws {BeaconValidationError} If any field fails validation or CRC-32 mismatch
  */
 export function parseBeacon(
   bytes: Uint8Array,
   localKMax: number,
-  availableQuota: number
+  availableQuota: number,
+  deviceContext?: DeviceContext
 ): BeaconMeta {
   let offset = 0;
 
@@ -399,7 +413,7 @@ export function parseBeacon(
   // ------------------------------------------------------------------ STEP 4: D26/T1: K validation
 
   // Derive K from blockSize and L
-  const kValidation = validateBeaconK(blockSize, fragmentLen, localKMax);
+  const kValidation = validateBeaconK(blockSize, fragmentLen, localKMax, deviceContext);
 
   if (!kValidation.acceptable) {
     throw new BeaconValidationError(
