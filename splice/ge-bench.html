@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GE Benchmark</title>
+  <style>
+    body { font-family: monospace; padding: 16px; background: #1a1a1a; color: #eee; }
+    pre { white-space: pre-wrap; word-wrap: break-word; }
+    .result { margin: 8px 0; padding: 8px; background: #2a2a2a; border-left: 3px solid #4CAF50; }
+    .fail { border-left-color: #f44336; }
+  </style>
+</head>
+<body>
+  <h2>GE Decoder Throughput Benchmark</h2>
+  <p>Running benchmark sweep...</p>
+  <pre id="output"></pre>
+
+  <script type="module">
+    const HEADER = 13;
+
+    // ---------------------------------------------------------------- prng (mulberry32)
+    function prng(seed) {
+      let a = seed >>> 0;
+      return () => {
+        a = (a + 0x6d2b79f5) >>> 0;
+        let t = a;
+        t = Math.imul(t ^ (t >>> 15), t | 1);
+        t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+      };
+    }
+
+    /** Harmonic Pr(d) ∝ 1/d truncated at `cap` — D25. */
+    function degreeSampler(K, cap, rnd) {
+      const hi = Math.min(cap ?? K, K);
+      const cum = new Float64Array(hi);
+      let total = 0;
+      for (let d = 1; d <= hi; d++) total += 1 / d;
+      let acc = 0;
+      for (let d = 1; d <= hi; d++) { acc += 1 / d / total; cum[d - 1] = acc; }
+      return () => {
+        const r = rnd();
+        let lo = 0, high = hi - 1;
+        while (lo < high) { const mid = (lo + high) >> 1; if (cum[mid] < r) lo = mid + 1; else high = mid; }
+        return lo + 1;
+      };
+    }
+
+    // ---------------------------------------------------------------- the decode
+    function run(K, L, { cap = 64, seed = 0xC0FFEE } = {}) {
+      const MASKW = Math.ceil(K / 32);
+      const PAYW = Math.ceil(L / 4);
+      const ROWB = MASKW * 4 + PAYW * 4;
+
+      const pivMask = new Array(K).fill(null);
+      const pivPay = new Array(K).fill(null);
+
+      const rnd = prng(seed);
+      const degree = degreeSampler(K, cap, rnd);
+      const idx = new Int32Array(K);
+
+      let rank = 0, packets = 0, rowOps = 0;
+      const mask = new Uint32Array(MASKW);
+      const pay = new Uint32Array(PAYW);
+
+      const t0 = performance.now();
+
+      while (rank < K) {
+        mask.fill(0);
+        for (let i = 0; i < PAYW; i++) pay[i] = (rnd() * 4294967296) >>> 0;
+        const d = degree();
+        for (let i = 0; i < K; i++) idx[i] = i;
+        for (let i = 0; i < d; i++) {
+          const j = i + ((rnd() * (K - i)) | 0);
+          const tmp = idx[i]; idx[i] = idx[j]; idx[j] = tmp;
+          mask[idx[i] >>> 5] ^= 1 << (idx[i] & 31);
+        }
+        packets++;
+
+        let w = MASKW - 1;
+        for (;;) {
+          while (w >= 0 && mask[w] === 0) w--;
+          if (w < 0) break;
+          const bit = 31 - Math.clz32(mask[w]);
+          const p = (w << 5) | bit;
+
+          const pm = pivMask[p];
+          if (pm === null) {
+            pivMask[p] = mask.slice();
+            pivPay[p] = pay.slice();
+            rank++;
+            break;
+          }
+          const pp = pivPay[p];
+          for (let i = 0; i <= w; i++) mask[i] ^= pm[i];
+          for (let i = 0; i < PAYW; i++) pay[i] ^= pp[i];
+          rowOps++;
+        }
+      }
+
+      const ms = performance.now() - t0;
+      const bytes = rowOps * ROWB;
+      return {
+        K, L, cap, packets, rowOps, ms,
+        overheadPct: ((packets - K) / K) * 100,
+        xorBytes: bytes,
+        throughputMBs: bytes / 1e6 / (ms / 1000),
+        blockBytes: K * L,
+        matrixBytes: (K * K) / 8,
+      };
+    }
+
+    const requiredMBs = (K, L, wireBytesPerSec) =>
+      (K * (K / 8 + L) * wireBytesPerSec) / L / 1e6;
+
+    const STAGES = [["Stage 1", 30], ["Stage 2", 60], ["Stage 3", 106]];
+    const BUDGET = 200;
+    const PHONE_FACTOR = 4;
+
+    function report(K, L) {
+      run(K, L);
+      let best = null;
+      for (let i = 0; i < 3; i++) {
+        const r = run(K, L, { seed: 0xC0FFEE + i });
+        if (!best || r.throughputMBs > best.throughputMBs) best = r;
+      }
+
+      const output = document.getElementById('output');
+      const div = document.createElement('div');
+      div.className = 'result';
+
+      let lines = [];
+      lines.push(`K=${best.K}  L=${best.L}  cap=${best.cap}`);
+      lines.push(`  block ${(best.blockBytes / 1024).toFixed(0)} KB · matrix ${(best.matrixBytes / 1024).toFixed(0)} KB`);
+      lines.push(`  packets ${best.packets} (overhead ${best.overheadPct >= 0 ? '+' : ''}${best.overheadPct.toFixed(2)}%) · row-ops ${best.rowOps.toLocaleString()}`);
+      lines.push(`  decode ${best.ms.toFixed(0)} ms · XOR ${(best.xorBytes / 1e6).toFixed(0)} MB`);
+      lines.push(`  THIS DEVICE: ${best.throughputMBs.toFixed(0)} MB/s`);
+
+      const phone = best.throughputMBs; // This IS the phone
+      lines.push(`  [plan assumes ${BUDGET} MB/s]`);
+
+      for (const [name, kb] of STAGES) {
+        const need = requiredMBs(K, L, kb * 1024);
+        const ok = phone >= need;
+        lines.push(`    ${name.padEnd(8)} needs ${need.toFixed(0).padStart(4)} MB/s  → ${ok ? 'OK' : 'FAILS'}  (${(phone / need).toFixed(2)}x margin)`);
+        if (!ok) div.classList.add('fail');
+      }
+
+      div.textContent = lines.join('\n');
+      output.appendChild(div);
+
+      return best;
+    }
+
+    // Run benchmark
+    console.log('S1 — GE decoder throughput benchmark');
+    console.log('Validates the 200 MB/s phone-JS budget behind D19 (plan.md §18 R1).');
+    console.log(`UserAgent: ${navigator.userAgent}`);
+    console.log(`Hardware concurrency: ${navigator.hardwareConcurrency}`);
+
+    for (const K of [512, 768, 1024, 1152]) {
+      await new Promise(r => setTimeout(r, 100)); // Small delay between runs
+      report(K, 256);
+    }
+
+    const summary = document.createElement('div');
+    summary.className = 'result';
+    summary.textContent = '\nKill criteria (plan.md §17 Phase 0.5):\n  est. phone < required at Stage 3 → drop K, or re-open D5 vs wirehair (R1)';
+    document.getElementById('output').appendChild(summary);
+  </script>
+</body>
+</html>
