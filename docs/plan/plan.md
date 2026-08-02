@@ -966,6 +966,7 @@ net goodput is **~70 KB/s** — well above the 20 KB/s budget.
 | Encode + render per frame | **≤ 20 ms** p99 — **measured ~150 ms** (6.7 fps against 12 requested) on a 2015 laptop with D4's pinned mask unimplemented | Phase 3 |
 | Time-to-first-packet after aim | **≤ 3 s** p50 | Phase 5 |
 | Reception overhead vs K | **≤ +5%** mean, **≤ +12%** p99 (measured: +2.97% / +4.2%) | Phase 1, `sim/` |
+| **Sustained operation duration** | **≥ 20 min** sustained throughput within **30% of initial rate** on target phone (Pixel 6-class) without active cooling. This is the **minimum viable duration** before R11's thermal throttling mitigation (duty-cycle reduction) must engage. The system is not required to avoid throttling indefinitely—only to (a) sustain long enough for practical use and (b) detect and surface throttling when it occurs (E17b, D27). | Phase 3; validated by T-long-run |
 | **Warn threshold** (D23) | estimated duration **> 30 min** → explicit confirm | Phase 4 |
 | **Refuse threshold** (D23) | estimated duration **> 24 h**, or quota insufficient → refuse with an override | Phase 4 |
 
@@ -1003,6 +1004,7 @@ to handheld numbers.
 | **T-degradation** | Synthetic blur / rotation / keystone / glare / rolling-shutter tearing applied to rendered frames. **Assert decode *rates*, not booleans** | Nightly |
 | **T-real-capture** | Frames → Y4M → Chromium fake camera. Proven in research (byte-exact, including late-join at 700 ms) | Nightly |
 | **T-scale** | Synthetic 4 GB stream at the block layer; assert flat memory across 21,800 blocks | Nightly |
+| **T-long-run** | **20–30 minute sustained run** on real devices to validate thermal behavior (R11), duty-cycle economics (D27), and sustained throughput. Tracks fps decline, decode rate, and effective goodput over time. **This is the ONLY tier that can measure R11 and D27** — the 60 s floor in §13.2 structurally excludes thermal phenomena. | Weekly (or per thermal-related change) |
 | **T-physical-rig** | Two real devices, fixed mounting, the §13.2 denominator. **This is the acceptance gate for §13.1 throughput** — nothing else can measure it | Per release |
 | **T-manual-iOS** | Full pass on a real iPhone. **Not CI-testable at any price** — WebKit cannot fake a camera, the Simulator has none | Per release |
 
