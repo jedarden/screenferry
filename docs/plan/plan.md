@@ -258,7 +258,7 @@ sub-minute and is why smaller blocks are affordable.
 | D5 | **LT fountain + harmonic distribution + GF(2) Gaussian elimination** | GE needs +1.2% overhead at K=1000 where peeling needs +180%. ~300 lines. **Re-measured at the adopted K = 768**: +1.34% mean / +2.5% p99 uncapped, +2.97% / +4.2% with D25's cap — inside §13.1's budget. See §18 R1 for the RaptorQ trigger. | `fountain-codes`, `sim/` |
 | D6 | **Harmonic and GE are a coupled pair — never change one alone** | Harmonic + peeling is the worst cell measured and degrades as K grows. Fails only on large inputs, pointing away from the cause. Any change to the distribution (including D25's cap) MUST be simulated first. | `sim/` |
 | D7 | **Index sets derived from a PRNG, never transmitted** | Seeded on `(streamId, blockIndex, seq)`. Zero index bytes on the wire. | `fountain-codes` |
-| D8 | **Compress before blocking, to a staging file** | `CompressionStream` is native and streaming. Compress to OPFS first, then cut into fixed blocks — keeps K constant and derivable. Skip on already-compressed input (sample-detect). Staging MUST be wiped (§12, T4). | `fountain-codes` |
+| D8 | **Compress before blocking, to a staging file** | `CompressionStream` is native and streaming. Compress to OPFS first, then cut into fixed blocks — keeps K constant and derivable. Skip on already-compressed input (sample-detect). Staging MUST be wiped (§12, T4a). **Trade-off: with compression enabled, resume is NOT supported** (§8.3, `notes/bf-17s0-resume-compression-conflict.md`) — `CompressionStream` offers no determinism guarantee, so re-compression after staging is reaped (E11) would produce different blocks and silently corrupt the receiver's state. | `fountain-codes` |
 | D9 | **Display at ≤ half the *measured* camera fps** | PixNet's rule. Faster produces only torn frames. | `beyond-qr` |
 | D10 | **Every frame DC-balanced** | Stops auto-exposure hunting; throughput swings 2.4× on exposure. Also part of the photosensitivity mitigation (§20.1). | `custom-codec` |
 | D11 | **A runtime calibration probe decides luma-vs-colour, not this document** | Two research threads reached opposite conclusions (§6.6). The probe measures the device. | `beyond-qr` §6.6 |
@@ -795,8 +795,13 @@ geometry constraints, and is what makes small blocks (§3.4) affordable. Format:
 The receiver persists `{streamId, meta, bitmap}` plus the OPFS output after every completed
 block. On reload it offers to resume. At 2.7 KB per 4 GB this is nearly free.
 
-The sender is stateless across restarts by construction (D24) — it needs only the same file
-and the same `streamId` (§7.4).
+The sender is stateless across restarts by construction (D24) **when compression is disabled** —
+it needs only the same file and the same `streamId` (§7.4). **With compression enabled, resume is
+NOT supported** — see `notes/bf-17s0-resume-compression-conflict.md` for the full analysis.
+The short version: `CompressionStream` offers no determinism guarantee, so re-compression after
+staging is reaped (E11) would produce different blocks and silently corrupt the receiver's state.
+The beacon carries a `RESUME_DISABLED` flag when compression is on; the receiver uses it to
+suppress the resume UI.
 
 **On resume the receiver MUST re-verify block hashes** rather than trusting the bitmap, in
 case OPFS was corrupted or the file was touched externally.
@@ -823,6 +828,7 @@ stop and reconsider the design, not retry.
 | # | Scenario | Setup | Action | Pass | Fail |
 |---|---|---|---|---|---|
 | **A1** | Small file, ideal conditions | Laptop (1080p, 50% brightness min) → Pixel-class phone, 30 cm, office lighting (~300 lux), tripod | Send a 1 MB binary file (random bytes, incompressible) | Byte-identical output; ≥ 20 KB/s sustained; completes in ≤ 60 s | < 10 KB/s, or any byte differs |
+| **A1-lite** | Byte-exactness on two real devices | Two real devices (any configuration) | Send any file | Byte-identical output | Any byte differs |
 | **A2** | Handheld, realistic | As A1 but handheld, receiver held **portrait** (the default, unassisted grip — §6.3.2) | Send 1 MB | Byte-identical; ≥ 10 KB/s | Does not complete in 5 min |
 | **A3** | Phone → phone | Two phones, 15 cm, handheld | Send 100 KB | Byte-identical; completes in ≤ 5 min | Does not complete — triggers §18 R4 |
 | **A4** | Lossy channel | A1 setup; camera deliberately occluded 30% of the time in 2-second bursts | Send 1 MB | Byte-identical; ≤ 1.6× the A1 frame count | > 3× A1 frame count (fountain code is not delivering) |
@@ -853,12 +859,12 @@ stated limitation, not an oversight — see §18 R8.
 | E7 | **Two senders in frame** | `streamId` lock (A9); packets from the unlocked stream are discarded and surfaced as `E-FOREIGN-STREAM`. |
 | E8 | **Tab backgrounded on the sender** | `rAF` stops in a background tab, so a 10-hour transfer silently halts. Wake Lock does **not** cover this. Detect via `visibilitychange` and warn loudly; the transfer is paused, not failed. |
 | E9 | **Camera permission revoked mid-run** | Pause, preserve the bitmap, prompt for re-grant. Never discard collected blocks. |
-| E10 | **OPFS quota exhausted mid-transfer** | Stop, keep completed blocks, export a partial file plus a manifest of what is missing. Never silently truncate. |
-| E11 | **Abandoned staging file** | Sender-side staging keyed by `streamId`; on startup, reap staging files with no active session. Also a privacy requirement (§12, T4). |
+| E10 | **OPFS quota exhausted mid-transfer** | Stop, keep completed blocks, export a partial file plus a manifest of what is missing. Never silently truncate. **The kept partial artefact follows T4b's deletion lifecycle** — warn the user before keeping it, provide a delete control, and reap on startup. |
+| E11 | **Abandoned staging file** | Sender-side staging keyed by `streamId`; on startup, reap staging files with no active session. Also a privacy requirement (§12, T4a). |
 | E12 | **Block reaches rank K but fails its hash** | Discard the whole block, clear its bitmap bit, re-collect. Emit `E-BLOCK-HASH`. This is the CRC-8 false-accept path (§7.1) and MUST be implemented — at GB scale a silent re-do costs hours. |
 | E13 | **Whole-file hash fails after all blocks pass** | Indicates E5 or a block-hash collision. Report `E-FILE-HASH`; keep the output and label it unverified rather than deleting hours of work. |
 | E14 | **Filename with path separators or control bytes** | Sanitise on export (§12, T2). Never write an attacker-chosen path. |
-| E15 | **Decompression fails at the end** | All blocks verified but the gzip stream is invalid → `E-DECOMPRESS`; keep the compressed artefact so nothing is lost. |
+| E15 | **Decompression fails at the end** | All blocks verified but the gzip stream is invalid → `E-DECOMPRESS`; keep the compressed artefact so nothing is lost. **The kept artefact follows T4b's deletion lifecycle** — warn the user before keeping it, provide a delete control, and reap on startup. |
 | E16 | **Worker crash mid-block** | Restart the worker, discard the active block only, keep the bitmap. |
 | E17a | **Sender-side thermal throttling** | Observed: the bench laptop decayed 6.7 → 2.4 fps over two minutes. Locally observable, so D18b's local step-down applies. |
 | E17b | **Receiver-side thermal throttling** | Observed at **70 °C / throttling threshold within 20–30 minutes**. D18a's rule bites: fps decline is a *receiver* observation, the ladder is a *sender* control, and there is no back-channel — so "step the ladder down" is **structurally impossible** here. Mitigate locally instead: **duty-cycle (D27)** and drop decode resolution. |
@@ -922,7 +928,8 @@ That claim needs backing. In scope for v1:
 | **T1** | **Crafted optical stream — resource exhaustion.** Beacon-declared `fileSize` (281 TB), `blockCount` (16.7 M) and `L` are attacker-controlled and size allocations. | **Mitigated.** Bounds-check every beacon field before use: `L` ∈ [1, 4096], `K` ≤ locally benchmarked max (D26), `blockCount` ≤ 16.7 M, `fileSize` ≤ available quota. Reject with `E-META-BOUNDS`. Never allocate from a declared size. | A10 + fuzz beacon fields |
 | **T2** | **Path traversal / hostile filename.** `filename` is attacker-supplied and reaches a save dialog. | **Mitigated.** Strip path separators, control bytes and leading dots; cap length; never pass through unsanitised. | unit: filenames with `../`, NUL, control bytes |
 | **T3** | **Decompression bomb.** The receiver decompresses attacker-supplied data. | **Mitigated.** Enforce a max expansion ratio (100:1) and an absolute cap = declared `fileSize`; abort with `E-DECOMPRESS` on overrun. | unit: 1 GB-expanding zip bomb → `E-DECOMPRESS` |
-| **T4** | **Plaintext residue.** D8 writes a *decompressed-equivalent* copy of the user's file to sender-side OPFS; the receiver stages the whole file there too. For the flagship use case (SSH keys, PSBTs, TOTP seeds) this is real exposure. | **Mitigated.** Wipe staging on completion, on cancel, and on startup-reap (E11). Document that OPFS is not encrypted at rest and the OS/browser may retain it. | integration: assert OPFS empty after complete/cancel/reap |
+| **T4a** | **Sender-side plaintext residue.** D8 writes a *decompressed-equivalent* copy of the user's file to OPFS as staging. For the flagship use case (SSH keys, PSBTs, TOTP seeds) this is real exposure. | **Mitigated.** Wipe staging on completion, on cancel, and on startup-reap (E11). Document that OPFS is not encrypted at rest and the OS/browser may retain it. | integration: assert sender OPFS empty after complete/cancel/reap |
+| **T4b** | **Receiver-side plaintext residue.** The receiver stages the complete decoded file in OPFS. The output **is** the deliverable — it cannot be deleted immediately. For sensitive files (SSH keys, PSBTs, TOTP seeds) indefinite storage is exposure. | **Mitigated.** Implement a deletion lifecycle: (1) delete after successful `share()`/`save()`; (2) reap orphaned outputs on startup; (3) warn before keeping partial artefacts (E10, E15); (4) provide a user-visible delete control. Document that OPFS is not encrypted at rest. | integration: assert receiver OPFS empty after successful save; reap deletes orphans; UI has delete control; warning shown for partial artefacts |
 | **T5** | **Supply chain.** The security claim depends on the bundle being what was audited. | **Partially mitigated.** `bf-13h` covers the output half (version footer + published hash). The input half — pinned dependency versions, WASM integrity, no post-install scripts — is a Phase 0 requirement (§14.5). | G3: lockfile diff + SRI check in CI |
 | **T6** | **Shoulder-surfing / filming.** The optical channel is uniquely exposed: anyone with a camera in the room captures the same stream. | **Accepted for v1, consciously.** concept.md scopes encryption as a non-goal; §19 Q10 keeps it live. The app MUST NOT claim confidentiality it does not provide — the UI should say the transmission is visible to anyone who can see the screen. | none — accepted, not mitigated |
 | **T7** | **No telemetry, by construction.** | **Committed.** The app makes **zero** network requests after load. Enforced by CI (§14.4) and by A8. This is a stronger and more checkable claim than a privacy policy. | §14.4 network assertion + A8 |
@@ -1164,7 +1171,7 @@ independently once Phase 0 lands.
 | **0 — Repo and harness** ⚠️ *partial* | — | Builds, deploys, version footer present, stub-camera tier runs, G1–G3 and **G7** green, **module layout (§6.5) and dependency pins committed**, and a throwaway end-to-end spike (one tiny file through a no-op modulation) proves the seams line up |
 | **0.5 — Spike** ⚠️ *partial* | Phase 0 exit | S1–S4 run and recorded in `docs/notes/spike-results.md`; §13.1's forecast rows replaced with measured figures or the relevant §18 risk triggered. **Gates Phase 1 because it sets K, L, dwell and the rung ladder.** See `spike/README.md` |
 | **1 — Core codec, headless** ⚠️ *built, gates unmet* | Phase 0.5 exit | 10 MB file survives 50% loss byte-exact; overhead within `sim/` bounds; synthetic 4 GB at flat ≤ 1 MB (A5 / I6a); GE keeps pace at K=768 measured on a real phone; G1–G5 green |
-| **2 — Single-QR optical loop — the walking skeleton** | Phase 1 exit | A1 passes at any speed on two real devices. **This is the first demonstrable end-to-end transfer**; Phase 0's spike is a seam check, not a product |
+| **2 — Single-QR optical loop — the walking skeleton** | Phase 1 exit | **A1-lite passes** (byte-exactness on two real devices, no throughput floor). **This is the first demonstrable end-to-end transfer**; Phase 0's spike is a seam check, not a product |
 | **3 — Tiling + fixed-weight ladder (D18a)** | Phase 2 exit | A1 ≥ 20 KB/s, A2, A3, A4 pass on T-physical-rig; G6 green |
 | **4 — Large-file machinery** | Phase 3 exit | A5, A6, A7, A10 pass; quota pre-flight refuses correctly; repair code round-trips |
 | **5 — The app + local ladder adaptation (D18b)** | Phase 4 exit | A8, A9 pass; every §11 error code has a user-facing string and is reachable; iOS manual pass; non-technical user completes a transfer unaided |
