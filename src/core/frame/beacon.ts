@@ -8,15 +8,40 @@
  */
 
 import {validateBeaconK} from '../../platform/ge-benchmark.js';
+import {crc32} from './crc.js';
 
 /**
  * Beacon flags (1 byte).
+ *
+ * SENDER CONSTRAINT: When compression is enabled, you MUST set BOTH Compressed
+ * AND ResumeDisabled flags. This is required because CompressionStream offers
+ * no determinism guarantee across browser restarts, making resume unsafe.
+ *
+ * Usage (when constructing beacon for transmission):
+ * ```typescript
+ * let flags = BeaconFlags.None;
+ * if (compressionEnabled) {
+ *   flags = BeaconFlags.Compressed | BeaconFlags.ResumeDisabled;
+ * }
+ * const meta: BeaconMeta = { ..., flags };
+ * const beaconBytes = encodeBeacon(meta);
+ * ```
+ *
+ * See: encodeBeacon() documentation for full rationale and references.
  */
 export enum BeaconFlags {
   None = 0,
-  /** Compression enabled (D8) */
+  /**
+   * Compression enabled (D8).
+   * When set, ResumeDisabled MUST also be set (see encodeBeacon docs).
+   */
   Compressed = 1 << 0,
-  /** Resume disabled when compression is enabled */
+  /**
+   * Resume is disabled.
+   * MUST be set when compression is enabled (CompressionStream is non-deterministic).
+   * Receiver checks this via isResumeDisabled() to suppress resume UI and prevent
+   * persisting bitmap/metadata that would become silently invalid after sender restart.
+   */
   ResumeDisabled = 1 << 1,
   /** Hash algorithm bitmask */
   HashMask = 0b11110000,
@@ -68,10 +93,14 @@ export const BEACON_LIMITS = {
 /**
  * Parse a beacon from bytes.
  *
+ * Beacon format: [body fields...][crc32(4)]
+ * The CRC-32 covers all beacon body fields and MUST be validated before
+ * any metadata (including streamId) is trusted.
+ *
  * @param bytes - Beacon payload bytes (after QR decoding and header stripping)
  * @param localKMax - This device's benchmarked maximum K (from GE benchmark)
  * @param availableQuota - Available storage quota in bytes (for T1 fileSize check)
- * @throws {BeaconValidationError} If any field fails validation
+ * @throws {BeaconValidationError} If any field fails validation or CRC-32 mismatch
  */
 export function parseBeacon(
   bytes: Uint8Array,
@@ -233,15 +262,38 @@ export function parseBeacon(
     );
   }
 
-  // ------------------------------------------------------------------ Sanity checks
+  // ------------------------------------------------------------------ CRC-32 validation (MUST pass before streamId is trusted)
 
-  if (offset !== bytes.length) {
+  const CRC_SIZE = 4;
+  const beaconBodySize = offset;
+  const expectedSize = beaconBodySize + CRC_SIZE;
+
+  if (bytes.length !== expectedSize) {
     throw new BeaconValidationError(
-      'E-META-BOUNDS',
-      `Beacon has ${bytes.length - offset} trailing bytes`,
-      {expected: offset, actual: bytes.length}
+      'E-CRC-LENGTH',
+      `Beacon size ${bytes.length} != expected ${expectedSize} (body+CRC)`,
+      {actual: bytes.length, expected: expectedSize}
     );
   }
+
+  // Read the CRC-32 from the last 4 bytes
+  const storedCrc = (bytes[offset]! << 24) |
+                    (bytes[offset + 1]! << 16) |
+                    (bytes[offset + 2]! << 8) |
+                    bytes[offset + 3]!;
+
+  // Calculate CRC-32 over the beacon body (everything except the last 4 bytes)
+  const calculatedCrc = crc32(bytes.subarray(0, beaconBodySize));
+
+  if (storedCrc !== calculatedCrc) {
+    throw new BeaconValidationError(
+      'E-CRC-MISMATCH',
+      `Beacon CRC-32 mismatch: stored=${storedCrc} calculated=${calculatedCrc}`,
+      {stored: storedCrc, calculated: calculatedCrc}
+    );
+  }
+
+  // ------------------------------------------------------------------ Sanity checks
 
   // Sanity: blockCount × blockSize should approximately equal fileSize
   // (last block may be short, so allow ±1 block tolerance)
@@ -312,8 +364,150 @@ export function sanitizeFilename(filename: string): string {
  * because non-deterministic compression makes block boundaries unstable across
  * sender restarts. This prevents silent corruption of the receiver's bitmap.
  *
- * See: docs/notes/bf-17s0-resume-compression-conflict.md
+ * **How this works:**
+ * 1. Sender enables compression → sets both Compressed and ResumeDisabled flags
+ * 2. Receiver receives beacon → checks isResumeDisabled() → returns true
+ * 3. Receiver suppresses resume UI and does NOT persist bitmap/metadata
+ * 4. If interrupted, user must restart transfer from beginning (safe, no corruption)
+ *
+ * **Why this is necessary:**
+ * CompressionStream offers no determinism guarantee. After a sender restart and
+ * E11 staging reaping, re-compression may produce different bytes → different
+ * block boundaries → different hashes → the receiver's persisted bitmap would
+ * become silently invalid.
+ *
+ * Solution implemented: Option B from bf-3k90 evaluation
+ * - Privacy (T4) preserved: no staging persistence
+ * - Correctness preserved: explicitly disabling unsafe resume
+ * - Low complexity: ~50-100 lines vs. 300-1200 for alternatives
+ *
+ * Reference: docs/notes/bf-3k90-compression-resume-solution-evaluation.md (Option B)
+ *            docs/notes/bf-2vke-compression-resume-t4-reap-interaction.md
+ *            docs/notes/bf-17s0-resume-compression-conflict.md
+ *
+ * @param flags - Beacon flags byte from received beacon
+ * @returns true if resume is disabled (compression enabled), false otherwise
  */
 export function isResumeDisabled(flags: number): boolean {
   return (flags & BeaconFlags.ResumeDisabled) !== 0;
+}
+
+/**
+ * Encode a beacon from metadata.
+ *
+ * Serializes beacon metadata into bytes and appends a CRC-32 checksum
+ * over the beacon body for integrity validation.
+ *
+ * **SENDER CONSTRAINT:** When constructing a BeaconMeta object to pass to this function:
+ * - If compression is enabled, you MUST set both flags:
+ *   `flags = BeaconFlags.Compressed | BeaconFlags.ResumeDisabled`
+ * - This is required because CompressionStream offers no determinism guarantee
+ *   across browser restarts, making resume unsafe (see below)
+ *
+ * **Why compression disables resume:**
+ * Non-deterministic compression means that after a sender restart and E11 staging
+ * reaping, re-compression may produce different bytes → different block boundaries
+ * → different hashes → the receiver's persisted bitmap becomes silently invalid.
+ *
+ * Solution: The sender signals "no resume available" via the beacon flag, and the
+ * receiver suppresses resume UI and does not persist the bitmap/metadata.
+ *
+ * Reference: docs/notes/bf-3k90-compression-resume-solution-evaluation.md (Option B)
+ *            docs/notes/bf-2vke-compression-resume-t4-reap-interaction.md
+ *
+ * @param meta - Beacon metadata to encode
+ * @returns Uint8Array of encoded beacon with CRC-32
+ */
+export function encodeBeacon(meta: BeaconMeta): Uint8Array {
+  // Calculate total size
+  const filenameBytes = new TextEncoder().encode(meta.filename);
+  const mimeTypeBytes = new TextEncoder().encode(meta.mimeType);
+
+  if (filenameBytes.length > 255) {
+    throw new BeaconValidationError(
+      'E-META-BOUNDS',
+      `Filename too long: ${filenameBytes.length} bytes`,
+      {length: filenameBytes.length, max: 255}
+    );
+  }
+
+  if (mimeTypeBytes.length > 127) {
+    throw new BeaconValidationError(
+      'E-META-BOUNDS',
+      `MIME type too long: ${mimeTypeBytes.length} bytes`,
+      {length: mimeTypeBytes.length, max: 127}
+    );
+  }
+
+  // Fixed fields: streamId(4) + wireVersion(1) + fileSize(6) + blockSize(3) +
+  //              blockCount(3) + fragmentLen(2) + degreeCap(1) + flags(1) +
+  //              blockHashLen(1) + wholeFileHash(32) = 54 bytes
+  // Variable: filenameLen(1) + filename + mimeTypeLen(1) + mimeType
+  // CRC-32: 4 bytes
+  const fixedSize = 54;
+  const variableSize = 2 + filenameBytes.length + mimeTypeBytes.length;
+  const crcSize = 4;
+  const totalSize = fixedSize + variableSize + crcSize;
+
+  const bytes = new Uint8Array(totalSize);
+  let offset = 0;
+
+  // Write fixed fields
+  const writeU32 = (value: number) => {
+    bytes[offset++] = (value >>> 24) & 0xff;
+    bytes[offset++] = (value >>> 16) & 0xff;
+    bytes[offset++] = (value >>> 8) & 0xff;
+    bytes[offset++] = value & 0xff;
+  };
+
+  const writeU24 = (value: number) => {
+    bytes[offset++] = (value >>> 16) & 0xff;
+    bytes[offset++] = (value >>> 8) & 0xff;
+    bytes[offset++] = value & 0xff;
+  };
+
+  const writeU16 = (value: number) => {
+    bytes[offset++] = (value >>> 8) & 0xff;
+    bytes[offset++] = value & 0xff;
+  };
+
+  const writeU8 = (value: number) => {
+    bytes[offset++] = value & 0xff;
+  };
+
+  // Fixed fields
+  writeU32(meta.streamId);
+  writeU8(meta.wireVersion);
+
+  // fileSize: 6 bytes, 48-bit
+  writeU32((meta.fileSize >>> 8) & 0xffffffff);
+  writeU8(meta.fileSize & 0xff);
+
+  writeU24(meta.blockSize);
+  writeU24(meta.blockCount);
+  writeU16(meta.fragmentLen);
+  writeU8(meta.degreeCap);
+  writeU8(meta.flags);
+  writeU8(meta.blockHashLen);
+
+  // wholeFileHash: 32 bytes
+  bytes.set(meta.wholeFileHash, offset);
+  offset += 32;
+
+  // Variable fields
+  writeU8(filenameBytes.length);
+  bytes.set(filenameBytes, offset);
+  offset += filenameBytes.length;
+
+  writeU8(mimeTypeBytes.length);
+  bytes.set(mimeTypeBytes, offset);
+  offset += mimeTypeBytes.length;
+
+  // Calculate and write CRC-32 over everything except the CRC itself
+  const crcBodyEnd = offset;
+  const crcValue = crc32(bytes.subarray(0, crcBodyEnd));
+
+  writeU32(crcValue);
+
+  return bytes;
 }

@@ -152,69 +152,6 @@ class OPFSWriteBackend implements WriteBackend {
 }
 
 /**
- * Fallback backend using FileSystemWritableFileStream.
- *
- * Used when createSyncAccessHandle is unavailable (main thread).
- * Requires seek() which may not be supported in all browsers.
- */
-class StreamWriteBackend implements WriteBackend {
-  private writable: FileSystemWritableFileStream | null = null;
-  private closed = false;
-  private currentOffset = 0;
-
-  async open(fileHandle: FileSystemFileHandle): Promise<void> {
-    this.writable = await fileHandle.createWritable();
-    this.currentOffset = 0;
-  }
-
-  async write(buffer: Uint8Array, offset: number): Promise<number> {
-    if (this.closed || !this.writable) {
-      throw new WriteError(
-        'HANDLE_CLOSED',
-        'Cannot write to closed handle',
-        { offset, bytesAttempted: buffer.length }
-      );
-    }
-
-    try {
-      // Seek to position (if supported)
-      if (offset !== this.currentOffset) {
-        await this.writable.seek(offset);
-        this.currentOffset = offset;
-      }
-
-      // Write data
-      await this.writable.write(buffer);
-      this.currentOffset += buffer.length;
-      return buffer.length;
-    } catch (e) {
-      throw new WriteError(
-        'IO_ERROR',
-        `Write failed: ${e instanceof Error ? e.message : String(e)}`,
-        { offset, bytesAttempted: buffer.length, cause: e instanceof Error ? e : undefined }
-      );
-    }
-  }
-
-  async close(): Promise<void> {
-    if (this.writable) {
-      await this.writable.close();
-      this.writable = null;
-    }
-    this.closed = true;
-  }
-
-  async getSize(): Promise<number> {
-    if (!this.writable) {
-      throw new WriteError('HANDLE_CLOSED', 'Handle is closed', {});
-    }
-    // Note: WritableStream doesn't expose size directly
-    // This may need alternative implementation
-    throw new WriteError('IO_ERROR', 'getSize() not supported on Stream backend', {});
-  }
-}
-
-/**
  * Factory for creating positional write handles.
  */
 export interface PositionalWriteHandleFactory {

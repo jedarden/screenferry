@@ -11,8 +11,8 @@ import type {PositionalWriteHandle} from '../io/positional-write.js';
 /**
  * Write position tracking state.
  *
- * Tracks the current position for sequential writes and allows
- * querying/updating the position during out-of-order block writes.
+ * Tracks the current write position for positional writes and supports
+ * querying/updating position during out-of-order block writes.
  */
 export interface WritePositionTracker {
   /**
@@ -779,8 +779,18 @@ export interface ResumeToken {
  * - Different bytes → different block boundaries → different hashes
  * - Receiver's persisted bitmap would become silently invalid
  *
- * See: docs/notes/bf-17s0-resume-compression-conflict.md
+ * **This implements Option B from bf-3k90:** "Forbid resume when compression is enabled"
+ * - Sender sets ResumeDisabled flag in beacon when compression is on
+ * - This function checks the flag and returns null (no resume token) if set
+ * - This prevents persisting bitmap/metadata that would be corrupted after restart
+ *
+ * The alternative would be silent invalid state: receiver tries to resume with
+ * a stale bitmap, but the sender's new compressed blocks have different hashes,
+ * so the resume bitmap never matches and the transfer appears stuck.
+ *
+ * See: docs/notes/bf-3k90-compression-resume-solution-evaluation.md (Option B)
  *      docs/notes/bf-2vke-compression-resume-t4-reap-interaction.md
+ *      docs/notes/bf-17s0-resume-compression-conflict.md
  */
 import {isResumeDisabled} from '../frame/beacon.js';
 
