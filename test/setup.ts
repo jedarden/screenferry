@@ -60,6 +60,15 @@ class MockFileSystemDirectoryHandle {
   get kind() {
     return 'directory';
   }
+
+  async isSameEntry(other: FileSystemDirectoryHandle): Promise<boolean> {
+    return other === this || (other instanceof MockFileSystemDirectoryHandle && other._name === this._name);
+  }
+
+  async resolve(descendant: FileSystemDirectoryHandle | FileSystemFileHandle): Promise<string[] | null> {
+    // Not implemented for mock - return null to indicate not a descendant
+    return null;
+  }
 }
 
 class MockFileSystemFileHandle {

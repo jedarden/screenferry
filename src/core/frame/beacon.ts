@@ -157,32 +157,30 @@ export function parseBeacon(
 ): BeaconMeta {
   let offset = 0;
 
-  const readU32 = () => {
-    const value = (bytes[offset] << 24) |
-                 (bytes[offset + 1] << 16) |
-                 (bytes[offset + 2] << 8) |
-                 bytes[offset + 3];
+  const readU32 = (): number => {
+    const value = (bytes[offset]! << 24) |
+                 (bytes[offset + 1]! << 16) |
+                 (bytes[offset + 2]! << 8) |
+                 bytes[offset + 3]!;
     offset += 4;
     return value >>> 0; // Force unsigned
   };
 
-  const readU24 = () => {
-    const value = (bytes[offset] << 16) |
-                 (bytes[offset + 1] << 8) |
-                 bytes[offset + 2];
+  const readU24 = (): number => {
+    const value = (bytes[offset]! << 16) |
+                 (bytes[offset + 1]! << 8) |
+                 bytes[offset + 2]!;
     offset += 3;
     return value >>> 0;
   };
 
-  const readU16 = () => {
-    const value = (bytes[offset] << 8) | bytes[offset + 1];
+  const readU16 = (): number => {
+    const value = (bytes[offset]! << 8) | bytes[offset + 1]!;
     offset += 2;
     return value >>> 0;
   };
 
-  const readU8 = () => bytes[offset++];
-
-  const readBytes = (n: number) => {
+  const readBytes = (n: number): Uint8Array => {
     const value = bytes.subarray(offset, offset + n);
     offset += n;
     return value;

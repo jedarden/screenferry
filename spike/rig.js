@@ -154,11 +154,17 @@ export class Receiver {
   constructor(video) {
     this.video = video;
     this.seen = new Set();
+    this.processedBlocks = new Set();  // Track which blocks were processed (for duty cycle stats)
+    this.skippedBlocks = new Set();
+    this.blockGranularDutyCycle = false;
+    this.processBlockFilter = null;  // (blockIndex) => boolean
     this.reset();
   }
 
   reset() {
     this.seen.clear();
+    this.processedBlocks.clear();
+    this.skippedBlocks.clear();
     this.cameraFrames = 0;
     this.decodedTiles = 0;
     this.corruptTiles = 0;
@@ -257,8 +263,22 @@ export class Receiver {
         const bytes = r.bytes;                       // D3 — .bytes, never .text
         if (!bytes) continue;
         for (let off = 0; off + HEADER + L <= bytes.length; off += HEADER + L) {
-          const v = verifyPacket(bytes.subarray(off, off + HEADER + L), L);
+          const packet = bytes.subarray(off, off + HEADER + L);
+          const v = verifyPacket(packet, L);
           if (!v) { this.corruptTiles++; continue; }
+
+          // Block-granular duty cycle filtering (D27)
+          // Extract blockIndex from packet header bytes 6-8
+          const blockIndex = (packet[6] << 16) | (packet[7] << 8) | packet[8];
+          if (this.blockGranularDutyCycle && this.processBlockFilter) {
+            const shouldProcess = this.processBlockFilter(blockIndex);
+            if (!shouldProcess) {
+              this.skippedBlocks.add(blockIndex);
+              continue;  // Skip this block entirely
+            }
+            this.processedBlocks.add(blockIndex);
+          }
+
           if (!v.exact) this.inexact++;
           this.seen.add(v.seq);
           if (v.seq < this.minSeq) this.minSeq = v.seq;
@@ -278,7 +298,7 @@ export class Receiver {
   stats() {
     const secs = (performance.now() - this.t0) / 1000;
     const p = [...this.perFrameCounts];
-    const sorted = [...this.decodeMs].sort((a, b) => a - b);
+    const sorted = [...this.decodeMs].sort((a, b)) => a - b);
     const span = this.maxSeq >= this.minSeq ? this.maxSeq - this.minSeq + 1 : 0;
     const coverage = span ? this.seen.size / span : 0;
     return {
@@ -297,6 +317,11 @@ export class Receiver {
       byteMismatches: this.inexact,               // MUST be 0 — binary safety (I10)
       exposureApplied: this.exposureApplied ?? false,
       capture: this.capture ?? null,
+      // Block-granular duty cycle stats (D27)
+      dutyCycleActive: this.blockGranularDutyCycle,
+      processedBlocks: this.processedBlocks.size,
+      skippedBlocks: this.skippedBlocks.size,
+      totalBlocksSeen: this.processedBlocks.size + this.skippedBlocks.size,
     };
   }
 }
