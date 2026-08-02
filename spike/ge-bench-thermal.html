@@ -1,0 +1,334 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GE Benchmark - Thermal Throttling Test</title>
+<style>
+  :root { color-scheme: dark }
+  body { margin:0; font:14px/1.5 system-ui,sans-serif; background:#111; color:#eee; padding:1rem }
+  h1 { margin:0 0 1rem 0; font-size:1.4rem }
+  button { font:inherit; padding:.5rem 1rem; border:1px solid #555; background:#2a5a2a; color:#eee; border-radius:4px; cursor:pointer; margin-right:.5rem; margin-bottom:.5rem }
+  button:hover { background:#3a7a3a }
+  button:disabled { opacity:.5; cursor:not-allowed }
+  #results { margin-top:1rem; white-space:pre-wrap; font-family:monospace; font-size:12px; line-height:1.4; background:#0a0a0a; padding:1rem; border-radius:4px; max-height:80vh; overflow:auto }
+  .status { padding:.5rem; margin:1rem 0; border-radius:4px; font-weight:600 }
+  .status.running { background:#354; color:#dfc }
+  .status.done { background:#242; color:#dfd }
+  .status.error { background:#422; color:#fcc }
+  .big { font-size:1.8rem; font-weight:700; margin:.5rem 0 }
+  .ok { color:#5d5 }
+  .fail { color:#f66 }
+  .warn { color:#fb4 }
+  .controls { display:flex; flex-wrap:wrap; gap:.5rem; margin-bottom:1rem; align-items:center }
+  label { display:flex; gap:.3rem; align-items:center }
+  input { font:inherit; background:#222; color:#eee; border:1px solid #444; border-radius:3px; padding:.3rem; width:3rem }
+  .throttled { background:#422; color:#fcc; padding:.2rem .4rem; border-radius:3px; }
+  .cool { background:#242; color:#dfd; padding:.2rem .4rem; border-radius:3px; }
+  .log-entry { margin:2px 0; padding:2px 4px; border-bottom:1px solid #eee; }
+</style>
+
+<h1>GE Benchmark - Thermal Throttling Test</h1>
+
+<p>
+  <strong>Purpose:</strong> Measure GE decode throughput while device thermally throttles.<br>
+  <strong>Protocol:</strong> Run continuous decode for 30+ minutes, track performance degradation.<br>
+  <strong>Throttling indicator:</strong> >30% throughput degradation from cool baseline.<br>
+  <strong>Target:</strong> Validate ÷4 phone factor and measure sustained performance while throttled.
+</p>
+
+<div class="controls">
+  <button id="startTest">Start 30-min thermal test</button>
+  <button id="stopTest">Stop</button>
+  <label>Target K: <input id="targetK" type="number" value="768" min="256" max="1152"></label>
+  <label>Duration (min): <input id="durationMin" type="number" value="30" min="5" max="120"></label>
+</div>
+
+<div id="status" class="status"></div>
+
+<div class="big" id="summary"></div>
+
+<div id="results"></div>
+
+<script type="module">
+import { run, requiredMBs } from './ge-bench.mjs';
+
+const STAGES = [["Stage 1", 30], ["Stage 2", 60], ["Stage 3", 106]];
+const BUDGET = 200;                  // MB/s — the plan's assumed phone-JS figure
+const PHONE_FACTOR = 4;              // desktop → mid-range phone, conservative
+
+const $ = (id) => document.getElementById(id);
+
+let testInterval = null;
+let testData = [];
+let testStartTime = null;
+let isRunning = false;
+
+function setStatus(msg, cls = '') {
+  const el = $('status');
+  el.textContent = msg;
+  el.className = 'status ' + cls;
+}
+
+function addResult(text) {
+  $('results').textContent += text + '\n';
+}
+
+function clearResults() {
+  $('results').textContent = '';
+  $('summary').textContent = '';
+}
+
+// Detect throttling based on performance degradation
+function detectThrottling(data, currentThroughput) {
+  if (data.length < 5) return { throttled: false, reason: 'insufficient' };
+
+  // Use the first 5 measurements as baseline (cool state)
+  const baseline = data.slice(0, 5);
+  const avgBaseline = baseline.reduce((sum, d) => sum + d.throughput, 0) / baseline.length;
+
+  const degradation = ((avgBaseline - currentThroughput) / avgBaseline) * 100;
+
+  if (degradation > 30) {
+    return { throttled: true, degradation: degradation.toFixed(1), reason: 'deg30' };
+  } else if (degradation > 20) {
+    return { throttled: false, degradation: degradation.toFixed(1), reason: 'deg20' };
+  } else if (degradation > 10) {
+    return { throttled: false, degradation: degradation.toFixed(1), reason: 'deg10' };
+  }
+
+  return { throttled: false, degradation: degradation.toFixed(1), reason: 'stable' };
+}
+
+// Run single benchmark iteration
+async function runSingleIteration(K, L) {
+  try {
+    const r = run(K, L, { seed: Math.floor(Math.random() * 1000000) });
+    await new Promise(resolve => setTimeout(resolve, 10)); // Yield to UI
+    return r;
+  } catch (e) {
+    console.error('Benchmark iteration failed:', e);
+    return null;
+  }
+}
+
+// Start thermal test
+$('startTest').onclick = async () => {
+  if (isRunning) return;
+
+  const K = +$('targetK').value;
+  const durationMin = +$('durationMin').value;
+  const L = 256;
+
+  clearResults();
+  isRunning = true;
+  testStartTime = performance.now();
+  testData = [];
+
+  setStatus('Starting thermal test...', 'running');
+
+  addResult(`Configuration: K=${K}, L=${L}, Duration: ${durationMin} min`);
+  addResult(`Target: Measure GE throughput while device thermally throttles`);
+  addResult(`Device info:`);
+  addResult(`  UA: ${navigator.userAgent}`);
+  addResult(`  Hardware concurrency: ${navigator.hardwareConcurrency || 'unknown'}`);
+  addResult(`  Device memory: ${navigator.deviceMemory || 'unknown'} GB`);
+  addResult(`  Platform: ${navigator.platform}`);
+  addResult('');
+
+  addResult('Starting warmup iterations...');
+
+  // Warmup: run 5 iterations to establish baseline
+  for (let i = 0; i < 5; i++) {
+    setStatus(`Warmup ${i+1}/5...`, 'running');
+    const r = await runSingleIteration(K, L);
+    if (r) {
+      testData.push({
+        elapsedMin: 0,
+        throughput: r.throughputMBs,
+        ms: r.ms,
+        packets: r.packets,
+        rowOps: r.rowOps,
+      });
+    }
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+
+  addResult('Warmup complete. Beginning sustained test...\n');
+
+  // Run continuous test for specified duration
+  const intervalMs = 10000; // Run iteration every 10 seconds
+  let iterationCount = 0;
+
+  testInterval = setInterval(async () => {
+    if (!isRunning) {
+      clearInterval(testInterval);
+      return;
+    }
+
+    iterationCount++;
+    const elapsedSec = Math.floor((performance.now() - testStartTime) / 1000);
+    const elapsedMin = (elapsedSec / 60).toFixed(1);
+
+    setStatus(`Running iteration ${iterationCount} (${elapsedMin} min)...`, 'running');
+
+    const r = await runSingleIteration(K, L);
+    if (!r) {
+      addResult(`[${elapsedMin} min] Iteration failed - skipping`);
+      return;
+    }
+
+    // Detect throttling
+    const throttling = detectThrottling(testData, r.throughputMBs);
+
+    const entry = {
+      elapsedMin: parseFloat(elapsedMin),
+      elapsedSec,
+      throughput: r.throughputMBs,
+      ms: r.ms,
+      packets: r.packets,
+      rowOps: r.rowOps,
+      throttled: throttling.throttled,
+      degradation: throttling.degradation,
+      reason: throttling.reason,
+    };
+
+    testData.push(entry);
+
+    // Update results
+    const phone = r.throughputMBs / PHONE_FACTOR;
+    const statusClass = throttling.throttled ? 'throttled' : 'cool';
+    const statusText = throttling.throttled ? '🔥 THROTTLED' : '✓ COOL';
+
+    const logEntry = `[${elapsedMin} min] ${statusText} ${r.throughputMBs.toFixed(0)} MB/s (device) → ${phone.toFixed(0)} MB/s (phone est)`;
+    addResult(logEntry);
+
+    // Update summary
+    const baseline = testData.slice(0, 5);
+    const avgBaseline = baseline.reduce((sum, d) => sum + d.throughput, 0) / baseline.length;
+    const current = r.throughputMBs;
+    const change = ((current - avgBaseline) / avgBaseline * 100).toFixed(1);
+
+    $('summary').innerHTML = `
+      Elapsed: ${elapsedMin} min | Current: <span class="${statusClass}">${r.throughputMBs.toFixed(0)} MB/s (${change}% from baseline)</span><br>
+      Phone est: ${phone.toFixed(0)} MB/s (target: 114.6 MB/s for Stage 3) | ${throttling.throttled ? '<span class="warn">⚠️ THERMAL THROTTLING DETECTED</span>' : '<span class="ok">✓ No throttling</span>'}
+    `;
+
+    // Check if we've reached the target duration
+    if (elapsedSec >= durationMin * 60) {
+      clearInterval(testInterval);
+      isRunning = false;
+      completeTest(K, L);
+    }
+
+  }, intervalMs);
+};
+
+// Stop test
+$('stopTest').onclick = () => {
+  if (!isRunning) return;
+
+  clearInterval(testInterval);
+  isRunning = false;
+  setStatus('Test stopped by user', 'error');
+  addResult('\nTest stopped manually.');
+  generateReport();
+};
+
+// Complete test and generate report
+function completeTest(K, L) {
+  setStatus('Test complete - generating report...', 'done');
+  addResult('\n' + '='.repeat(60));
+  addResult('TEST COMPLETE - GENERATING REPORT');
+  addResult('='.repeat(60));
+  generateReport();
+}
+
+// Generate final report
+function generateReport() {
+  const K = +$('targetK').value;
+  const L = 256;
+
+  addResult('\n' + '='.repeat(60));
+  addResult('THERMAL TEST REPORT');
+  addResult('='.repeat(60));
+
+  // Calculate baseline (cool) and throttled performance
+  const baseline = testData.slice(0, 5);
+  const avgBaseline = baseline.reduce((sum, d) => sum + d.throughput, 0) / baseline.length;
+
+  // Find throttled samples (>30% degradation)
+  const throttledSamples = testData.filter(d => {
+    const degradation = ((avgBaseline - d.throughput) / avgBaseline) * 100;
+    return degradation > 30;
+  });
+
+  const avgThrottled = throttledSamples.length > 0
+    ? throttledSamples.reduce((sum, d) => sum + d.throughput, 0) / throttledSamples.length
+    : null;
+
+  addResult(`\nConfiguration: K=${K}, L=${L}`);
+  addResult(`Test duration: ${(testData[testData.length - 1].elapsedMin).toFixed(1)} minutes`);
+  addResult(`Total iterations: ${testData.length}`);
+
+  addResult(`\nCool performance (first 5 iterations):`);
+  addResult(`  Device: ${avgBaseline.toFixed(0)} MB/s`);
+  addResult(`  Phone est (÷${PHONE_FACTOR}): ${(avgBaseline / PHONE_FACTOR).toFixed(0)} MB/s`);
+
+  if (avgThrottled !== null) {
+    addResult(`\nThrottled performance (${throttledSamples.length} iterations >30% degradation):`);
+    addResult(`  Device: ${avgThrottled.toFixed(0)} MB/s`);
+    addResult(`  Phone est (÷${PHONE_FACTOR}): ${(avgThrottled / PHONE_FACTOR).toFixed(0)} MB/s`);
+    addResult(`  Performance loss: ${((avgBaseline - avgThrottled) / avgBaseline * 100).toFixed(1)}%`);
+  } else {
+    addResult(`\nNo thermal throttling detected during test.`);
+    addResult(`Device maintained stable performance throughout.`);
+  }
+
+  // Check against Stage 3 requirements
+  addResult(`\nStage 3 validation (106 KB/s wire rate):`);
+  const need = requiredMBs(K, L, 106 * 1024);
+
+  if (avgThrottled !== null) {
+    const phoneThrottled = avgThrottled / PHONE_FACTOR;
+    const passes = phoneThrottled >= need;
+    addResult(`  Required: ${need.toFixed(0)} MB/s`);
+    addResult(`  Measured (throttled): ${phoneThrottled.toFixed(0)} MB/s`);
+    addResult(`  Result: ${passes ? '✓ PASS' : '✗ FAIL'} (${(phoneThrottled / need).toFixed(2)}x margin)`);
+
+    if (!passes) {
+      addResult(`\n⚠️ WARNING: Throttled performance fails Stage 3 requirement!`);
+      addResult(`   This device cannot sustain K=${K} under thermal load.`);
+      addResult(`   Consider reducing K or implementing duty cycling (D27).`);
+    }
+  } else {
+    const phoneCool = avgBaseline / PHONE_FACTOR;
+    const passes = phoneCool >= need;
+    addResult(`  Required: ${need.toFixed(0)} MB/s`);
+    addResult(`  Measured (cool): ${phoneCool.toFixed(0)} MB/s`);
+    addResult(`  Result: ${passes ? '✓ PASS' : '✗ FAIL'} (${(phoneCool / need).toFixed(2)}x margin)`);
+    addResult(`\nNote: No throttling observed. Test on a warmer device or extend duration.`);
+  }
+
+  // Phone factor validation
+  addResult(`\nPhone factor validation:`);
+  addResult(`  Desktop → Phone factor assumed: ÷${PHONE_FACTOR}`);
+  addResult(`  Measured device throughput: ${avgBaseline.toFixed(0)} MB/s`);
+  addResult(`  This factor is: ${avgBaseline / PHONE_FACTOR >= BUDGET ? 'CONSERVATIVE' : 'MAY BE TOO AGGRESSIVE'}`);
+  addResult(`  Plan budget: ${BUDGET} MB/s`);
+  addResult(`  Phone est from cool: ${(avgBaseline / PHONE_FACTOR).toFixed(0)} MB/s`);
+
+  setStatus('Report complete - see results below', 'done');
+}
+
+// Initial status
+setStatus('Ready - configure and click "Start 30-min thermal test"', '');
+addResult('Plan.md §18.2 R1: phone GE ≥ 114.6 MB/s sustained while thermally throttled');
+addResult('Plan.md §18.2 S1: validate ÷4 phone factor (desktop-to-phone JS gap ≤ 4×)');
+addResult('');
+addResult('Instructions:');
+addResult('1. Configure target K (default 768) and duration (default 30 min)');
+addResult('2. Click "Start 30-min thermal test"');
+addResult('3. Keep device awake and on this page for the full duration');
+addResult('4. Observe if throughput degrades >30% (thermal throttling indicator)');
+addResult('5. Review final report to validate phone factor and Stage 3 compliance');
+addResult('');
+</script>
