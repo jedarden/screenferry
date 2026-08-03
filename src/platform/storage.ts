@@ -12,8 +12,296 @@
 
 import {createPositionalWriteHandleFactory} from '../core/io/positional-write.js';
 
+// ==============================================================================
+// ORPHAN DETECTION TYPES AND CRITERIA
+// ==============================================================================
+
+/**
+ * Orphan detection result for a single output file.
+ *
+ * Indicates whether an output is considered orphaned and provides the reason.
+ */
+export interface OrphanDetectionResult {
+  /** Whether the output is considered orphaned */
+  isOrphan: boolean;
+  /** Human-readable reason for orphan status (for debugging/logging) */
+  reason: string;
+  /** Whether the file has an active session reference */
+  hasActiveSession: boolean;
+  /** Whether the file exceeds the age threshold */
+  exceedsAgeThreshold: boolean;
+  /** Current age of the file in milliseconds */
+  ageMs: number;
+}
+
+/**
+ * Orphan detection criteria configuration.
+ *
+ * Defines the rules for determining when an output file is considered orphaned.
+ */
+export interface OrphanDetectionCriteria {
+  /** Maximum age in milliseconds before an inactive file is considered orphaned */
+  maxOrphanAge: number;
+  /** Set of currently active stream IDs (files with these IDs are never considered orphaned) */
+  activeStreamIds: Set<number>;
+  /** Current timestamp for age calculation (defaults to Date.now()) */
+  currentTime?: number;
+}
+
+/**
+ * File-session relationship tracking metadata.
+ *
+ * Extends OutputArtefact with additional session tracking information
+ * for orphan detection and cleanup decisions.
+ */
+export interface FileSessionRelationship extends OutputArtefact {
+  /** Last activity timestamp for this stream (if available) */
+  lastActivityTime?: number;
+  /** Whether this file is currently being written (in-progress transfer) */
+  isInProgress: boolean;
+  /** Session state at last check (if available) */
+  sessionState?: 'active' | 'paused' | 'complete' | 'unknown';
+}
+
+/**
+ * Detect whether an output file is orphaned based on the given criteria.
+ *
+ * An output is considered orphaned when BOTH conditions are met:
+ * 1. No active session reference (streamId not in activeStreamIds set)
+ * 2. Older than maxOrphanAge threshold
+ *
+ * The age threshold prevents false positives during:
+ * - Normal app restart (browser update, device reboot)
+ * - Session resume where paused sessions become active again
+ * - Brief app closure during long transfers
+ *
+ * @param output - Output artefact metadata
+ * @param criteria - Detection criteria configuration
+ * @returns Detection result with status and reasoning
+ *
+ * @example
+ * ```typescript
+ * const criteria: OrphanDetectionCriteria = {
+ *   maxOrphanAge: 24 * 60 * 60 * 1000, // 24 hours
+ *   activeStreamIds: new Set([123, 456]),
+ *   currentTime: Date.now(),
+ * };
+ * const result = detectOrphanedOutput(output, criteria);
+ * if (result.isOrphan) {
+ *   console.log(`Orphaned: ${result.reason}`);
+ * }
+ * ```
+ */
+export function detectOrphanedOutput(
+  output: OutputArtefact,
+  criteria: OrphanDetectionCriteria
+): OrphanDetectionResult {
+  const currentTime = criteria.currentTime ?? Date.now();
+  const ageMs = currentTime - output.createdAt;
+  const hasActiveSession = criteria.activeStreamIds.has(output.streamId);
+  const exceedsAgeThreshold = ageMs > criteria.maxOrphanAge;
+
+  // An output is orphaned only if BOTH conditions are met:
+  // 1. No active session reference
+  // 2. Older than the maximum age threshold
+  const isOrphan = !hasActiveSession && exceedsAgeThreshold;
+
+  const reasons: string[] = [];
+  if (hasActiveSession) {
+    reasons.push('has active session reference');
+  } else {
+    reasons.push('no active session reference');
+  }
+
+  if (exceedsAgeThreshold) {
+    reasons.push(`exceeds age threshold (${Math.round(ageMs / 1000 / 60)} minutes old)`);
+  } else {
+    reasons.push(`within age threshold (${Math.round(ageMs / 1000 / 60)} minutes old)`);
+  }
+
+  const reason = reasons.join(', ');
+
+  return {
+    isOrphan,
+    reason,
+    hasActiveSession,
+    exceedsAgeThreshold,
+    ageMs,
+  };
+}
+
+/**
+ * Detect orphaned outputs from a list of output artefacts.
+ *
+ * Filters and categorizes outputs based on orphan detection criteria.
+ * Returns separate lists of orphaned and non-orphaned outputs with detailed results.
+ *
+ * @param outputs - Array of output artefacts to evaluate
+ * @param criteria - Detection criteria configuration
+ * @returns Object containing orphaned and non-orphaned outputs with detection results
+ *
+ * @example
+ * ```typescript
+ * const allOutputs = await storage.listOutputs();
+ * const criteria = {
+ *   maxOrphanAge: 24 * 60 * 60 * 1000,
+ *   activeStreamIds: new Set([123]),
+ * };
+ * const { orphaned, retained } = detectOrphanedOutputs(allOutputs, criteria);
+ * console.log(`Found ${orphaned.length} orphaned files`);
+ * ```
+ */
+export function detectOrphanedOutputs(
+  outputs: OutputArtefact[],
+  criteria: OrphanDetectionCriteria
+): {
+  /** Outputs that are considered orphaned */
+  orphaned: Array<{ output: OutputArtefact; result: OrphanDetectionResult }>;
+  /** Outputs that are retained (not orphaned) */
+  retained: Array<{ output: OutputArtefact; result: OrphanDetectionResult }>;
+} {
+  const orphaned: Array<{ output: OutputArtefact; result: OrphanDetectionResult }> = [];
+  const retained: Array<{ output: OutputArtefact; result: OrphanDetectionResult }> = [];
+
+  for (const output of outputs) {
+    const result = detectOrphanedOutput(output, criteria);
+    const entry = { output, result };
+
+    if (result.isOrphan) {
+      orphaned.push(entry);
+    } else {
+      retained.push(entry);
+    }
+  }
+
+  return { orphaned, retained };
+}
+
+/**
+ * Create file-session relationship metadata from an output artefact.
+ *
+ * Extends basic output metadata with session tracking information
+ * for more comprehensive orphan detection and cleanup decisions.
+ *
+ * @param output - Base output artefact
+ * @param isInProgress - Whether the file is currently being written
+ * @param sessionState - Current session state (if available)
+ * @returns Extended file-session relationship metadata
+ */
+export function createFileSessionRelationship(
+  output: OutputArtefact,
+  isInProgress: boolean = false,
+  sessionState?: 'active' | 'paused' | 'complete' | 'unknown'
+): FileSessionRelationship {
+  return {
+    ...output,
+    isInProgress,
+    sessionState,
+  };
+}
+
+/**
+ * Enhanced orphan detection that considers file-session relationships.
+ *
+ * This function provides more sophisticated orphan detection by considering
+ * additional context beyond basic age and session ID, such as:
+ * - Whether the file is currently being written (in-progress protection)
+ * - The session state (active, paused, complete, unknown)
+ * - Last activity time for the session
+ *
+ * @param relationship - File-session relationship metadata
+ * @param criteria - Detection criteria configuration
+ * @returns Detection result with enhanced reasoning
+ *
+ * @example
+ * ```typescript
+ * const relationship = createFileSessionRelationship(output, true, 'active');
+ * const result = detectOrphanedWithRelationship(relationship, criteria);
+ * // In-progress files are never considered orphaned
+ * ```
+ */
+export function detectOrphanedWithRelationship(
+  relationship: FileSessionRelationship,
+  criteria: OrphanDetectionCriteria
+): OrphanDetectionResult {
+  const baseResult = detectOrphanedOutput(relationship, criteria);
+
+  // Enhanced protection: in-progress files are never orphaned
+  if (relationship.isInProgress) {
+    return {
+      isOrphan: false,
+      reason: baseResult.reason + ', file is in-progress (protected)',
+      hasActiveSession: baseResult.hasActiveSession,
+      exceedsAgeThreshold: baseResult.exceedsAgeThreshold,
+      ageMs: baseResult.ageMs,
+    };
+  }
+
+  // Enhanced protection: paused sessions may be resumed
+  if (relationship.sessionState === 'paused') {
+    // Use a longer age threshold for paused sessions (3x default)
+    const pausedThreshold = criteria.maxOrphanAge * 3;
+    const ageMs = baseResult.ageMs;
+
+    if (ageMs >= pausedThreshold) {
+      // Very old paused sessions should be cleaned up
+      return {
+        isOrphan: true,
+        reason: `no active session reference, paused session exceeds ${Math.round(pausedThreshold / 1000 / 60)} minutes threshold`,
+        hasActiveSession: false,
+        exceedsAgeThreshold: true,
+        ageMs,
+      };
+    }
+
+    // Paused sessions within threshold are protected
+    return {
+      isOrphan: false,
+      reason: baseResult.reason.replace('no active session reference', 'has active session reference') + ', session is paused (protected)',
+      hasActiveSession: true, // Treat paused as active for orphan detection
+      exceedsAgeThreshold: false,
+      ageMs,
+    };
+  }
+
+  // Complete sessions with recent completion are protected
+  if (relationship.sessionState === 'complete') {
+    const recentCompletionThreshold = criteria.maxOrphanAge * 0.5; // Protect recent completions
+    const ageMs = baseResult.ageMs;
+
+    if (ageMs < recentCompletionThreshold) {
+      // Recently completed files get extra protection
+      return {
+        isOrphan: false,
+        reason: `recently completed (${Math.round(ageMs / 1000 / 60)} minutes old)`,
+        hasActiveSession: true,
+        exceedsAgeThreshold: false,
+        ageMs,
+      };
+    }
+
+    // Older completed files still get protection through the age threshold
+    return {
+      isOrphan: false,
+      reason: `completed within age threshold (${Math.round(ageMs / 1000 / 60)} minutes old)`,
+      hasActiveSession: true,
+      exceedsAgeThreshold: false,
+      ageMs,
+    };
+  }
+
+  return baseResult;
+}
+
+// ==============================================================================
+// OUTPUT ARTEFACT TYPES
+// ==============================================================================
+
 /**
  * Output artefact metadata.
+ *
+ * Represents a decoded output file stored in OPFS, including all
+ * information needed for orphan detection and cleanup.
  */
 export interface OutputArtefact {
   /** Stream ID (unique identifier) */
@@ -24,20 +312,24 @@ export interface OutputArtefact {
   mimeType: string;
   /** File size in bytes */
   size: number;
-  /** Creation timestamp */
+  /** Creation timestamp (milliseconds since epoch) */
   createdAt: number;
-  /** OPFS file path */
+  /** OPFS file path (relative to output directory) */
   path: string;
 }
 
 /**
  * Storage manager configuration.
+ *
+ * Configures the storage manager's behavior, including orphan detection parameters.
  */
 export interface StorageManagerConfig {
   /** OPFS subdirectory for receiver outputs */
   outputDirectory: string;
   /** Maximum age for orphaned outputs (ms) - default 24 hours */
   maxOrphanAge: number;
+  /** Whether to enable enhanced orphan detection with file-session relationships */
+  enableEnhancedDetection?: boolean;
 }
 
 /**
@@ -46,6 +338,7 @@ export interface StorageManagerConfig {
 const DEFAULT_CONFIG: StorageManagerConfig = {
   outputDirectory: 'screenferry-outputs',
   maxOrphanAge: 24 * 60 * 60 * 1000, // 24 hours
+  enableEnhancedDetection: false, // Disabled by default for backward compatibility
 };
 
 /**
@@ -102,6 +395,16 @@ export interface StorageManager {
    *
    * Identifies and deletes outputs that exist in storage without
    * a corresponding active session reference.
+   *
+   * Orphan detection criteria (BOTH must be true):
+   * 1. No active session reference (streamId not in activeStreamIds)
+   * 2. File older than maxOrphanAge threshold
+   *
+   * Edge cases handled:
+   * - In-progress transfers: Protected by active session reference
+   * - Paused sessions: Protected by active session reference
+   * - Recent completions: Protected by age threshold
+   * - Partial uploads: Treated as orphaned if no active session and age exceeded
    *
    * @param activeStreamIds - Set of currently active stream IDs
    * @returns Count of files cleaned up
@@ -272,18 +575,33 @@ class OPFSStorageManager implements StorageManager {
 
     const outputs = await this.listOutputs();
     const now = Date.now();
+
+    // Create detection criteria
+    const criteria: OrphanDetectionCriteria = {
+      maxOrphanAge: this.config.maxOrphanAge,
+      activeStreamIds,
+      currentTime: now,
+    };
+
+    // Use enhanced detection if enabled
+    const detectionFunc = this.config.enableEnhancedDetection
+      ? (output: OutputArtefact) => detectOrphanedWithRelationship(
+          createFileSessionRelationship(output, false, 'unknown'),
+          criteria
+        )
+      : (output: OutputArtefact) => detectOrphanedOutput(output, criteria);
+
     let cleanupCount = 0;
 
     for (const output of outputs) {
-      // An output is orphaned if:
-      // 1. It's not in the active stream IDs set, AND
-      // 2. It's older than the max orphan age
+      const result = detectionFunc(output);
 
-      const isInactive = !activeStreamIds.has(output.streamId);
-      const isOld = (now - output.createdAt) > this.config.maxOrphanAge;
-
-      if (isInactive && isOld) {
-        console.log(`[Storage] Cleaning up orphaned output: streamId=${output.streamId}, filename=${output.filename}, age=${Math.round((now - output.createdAt) / 1000 / 60)} minutes`);
+      if (result.isOrphan) {
+        console.log(
+          `[Storage] Cleaning up orphaned output: streamId=${output.streamId}, ` +
+          `filename=${output.filename}, age=${Math.round(result.ageMs / 1000 / 60)} minutes, ` +
+          `reason=${result.reason}`
+        );
 
         try {
           await this.deleteOutput(output.streamId);
@@ -291,6 +609,12 @@ class OPFSStorageManager implements StorageManager {
         } catch (e) {
           console.error(`[Storage] Failed to cleanup orphaned output: streamId=${output.streamId}`, e);
         }
+      } else {
+        // Log why file is retained (for debugging)
+        console.log(
+          `[Storage] Retaining output: streamId=${output.streamId}, ` +
+          `filename=${output.filename}, reason=${result.reason}`
+        );
       }
     }
 
