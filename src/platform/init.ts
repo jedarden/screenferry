@@ -41,7 +41,7 @@ export async function runAppInit(): Promise<InitResult> {
 
   try {
     // ========================================
-    // VALIDATION INSERTION POINT (bf-1mj8)
+    // VALIDATION INSERTION POINT (bf-1mj8, bf-ft40)
     // ========================================
     // CONFLICT CHECK VALIDATION SHOULD BE INSERTED HERE
     //
@@ -51,11 +51,22 @@ export async function runAppInit(): Promise<InitResult> {
     //
     // Implementation should:
     // 1. Check current configuration state
-    // 2. Validate no conflicting flag combinations
+    // 2. Validate no conflicting flag combinations (e.g., compression + resume)
     // 3. Add any conflicts to errors array
     // 4. Continue to health checks even if conflicts exist
     //
-    // Reference: docs/notes/bf-1mj8-validation-insertion-point.md
+    // Why this location is correct:
+    // - Before any state changes (no files written, no sessions created)
+    // - Before async operations (runs before health checks and cleanup)
+    // - Early validation (fails fast if configuration is invalid)
+    // - Non-blocking (can continue to health checks even with conflicts)
+    // - Error collection (conflicts added to errors array for UI display)
+    //
+    // References:
+    // - docs/notes/bf-1mj8-validation-insertion-point.md
+    // - docs/notes/bf-ft40-sender-initialization-entry-point.md
+    // - src/core/frame/beacon.ts:14-31 (compression/resume flag constraint)
+    // - docs/notes/bf-17s0-resume-compression-conflict.md
     // ========================================
 
     // Run health check and cleanup in parallel
