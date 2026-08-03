@@ -12,7 +12,7 @@
 
 const CACHE_NAME = 'screenferry-v1';
 const WASM_FILE = '/zxing_reader.wasm';
-const WASM_INTEGRITY = 'sha256-22aad0a7641f4687816c0902541bd7e85eb384c74f18fc1905e430cc4014607e';
+const WASM_INTEGRITY = 'sha384-bd7f4829ae9ea4d8b7883b5739d535e4e6a5227c6fd693361e3bc250ea3516776cdeaf3a64056163210d4ead18290f20';
 
 /**
  * Assets to precache on service worker installation.

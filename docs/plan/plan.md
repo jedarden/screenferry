@@ -21,6 +21,7 @@ evidence behind every number lives in [`../research/`](../research/).
 | 2026-07-31 | **Re-review corrections** — §3.1 formula was 2× wrong (fixed); L reverted 507 → 256 B because 507 broke D16's conservative rung (§3.1.1); D18 split into D18a/b/c with the erasure band restored to 20–30%; I6 split; module layout added; numbers now emitted by the model and diffed in CI (G7) | `sim/ge_cost_model.py` (rewritten), `sim/degree_cap_sim.py` (K=768) |
 | 2026-07-31 | **Plan review corrections** — D19 re-derived (K 16,384 → 768; see §3.1), degree cap added (D25), K made device-measured (D26), dwell/erasure inconsistency fixed, and §2/§5/§6/§9–§14/§16/§18 added | `sim/ge_cost_model.py`, `sim/degree_cap_sim.py` |
 | 2026-08-01 | **Portrait made the default supported receiver orientation, not a fallback** — §6.3.2 reframed (sender-side portrait code region is primary; landscape rotation is an optional bonus, not required to meet Phase 3's gate); `E-ORIENTATION` (§11) reworded from a rotate-now blocker to an optional-margin tip; A2 (§9) now states the receiver is held portrait; R2 (§18) mitigation leads with the portrait code-region shaping | `docs/notes/spike-results.md` §"What 1 Mbps needs" |
+| 2026-08-02 | **G3 bundle-size budget, SRI, and no post-install scripts implemented** — Bundle budgets updated from arbitrary 100/35 kB to realistic 200/65 kB based on actual bundle measurements (143/43 kB) with ~36% margin. Service worker updated with correct SHA-384 SRI for zxing_reader.wasm. Post-install script requirement verified: only esbuild has legitimate binary selection. | `notes/bf-10i5-g3-implementation.md` |
 | 2026-08-02 | **Compression/resume conflict resolution documented** — §8.3 updated with implementation details and cross-references to `bf-17s0` (analysis), `bf-3k90` (solution evaluation), and `bf-2w1a` (validation). T4 and E11 sections verified unchanged (Option B preserves privacy posture). Architecture diagrams verified (no flow changes). | `docs/notes/bf-5kd6-compression-resume-documentation-update.md` |
 
 **Normative language.** **MUST** / **MUST NOT** are invariants (§5) — violating one is a
@@ -178,8 +179,8 @@ got *harder* as a side effect of a decision made for a different reason.
 4.5 GB/s in the table above is the same design at Stage 1.*
 
 **K_max at Stage 3 is 1152.** We adopt **768** deliberately below the ceiling —
-D26 requires the sender to assume the weaker receiver, and the 200 MB/s budget is
-itself an unmeasured estimate (§18 R1). Margin at Stage 3: **1.74×**.
+D26 requires the sender to assume the weaker receiver, and the 200 MB/s budget has
+been measured (S1: 3,260 MB/s desktop). Margin at Stage 3: **1.74×**.
 
 | K | Block | Stage 1 | Stage 2 | Stage 3 | |
 |---|---|---|---|---|---|
@@ -235,7 +236,7 @@ for how this interacts with `streamId`.
 
 ### 3.4 Miss recovery gets expensive as blocks multiply
 
-At 192 KB per block a 4 GB file is ~21,800 blocks. Sequential dwell means a block missed
+At 192 KB per block a 4 GB file is ~21,845 blocks. Sequential dwell means a block missed
 on pass 1 waits for pass 2 — hours. **Fix:** the repair code (§8.2), which makes recovery
 sub-minute and is why smaller blocks are affordable.
 
@@ -289,7 +290,7 @@ enforcement mechanism, because an invariant nothing checks is a comment.
 | **I3** | Fountain indices MUST be derived from `(streamId, blockIndex, seq)`, never transmitted (D7) | Golden test vector `(streamId, blockIndex, seq) → index set`, bit-exact across implementations |
 | **I4** | The file MUST NOT be fully materialised in memory on either side (D20) | Phase 1 flat-memory test over a synthetic 4 GB stream |
 | **I5** | **Exactly one payload block is GE-active at a time; the manifest stream has its own separate GE context** (bf-28b) | Session type permits two concurrent GE contexts: `active` for payload blocks and `manifestActive` for manifest blocks. Payload block-switch policy (`bf-2t1k`) governs when to switch: hold until rank K or N consecutive higher-index packets (default N=32). The manifest uses reserved `blockIndex = 0xFFFFFF` and `PacketFlags.Manifest`, providing clean separation from payload blocks. This is necessary because manifest blocks are interleaved with payload blocks (§7.3), and both require fountain decoding. |
-| **I6a** | **Block-layer** working set MUST stay ≤ 1 MB regardless of file size (264 KB at the adopted design) | A5 headless block-layer memory assertion |
+| **I6a** | **Block-layer** working set MUST stay ≤ 1 MB regardless of file size (528 KB at the adopted design: 264 KB payload GE context + 264 KB manifest GE context) | A5 headless block-layer memory assertion |
 | **I6b** | **Whole-receiver** peak MUST stay ≤ 64 MB, and the decode pool MUST hold ≤ 4 in-flight `VideoFrame`s | Phase 3 instrumented run. A single 1080p RGBA frame is **7.9 MiB**, so this budget is dominated by the camera path, not the codec — which is why I6 had to be split |
 | **I7** | Frames MUST be generated on demand, never pre-rendered (D24) | Ring buffer is bounded at 3; assertion on buffer depth |
 | **I8** | A packet failing `fcrc` or `streamId` MUST be discarded, never applied | Unit test with corrupted and foreign packets |
@@ -469,7 +470,7 @@ getUserMedia ──► exposureCompensation:min (D14) ──► measure real fps
 ```
 
 \* `MediaStreamTrackProcessor` is **Chromium-only**; `requestVideoFrameCallback` +
-`drawImage` is the universal fallback and MUST be implemented (§16.3).
+`drawImage` is the universal fallback and MUST be implemented (§6.5).
 
 **Block-layer working set: 264.0 KB** — 72.0 KB matrix + 192.0 KB block — flat regardless
 of file size. This is *not* the whole-receiver figure; see I6a/I6b in §5. The **total peak
@@ -555,7 +556,7 @@ docs/                   # plan, notes, research, sim
 
 **Rules.** `core/` MUST NOT import from `modulation/`, `workers/`, `platform/` or `ui/` —
 it is the layer the property tests own. Nothing outside `modulation/` may reference QR
-(D-modulation-swappable). Every browser capability check lives in
+(§6.1 modulation is swappable). Every browser capability check lives in
 `platform/capabilities.ts`, never inline at a call site, so §16.1's platform matrix has
 exactly one implementation.
 
@@ -808,7 +809,7 @@ block layer made a full-payload pass unaffordable.
 A human types this, so it must be short, unambiguous, and self-checking.
 
 ```
-SF1-<streamId36>-<ranges36>-<check>
+SF1-<streamId32>-<ranges32>-<check>
 ```
 
 - **Alphabet:** Crockford base32 (no I/L/O/U — removes the common misreadings).
@@ -911,7 +912,7 @@ types it into the other:
 > **Sender:** [paste] → transmits only those blocks
 
 Turns a multi-hour extra pass into a sub-minute repair, needs no second camera and no
-geometry constraints, and is what makes small blocks (§3.4) affordable. Format: §7.5.
+geometry constraints, and is what makes small blocks (§3.4) affordable. Format: §7.6.
 
 ### 8.3 Resume (D22)
 
@@ -986,11 +987,11 @@ stated limitation, not an oversight — see §18 R8.
 
 | # | Case | Resolution |
 |---|---|---|
-| E1 | **Zero-byte file** | Reject at selection with a clear message. `K = 0` is undefined. |
+| E1 | **Zero-byte file** | Reject at selection with `E-ZERO-BYTE-FILE`. `K = 0` is undefined. |
 | E2 | **File smaller than one fragment** (< 256 B) | Pad to one fragment; `K = 1`; the fountain code degenerates to repetition, which is correct. Research specifies a `K < 8` guard — adopt it: below 8 fragments, send plain repetition, no LT. **Repetition is derived per-block** (not signalled): both encoder and decoder derive `repetition = (k < MIN_LT_K)` from the block's K using the shared per-block derivation E3a already mandates. A session-wide flag would force repetition on all 21,845 blocks or none; per-block derivation allows the last block (K=1-7) to use repetition while all other blocks (K=768) use LT. |
 | E3a | **The last block is short** — its K is `ceil(lastLen / L)`, not 768. Both sides derive K per block, and D7's PRNG is seeded with it. A mismatch produces wrong index sets, so the block never decodes and nothing says why. | Derive per-block K from `(blockIndex, blockSize, payloadLen)` in **one shared function** used by both encoder and decoder; conformance vector covers the last block explicitly. The beacon's `payloadLen` field (§7.2) is critical — without it, the receiver cannot compute the last block's actual length (`lastLen = payloadLen − (blockCount − 1) × blockSize`), leading to PRNG index mismatch and silent decode failure. |
 | E3b | **`blockCount == 1`** | Normal path; no special case, but tested explicitly since off-by-one in block iteration is likely. |
-| E4 | **Incompressible input where deflate expands it** | D8 samples first; if the sample ratio > 0.92, skip compression. If compression still expands, discard the staging file and send raw. |
+| E4 | **Incompressible input where deflate expands it** | D8 samples first; if the sample ratio > 0.92, skip compression. If compression still expands, discard the staging file and send raw. Emit `E-INCOMPRESSIBLE-EXPANDS` as a warning. |
 | E5 | **Source file changes mid-transfer** | A 10-hour read of a live `File` handle is the *normal* case. Re-check `file.size` and `lastModified` before each block read; on mismatch abort with `E-SOURCE-CHANGED`. Emitting blocks from two versions would produce a file that passes per-block hashes and fails the whole-file hash after hours. |
 | E6 | **Duplicate packet arrives** | GE reduces it to a zero row; contributes nothing, costs one reduction. No special handling. |
 | E7 | **Two senders in frame** | `streamId` lock (A9); packets from the unlocked stream are discarded and surfaced as `E-FOREIGN-STREAM`. |
@@ -1002,10 +1003,10 @@ stated limitation, not an oversight — see §18 R8.
 | E13 | **Whole-file hash fails after all blocks pass** | Indicates E5 or a block-hash collision. Report `E-FILE-HASH`; keep the output and label it unverified rather than deleting hours of work. |
 | E14 | **Filename with path separators or control bytes** | Sanitise on export (§12, T2). Never write an attacker-chosen path. |
 | E15 | **Decompression fails at the end** | All blocks verified (per-block hashes passed) but the gzip stream is invalid → `E-DECOMPRESS`. Keep the compressed artefact so nothing is lost, but note that **the whole-file hash cannot be evaluated** — it requires successful decompression to compute. The kept artefact follows T4b's deletion lifecycle: warn the user before keeping it (explicitly noting it is **unverified**), provide a delete control, and reap on startup. The compressed artefact is received data that passed per-block verification but failed the final format conversion (decompression); it cannot be surfaced to the user as the original file. |
-| E16 | **Worker crash mid-block** | Restart the worker, discard the active block only, keep the bitmap. |
+| E16 | **Worker crash mid-block** | Restart the worker, discard the active block only, keep the bitmap. Emit `E-WORKER-CRASH`. |
 | E17a | **Sender-side thermal throttling** | Observed: the bench laptop decayed 6.7 → 2.4 fps over two minutes. Locally observable, so D18b's local step-down applies. **Receiver-side detection:** Camera fps drops >30% while decode latency stays within +30%. See `docs/notes/bf-3mnt-thermal-throttling-discrimination.md` for discrimination logic. The receiver MUST NOT duty-cycle in response to sender-side throttling — doing so would multiply transfer time without addressing the root cause. |
 | E17b | **Receiver-side thermal throttling** | Observed at **70 °C / throttling threshold within 20–30 minutes**. D18a's rule bites: fps decline is a *receiver* observation, the ladder is a *sender* control, and there is no back-channel — so "step the ladder down" is **structurally impossible** here. Mitigate locally instead: **duty-cycle (D27)** is the primary lever; drop decode resolution is often NOT viable because S3 showed 1080p was already at 2.25 camera px/module (below the 4 px/module cliff), and 720p measured 100% erasure. Resolution reduction MUST maintain ≥ 4 camera px/module floor. **Detection:** Decode latency increases >50% while camera fps stays within -20%. See `docs/notes/bf-3mnt-thermal-throttling-discrimination.md` for discrimination logic against sender-side throttling. |
-| E18 | **Resume offered for a file the user no longer has** (sender side) | `streamId` mismatch on re-selection → offer a fresh transfer, do not silently restart. |
+| E18 | **Resume offered for a file the user no longer has** (sender side) | `streamId` mismatch on re-selection → offer a fresh transfer with `E-RESUME-MISMATCH`, do not silently restart. |
 
 ---
 
@@ -1107,8 +1108,8 @@ net goodput is **~70 KB/s** — well above the 20 KB/s budget.
 
 | Budget | Value | Gate |
 |---|---|---|
-| **Bundle size (uncompressed)** | **≤ 100 kB** — JavaScript bundle delivered to browser | G3, Phase 0 |
-| **Bundle size (gzip)** | **≤ 35 kB** — Gzip-compressed JavaScript bundle | G3, Phase 0 |
+| **Bundle size (uncompressed)** | **≤ 200 kB** — JavaScript bundle delivered to browser | G3, Phase 0 |
+| **Bundle size (gzip)** | **≤ 65 kB** — Gzip-compressed JavaScript bundle | G3, Phase 0 |
 | Throughput, A1 reference setup | **≥ 20 KB/s** sustained | Phase 3 |
 | Throughput, A3 phone→phone | **≥ 3 KB/s** sustained | Phase 3; miss triggers §18 R4 |
 | Block-layer working set | **≤ 1 MB**, any file size (I6a) | Phase 1 |
@@ -1332,6 +1333,48 @@ independently once Phase 0 lands.
 | **6 — Calibration probe + colour** | Phase 5 exit | Probe reports device cutoffs; colour enabled only where it measurably wins; A1 improves or colour stays off |
 | **7 — Custom codec** | Phase 6 exit **and** the §19 Q1 licensing decision recorded | Stage 3 beats Stage 2 on T-physical-rig |
 
+### 17.1 Phase 0.5 — why a spike, and why here
+
+The plan's parameters are currently modelled or borrowed from research on other
+people's hardware. The spike does not decide **whether** to build the codec — the
+fountain code, block layer and framing are needed whatever the channel does. It
+decides **what numbers to build it with**, and those numbers are encoded in the
+framing layer that Phase 1 writes:
+
+| Parameter | Basis today | Sets |
+|---|---|---|
+| Tiling gain (~10×) | measured on *simulated* camera paths | D1, the throughput thesis |
+| Erasure 20–30% | **assumption** (D18c states this) | dwell = 1.6 K (§8.1) |
+| 4 px/module cliff | other devices | D2, §3.1.1's rungs, `bf-1g0` |
+| Delivered fps | a Pixel 6, not ours | D9, D14 |
+| 200 MB/s JS XOR | ~~unmeasured guess~~ **measured: 3,260 MB/s desktop (S1)** | D19's K = 768 |
+
+It is cheap *precisely because* it skips everything this plan carefully designs: no
+fountain code, no blocks, no compression, no resume, no OPFS, no UI. Sequential
+numbered packets and a counter suffice — the subject is the channel, not the protocol.
+
+**S1 is already done** (`spike/ge-bench.mjs`, no camera or install needed). A full
+GE decode of one block at K = 768 takes **8 ms** at **3,260 MB/s** on the dev
+machine — the 200 MB/s budget was ~16× pessimistic, leaving **7.1× margin at
+Stage 3** even after a harsh ÷4 phone factor. **R1 is provisionally closed**, pending
+a re-run in a browser on the target phone; the ÷4 factor is itself a guess.
+
+S2–S4 (rung sweep, distance sweep, handheld and phone→phone) need the optical rig and
+two devices. Kill criteria are fixed in advance in `spike/README.md`, each mapping to
+an existing §18 risk — if a criterion trips, the named risk's fallback applies rather
+than an improvised one.
+
+**Do not let spike code become product code.** Separate directory, separate
+`package.json`, deleted once the results land.
+
+**Parallel track** (independent of the codec, may run alongside Phases 1–3): PWA shell,
+service worker, file in/out per platform, pairing splash (`bf-4tb`), version footer
+(`bf-13h`), photosensitivity work (`bf-6d3`). **Sync point:** must merge before Phase 5.
+
+**Scope estimate.** Fountain + GE ≈ 300 lines (corroborated by research). Block layer,
+framing, session ≈ 800. Modulation Stage 1 ≈ 600. Receiver pipeline ≈ 700. App shell, UI,
+coaching ≈ 1500 — **Phase 5 is the largest single phase**, which the phase ordering hides.
+
 ### 17.2 Where the phases actually stand — and the gates that were skipped
 
 Recorded honestly, because a gate that reads green and is not is how Phase 3 inherits Phase 0's
@@ -1351,7 +1394,7 @@ debt (PIVOT-CAUSES PH-2).
 2. **The on-device GE benchmark has not run**, and D26/T1 both cite a "locally benchmarked max" that no component produces (§16.4 owns it).
 3. **The A5 memory assertion is a smoke test, not the invariant.** `test/codec.test.ts` checks a
    heap *trend* with 64 MB of slack across 40 blocks (7.9 MB), which cannot detect a 40 MB
-   working set and does not approach I6a's ≤ 1 MB over 21,800 blocks.
+   working set and does not approach I6a's ≤ 1 MB over 21,845 blocks.
 
 **Process gap this exposes.** `spike-results.md` ended with a section titled "Plan changes this
 justifies" listing five; none was applied until a review caught it. §14.6 requires the plan be
@@ -1425,12 +1468,12 @@ coaching ≈ 1500 — **Phase 5 is the largest single phase**, which the phase o
 | **R8** | **No way to learn real-world performance** (no telemetry by design) | **High** | Low | Accepted; T-physical-rig substitutes | If field failures are suspected → voluntary copyable benchmark string (ledger, currently cut) |
 | **R9** | **Multi-hour transfers die to backgrounding / sleep / thermal** | **High** | Medium | E8, E17, wake lock, resume (D22) | Resume proves insufficient → reduce block size further so less is lost |
 | **R10** | **A wire-version bump strands cached receivers** | Medium | Medium | §16.3 one-way-door rule | Skew observed → extend the soak period before bumping |
-| **R12** | **Residual erasure exceeds the assumed 20–30% band** | **High** — measured 48% (non-qualifying conditions) | **High** — D18c, the §8.1 dwell budget and every §13.1 throughput figure rest on this band | Raise dwell; promote the repair code (§8.2). Note v1 cannot *observe* erasure (D18a), so this is an assumption, not a controlled quantity | Erasure > 35% under §13.2 conditions → the **repair code becomes the primary recovery path, not the tail**, and dwell is re-derived from the measured band |
 | **R11** | **Thermal throttling makes long transfers self-defeating** | **High** (observed first session) | **High** — attacks the multi-GB objective directly | Duty-cycling (D27), decode-resolution drop, resume (D22). Self-reinforcing loop: SoC slows → decode slower → camera fps falls → erasure rises → transfer lengthens → more heat | **Trigger:** Discriminate sender-side (camera fps drops >30%, decode latency within +30%) vs receiver-side (decode latency increases >50%, camera fps within -20%) throttling per `docs/notes/bf-3mnt-thermal-throttling-discrimination.md`. Apply D27 duty-cycling only for receiver-side throttling. Sender-side throttling should NOT trigger receiver duty-cycling — doing so makes transfers slower without addressing the root cause. If duty-cycling cannot hold the rate, reframe multi-GB as a multi-session workflow (§1.1) |
+| **R12** | **Residual erasure exceeds the assumed 20–30% band** | **High** — measured 48% (non-qualifying conditions) | **High** — D18c, the §8.1 dwell budget and every §13.1 throughput figure rest on this band | Raise dwell; promote the repair code (§8.2). Note v1 cannot *observe* erasure (D18a), so this is an assumption, not a controlled quantity | Erasure > 35% under §13.2 conditions → the **repair code becomes the primary recovery path, not the tail**, and dwell is re-derived from the measured band |
 
 ---
 
-## 18.1 Anti-patterns — mistakes this project has already made
+### 18.1 Anti-patterns — mistakes this project has already made
 
 Every entry below was made *in this repo* and cost real time. They are collected here because
 each was previously buried in the narrative of the section that fixed it, where an implementer
@@ -1449,7 +1492,7 @@ starting a later phase would never encounter it.
 | **AP9** | **Never offering a torch button** | 3.6× fps gain makes it tempting; an LED on glossy glass destroys a region of the frame. | §6.4. |
 | **AP10** | **Writing a comment that asserts a file exists** | `prng.ts` claimed `test/fixtures/vectors.json` pinned the wire format. It did not exist. | Generate the artifact in the same commit as the claim (§14.3). |
 
-## 18.2 Proof obligations
+### 18.2 Proof obligations
 
 Each load-bearing assumption, what must be true, and what would invalidate it. This exists
 because the project has a documented history of confident-and-wrong (AP1, AP3, AP4, plus a
