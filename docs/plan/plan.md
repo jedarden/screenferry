@@ -851,6 +851,11 @@ vectors exist to validate.
 | **packetSeed round 1 multiplier** | `0x85ebca6b` | First mixing constant when combining `(streamId, blockIndex, seq)`. **Order is normative** — changing the order of operations or the constants changes the derived index set. | `src/core/fountain/prng.ts` |
 | **packetSeed round 2 multiplier** | `0xc2b2ae35` | Second mixing constant when combining `(streamId, blockIndex, seq)`. | `src/core/fountain/prng.ts` |
 | **Partial Fisher-Yates algorithm** | Fisher-Yates shuffle truncated at `d` iterations | Generates `d` distinct indices from `[0, k)` without rejection sampling. Critical for bounded-time index derivation. The algorithm is: (1) initialize `pool[i] = i` for `i in [0, k)`, (2) for `i in [0, d)`: `j = i + floor(rnd() * (k - i))`, swap `pool[i]` and `pool[j]`, return `pool[i]`. **This exact algorithm is normative** — any change produces different index sets. | `src/core/fountain/prng.ts` |
+| **MANIFEST_BLOCK_INDEX** | `0xFFFFFF` | Reserved block index for the manifest stream (§7.3). Manifest blocks use this special value to distinguish themselves from payload blocks, allowing both to be interleaved in the same fountain-coded stream while maintaining separate GE contexts (I5). | `src/core/params.ts` |
+| **PacketFlags.Payload** | `0x00` | Flag value for normal payload packets in the header's `flags` field. | `src/core/params.ts` |
+| **PacketFlags.Beacon** | `0x01` | Flag value for beacon packets carrying file metadata (§7.2). | `src/core/params.ts` |
+| **PacketFlags.Compressed** | `0x04` | Flag indicating the payload was compressed (D8). When set, resume is disabled (§8.3). | `src/core/params.ts` |
+| **PacketFlags.Manifest** | `0x08` | Flag value for manifest stream packets (§7.3). Combined with `blockIndex = 0xFFFFFF` to route manifest blocks to their own GE context. | `src/core/params.ts` |
 
 **Implementation notes:**
 
