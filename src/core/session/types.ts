@@ -48,7 +48,7 @@ export interface WritePositionTracker {
 /**
  * Common metadata shared across multiple receiver states.
  */
-interface BaseRecvState {
+export interface BaseRecvState {
   streamId: number;
   meta: BeaconMeta;
   complete: Uint8Array;  // block bitmap
@@ -420,7 +420,7 @@ export function canResumeRecv(state: RecvSessionState): boolean {
   }
 
   // Check beacon flags for resume disabled
-  const meta = state.type === 'paused' ? state.previousState.meta : state.meta;
+  const meta = state.type === 'paused' ? state.previousState.meta : (state as CompleteState).meta;
   if (isResumeDisabled(meta.flags)) {
     return false;
   }
@@ -436,7 +436,8 @@ export function getMissingBlocks(bitmap: Uint8Array): number[] {
   for (let i = 0; i < bitmap.length * 8; i++) {
     const byteIndex = Math.floor(i / 8);
     const bitIndex = i % 8;
-    if (!(bitmap[byteIndex] & (1 << bitIndex))) {
+    const byte = bitmap[byteIndex]!; // Typed array access is always defined
+    if (!(byte & (1 << bitIndex))) {
       missing.push(i);
     }
   }
@@ -461,7 +462,7 @@ export function isBitmapComplete(bitmap: Uint8Array): boolean {
 export function clearBitmapBit(bitmap: Uint8Array, blockIndex: number): void {
   const byteIndex = Math.floor(blockIndex / 8);
   const bitIndex = blockIndex % 8;
-  bitmap[byteIndex] &= ~(1 << bitIndex);
+  bitmap[byteIndex]! &= ~(1 << bitIndex);
 }
 
 /**
@@ -470,7 +471,7 @@ export function clearBitmapBit(bitmap: Uint8Array, blockIndex: number): void {
 export function setBitmapBit(bitmap: Uint8Array, blockIndex: number): void {
   const byteIndex = Math.floor(blockIndex / 8);
   const bitIndex = blockIndex % 8;
-  bitmap[byteIndex] |= (1 << bitIndex);
+  bitmap[byteIndex]! |= (1 << bitIndex);
 }
 
 // ==============================================================================
@@ -603,7 +604,7 @@ export class WritePositionTrackerImpl implements WritePositionTracker {
 export function isBlockWritten(state: BaseRecvState, blockIndex: number): boolean {
   const byteIndex = Math.floor(blockIndex / 8);
   const bitIndex = blockIndex % 8;
-  return (state.writtenBlocks[byteIndex] & (1 << bitIndex)) !== 0;
+  return (state.writtenBlocks[byteIndex]! & (1 << bitIndex)) !== 0;
 }
 
 /**
@@ -612,7 +613,7 @@ export function isBlockWritten(state: BaseRecvState, blockIndex: number): boolea
 export function markBlockWritten(state: BaseRecvState, blockIndex: number): void {
   const byteIndex = Math.floor(blockIndex / 8);
   const bitIndex = blockIndex % 8;
-  state.writtenBlocks[byteIndex] |= (1 << bitIndex);
+  state.writtenBlocks[byteIndex]! |= (1 << bitIndex);
 }
 
 /**
@@ -647,8 +648,8 @@ export function getUnwrittenBlocks(state: BaseRecvState): number[] {
     const byteIndex = Math.floor(i / 8);
     const bitIndex = i % 8;
 
-    const complete = (state.complete[byteIndex] & (1 << bitIndex)) !== 0;
-    const written = (state.writtenBlocks[byteIndex] & (1 << bitIndex)) !== 0;
+    const complete = (state.complete[byteIndex]! & (1 << bitIndex)) !== 0;
+    const written = (state.writtenBlocks[byteIndex]! & (1 << bitIndex)) !== 0;
 
     if (complete && !written) {
       unwritten.push(i);
@@ -668,8 +669,8 @@ export function areAllBlocksWritten(state: BaseRecvState): boolean {
     const byteIndex = Math.floor(i / 8);
     const bitIndex = i % 8;
 
-    const complete = (state.complete[byteIndex] & (1 << bitIndex)) !== 0;
-    const written = (state.writtenBlocks[byteIndex] & (1 << bitIndex)) !== 0;
+    const complete = (state.complete[byteIndex]! & (1 << bitIndex)) !== 0;
+    const written = (state.writtenBlocks[byteIndex]! & (1 << bitIndex)) !== 0;
 
     if (complete && !written) {
       return false;
@@ -753,7 +754,7 @@ export async function writeTrackedBlock(
 export function resetBlockWriteTracking(state: BaseRecvState, blockIndex: number): void {
   const byteIndex = Math.floor(blockIndex / 8);
   const bitIndex = blockIndex % 8;
-  state.writtenBlocks[byteIndex] &= ~(1 << bitIndex);
+  state.writtenBlocks[byteIndex]! &= ~(1 << bitIndex);
 }
 
 /**
@@ -797,6 +798,86 @@ export interface ResumeToken {
 }
 
 /**
+ * Resume validation status.
+ *
+ * Indicates whether a resume token is valid and can be used to restore session state.
+ */
+export enum ResumeValidationStatus {
+  /** Resume token is valid and can be used */
+  VALID = 'VALID',
+  /** Resume token has corrupted or missing fields */
+  CORRUPTED = 'CORRUPTED',
+  /** StreamId mismatch - file changed or wrong file selected */
+  STREAMID_MISMATCH = 'STREAMID_MISMATCH',
+  /** Bitmap size doesn't match block count */
+  BITMAP_SIZE_MISMATCH = 'BITMAP_SIZE_MISMATCH',
+  /** Incompatible wire version */
+  INCOMPATIBLE_VERSION = 'INCOMPATIBLE_VERSION',
+  /** Resume token expired (too old) */
+  EXPIRED = 'EXPIRED',
+}
+
+/**
+ * Resume diagnostics information (bf-280 Phase 0).
+ *
+ * Provides detailed diagnostic information when resume validation fails,
+ * helping users understand why resume is not possible and how to fix it.
+ *
+ * This enables robust cross-session resume as required by D22 and the bf-280 task.
+ */
+export interface ResumeDiagnostics {
+  /** Overall validation status */
+  status: ResumeValidationStatus;
+  /** Human-readable error message */
+  error: string;
+  /** Suggested actions for the user */
+  suggestions: string[];
+  /** Detailed validation results */
+  details: {
+    /** Is the resume token structure valid? */
+    tokenStructureValid: boolean;
+    /** Does the streamId match the current file? */
+    streamIdMatches: boolean;
+    /** Do the bitmaps have correct size? */
+    bitmapSizeValid: boolean;
+    /** Is the wire version compatible? */
+    versionCompatible: boolean;
+    /** Is the resume token too old? */
+    expired: boolean;
+    /** Resume token age in milliseconds */
+    tokenAge: number;
+    /** Percentage of blocks already received */
+    completionProgress: number;
+    /** Number of completed blocks */
+    completedBlocks: number;
+    /** Total number of blocks */
+    totalBlocks: number;
+  };
+}
+
+/**
+ * Resume compatibility check result.
+ *
+ * Result of checking if a resume token is compatible with the current file.
+ */
+export interface ResumeCompatibilityCheck {
+  /** Can resume with this token */
+  compatible: boolean;
+  /** StreamId of current file */
+  currentStreamId: number;
+  /** StreamId from resume token */
+  resumeStreamId: number;
+  /** Do streamIds match? */
+  streamIdMatch: boolean;
+  /** Is the file size the same? */
+  fileSizeMatch: boolean;
+  /** Block count compatibility */
+  blockCountMatch: boolean;
+  /** Diagnostics if not compatible */
+  diagnostics?: ResumeDiagnostics;
+}
+
+/**
  * Create a resume token from a resumable state.
  *
  * When compression is enabled, resume is NOT supported because:
@@ -826,7 +907,8 @@ export function createResumeToken(state: RecvSessionState): ResumeToken | null {
   }
 
   // Check beacon flags for resume disabled (e.g., when compression is enabled)
-  const meta = state.type === 'paused' ? state.previousState.meta : state.meta;
+  // After canResumeRecv(), state is either 'paused' or 'complete'
+  const meta = state.type === 'paused' ? state.previousState.meta : (state as CompleteState).meta;
   if (isResumeDisabled(meta.flags)) {
     // Do NOT persist resume state when compression is enabled
     // This prevents silent corruption from non-deterministic compression

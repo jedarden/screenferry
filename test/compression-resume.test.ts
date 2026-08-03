@@ -14,7 +14,7 @@
  */
 
 import {describe, it, expect} from 'vitest';
-import type {RecvSessionState} from '../src/core/session/types.js';
+import type {RecvSessionState, PausedState, CompleteState} from '../src/core/session/types.js';
 import {createResumeToken, canResumeRecv, restoreFromResumeToken} from '../src/core/session/types.js';
 import {isResumeDisabled, BeaconFlags} from '../src/core/frame/beacon.js';
 
@@ -44,7 +44,7 @@ describe('Compression/Resume integration (bf-vgtq)', () => {
   /**
    * Helper to create a paused receiving state.
    */
-  function createPausedState(flags: number): RecvSessionState {
+  function createPausedState(flags: number): PausedState {
     const meta = createMockMeta(flags);
     return {
       type: 'paused',
@@ -53,7 +53,9 @@ describe('Compression/Resume integration (bf-vgtq)', () => {
         streamId: meta.streamId,
         meta,
         complete: new Uint8Array([0b11111000]), // 5 blocks, first 4 complete
+        writtenBlocks: new Uint8Array([0b11111000]), // Same as complete initially
         active: null,
+        manifestActive: null,
         out: null,
         manifest: null,
         stats: {
@@ -72,13 +74,14 @@ describe('Compression/Resume integration (bf-vgtq)', () => {
   /**
    * Helper to create a complete receiving state.
    */
-  function createCompleteState(flags: number): RecvSessionState {
+  function createCompleteState(flags: number): CompleteState {
     const meta = createMockMeta(flags);
     return {
       type: 'complete',
       streamId: meta.streamId,
       meta,
       complete: new Uint8Array([0b11111000]), // All blocks complete
+      writtenBlocks: new Uint8Array([0b11111000]), // All blocks written
       outputPath: '/output/test.txt',
       outputSize: meta.originalSize,
       verified: true,

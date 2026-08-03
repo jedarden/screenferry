@@ -6,11 +6,40 @@
  * - Listing all outputs
  * - Deleting outputs by streamId
  * - Startup cleanup of orphaned outputs
+ * - Storage quota estimation and pre-flight checks (bf-4d6: F1)
  *
  * Reference: docs/notes/bf-ho40-startup-cleanup.md
  */
 
 import {createPositionalWriteHandleFactory} from '../core/io/positional-write.js';
+
+/**
+ * Storage quota estimate from navigator.storage.estimate()
+ */
+export interface StorageQuotaEstimate {
+  /** Estimated quota in bytes */
+  quota: number;
+  /** Current usage in bytes */
+  usage: number;
+  /** Available space in bytes (quota - usage) */
+  available: number;
+}
+
+/**
+ * Storage capacity check result
+ */
+export interface StorageCapacityResult {
+  /** Whether there's enough storage for the operation */
+  hasCapacity: boolean;
+  /** Estimated quota information */
+  estimate: StorageQuotaEstimate;
+  /** Required space in bytes */
+  requiredSpace: number;
+  /** Available space in bytes */
+  availableSpace: number;
+  /** User-facing error message if capacity insufficient */
+  error?: string;
+}
 
 /**
  * Output artefact metadata.
@@ -94,8 +123,9 @@ export interface StorageManager {
    * Delete an output by streamId.
    *
    * @param streamId - Stream identifier
+   * @param filename - Optional filename for logging purposes
    */
-  deleteOutput(streamId: number): Promise<void>;
+  deleteOutput(streamId: number, filename?: string): Promise<void>;
 
   /**
    * Cleanup orphaned outputs.
@@ -107,6 +137,163 @@ export interface StorageManager {
    * @returns Count of files cleaned up
    */
   cleanupOrphanedOutputs(activeStreamIds: Set<number>): Promise<number>;
+}
+
+/**
+ * Estimate storage quota and usage using navigator.storage.estimate().
+ *
+ * **Platform behavior (bf-4d6 F1):**
+ * - Chrome/Edge desktop: ~60% of free disk (multi-GB typical)
+ * - Firefox: ~10% of disk, capped ~10 GB
+ * - Safari/iOS: ~1 GB before prompting
+ *
+ * **IMPORTANT:** These estimates are ADVISORY, not guarantees. Safari's
+ * estimate is particularly unreliable. Always handle quota exhaustion mid-transfer
+ * even if pre-flight checks pass.
+ *
+ * @returns Storage quota estimate or null if not supported
+ */
+export async function estimateStorageQuota(): Promise<StorageQuotaEstimate | null> {
+  try {
+    if (!navigator.storage || !navigator.storage.estimate) {
+      console.warn('[Storage] navigator.storage.estimate() not supported');
+      return null;
+    }
+
+    const estimate = await navigator.storage.estimate();
+
+    if (!estimate || estimate.quota == null || estimate.usage == null) {
+      console.warn('[Storage] Invalid storage estimate:', estimate);
+      return null;
+    }
+
+    const quota = estimate.quota;
+    const usage = estimate.usage;
+    const available = quota - usage;
+
+    return {
+      quota,
+      usage,
+      available,
+    };
+  } catch (error) {
+    console.error('[Storage] Failed to estimate storage quota:', error);
+    return null;
+  }
+}
+
+/**
+ * Calculate compression staging buffer for file transfer (bf-4d6).
+ *
+ * During compression and encoding, the sender needs temporary working space.
+ * This accounts for:
+ * - Compressed data staging
+ * - Block encoding buffers
+ * - Fountain code matrix storage (I6a: 1 MB working set)
+ * - Temporary artifacts during transfer
+ *
+ * **Formula:** staging = fileSize * 0.15 + 10 MB
+ * - 15% overhead for compression staging (conservative estimate)
+ * - 10 MB fixed buffer for codec working sets
+ *
+ * @param fileSize - Size of the file to transfer in bytes
+ * @returns Required staging buffer in bytes
+ */
+export function calculateCompressionStagingBuffer(fileSize: number): number {
+  const COMPRESSION_OVERHEAD = 0.15; // 15% overhead for compression staging
+  const CODEC_BUFFER = 10 * 1024 * 1024; // 10 MB fixed codec buffer
+
+  return Math.ceil(fileSize * COMPRESSION_OVERHEAD) + CODEC_BUFFER;
+}
+
+/**
+ * Check if there's enough storage capacity for a file transfer (bf-4d6 F1).
+ *
+ * **Pre-flight validation:** Call this BEFORE accepting a file to avoid
+ * discovering quota exhaustion hours into a transfer.
+ *
+ * **Safety margin:** Multiplies required space by 1.5 to account for:
+ * - OPFS filesystem overhead
+ * - Metadata storage
+ * - Quota estimate inaccuracies (especially Safari)
+ * - Platform-specific quota variations
+ *
+ * @param fileSize - Size of the file to transfer in bytes
+ * @param additionalSpace - Optional additional space to reserve in bytes
+ * @returns Storage capacity check result
+ */
+export async function checkStorageCapacity(
+  fileSize: number,
+  additionalSpace: number = 0
+): Promise<StorageCapacityResult> {
+  // Default to assuming capacity if estimate unavailable (don't block on unsupported platforms)
+  const estimate = await estimateStorageQuota();
+
+  if (!estimate) {
+    console.warn('[Storage] Unable to estimate quota, proceeding with caution');
+    return {
+      hasCapacity: true, // Optimistic default - let the transfer attempt
+      estimate: {
+        quota: 0,
+        usage: 0,
+        available: 0,
+      },
+      requiredSpace: fileSize + additionalSpace,
+      availableSpace: 0,
+    };
+  }
+
+  // Calculate required space with staging buffer and safety margin
+  const stagingBuffer = calculateCompressionStagingBuffer(fileSize);
+  const baseRequired = fileSize + stagingBuffer + additionalSpace;
+  const SAFETY_MARGIN = 1.5; // 50% safety margin for quota estimate inaccuracies
+  const requiredSpace = Math.ceil(baseRequired * SAFETY_MARGIN);
+
+  const hasCapacity = estimate.available >= requiredSpace;
+
+  if (!hasCapacity) {
+    const shortfall = requiredSpace - estimate.available;
+    const error = `Insufficient storage capacity. Required: ${formatBytes(requiredSpace)}, Available: ${formatBytes(estimate.available)}, Shortfall: ${formatBytes(shortfall)}`;
+
+    console.warn('[Storage] Capacity check failed:', error);
+
+    return {
+      hasCapacity: false,
+      estimate,
+      requiredSpace,
+      availableSpace: estimate.available,
+      error,
+    };
+  }
+
+  console.log('[Storage] Capacity check passed:', {
+    required: formatBytes(requiredSpace),
+    available: formatBytes(estimate.available),
+    margin: formatBytes(estimate.available - requiredSpace),
+  });
+
+  return {
+    hasCapacity: true,
+    estimate,
+    requiredSpace,
+    availableSpace: estimate.available,
+  };
+}
+
+/**
+ * Format bytes as human-readable string (e.g., "1.5 GB").
+ */
+function formatBytes(bytes: number): string {
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let size = bytes;
+  let unitIndex = 0;
+
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex++;
+  }
+
+  return `${size.toFixed(unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
 }
 
 /**
@@ -190,7 +377,7 @@ class OPFSStorageManager implements StorageManager {
     await metaHandle.write(metadataBytes, { at: 0 });
     await metaHandle.close();
 
-    console.log(`[Storage] Stored output: streamId=${streamId}, filename=${filename}, size=${data.length}`);
+    console.log(`[Storage] Stored output: streamId=${streamId}, size=${data.length}`);
   }
 
   async getOutput(streamId: number): Promise<Uint8Array | null> {
@@ -247,23 +434,72 @@ class OPFSStorageManager implements StorageManager {
     }
   }
 
-  async deleteOutput(streamId: number): Promise<void> {
+  async deleteOutput(streamId: number, filename?: string): Promise<void> {
+    const startTime = performance.now();
+
+    console.log('[Storage:Deletion] Starting deletion', {
+      streamId,
+      filename: filename || '(unknown)',
+      timestamp: new Date().toISOString(),
+    });
+
     try {
       const outputDir = await this.getOutputDirectory();
       const filePath = this.getFilePath(streamId);
       const metadataPath = this.getMetadataPath(streamId);
 
+      console.log('[Storage:Deletion] Deleting files', {
+        streamId,
+        filename: filename || '(unknown)',
+        files: [filePath, metadataPath],
+      });
+
       // Delete file and metadata
       await outputDir.removeEntry(filePath, { recursive: false });
-      await outputDir.removeEntry(metadataPath, { recursive: false });
+      console.log('[Storage:Deletion] Data file deleted', {
+        streamId,
+        file: filePath,
+      });
 
-      console.log(`[Storage] Deleted output: streamId=${streamId}`);
+      await outputDir.removeEntry(metadataPath, { recursive: false });
+      console.log('[Storage:Deletion] Metadata file deleted', {
+        streamId,
+        file: metadataPath,
+      });
+
+      const duration = performance.now() - startTime;
+      console.log('[Storage:Deletion] Deletion completed successfully', {
+        streamId,
+        filename: filename || '(unknown)',
+        duration: `${duration.toFixed(2)}ms`,
+        timestamp: new Date().toISOString(),
+      });
     } catch (e) {
+      const duration = performance.now() - startTime;
+      const errorDetails = {
+        streamId,
+        filename: filename || '(unknown)',
+        duration: `${duration.toFixed(2)}ms`,
+        timestamp: new Date().toISOString(),
+        error: {
+          name: e instanceof Error ? e.name : 'Unknown',
+          message: e instanceof Error ? e.message : String(e),
+          stack: e instanceof Error ? e.stack : undefined,
+        },
+      };
+
       // If file doesn't exist, that's okay - it's already gone
       if (e instanceof Error && !e.message.includes('not found')) {
-        console.error(`[Storage] Failed to delete output: streamId=${streamId}`, e);
+        console.error('[Storage:Deletion] Failed to delete output', errorDetails);
         throw e;
       }
+
+      // File not found - log but don't throw
+      console.warn('[Storage:Deletion] Files not found (already deleted)', {
+        streamId,
+        filename: filename || '(unknown)',
+        duration: `${duration.toFixed(2)}ms`,
+      });
     }
   }
 
@@ -283,7 +519,7 @@ class OPFSStorageManager implements StorageManager {
       const isOld = (now - output.createdAt) > this.config.maxOrphanAge;
 
       if (isInactive && isOld) {
-        console.log(`[Storage] Cleaning up orphaned output: streamId=${output.streamId}, filename=${output.filename}, age=${Math.round((now - output.createdAt) / 1000 / 60)} minutes`);
+        console.log(`[Storage] Cleaning up orphaned output: streamId=${output.streamId}, age=${Math.round((now - output.createdAt) / 1000 / 60)} minutes`);
 
         try {
           await this.deleteOutput(output.streamId);

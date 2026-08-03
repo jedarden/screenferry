@@ -4,9 +4,9 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { BLOCK, DEGREE_CAP, K, L, PACKET, RUNGS } from '../src/core/params.js';
+import { BLOCK, DEGREE_CAP, DWELL_FACTOR, K, L, PACKET, RUNGS } from '../src/core/params.js';
 import { crc8, crc32 } from '../src/core/frame/crc.js';
-import { readPacket, writePacket } from '../src/core/frame/header.js';
+import { readPacket, writePacket, PacketVersionError } from '../src/core/frame/header.js';
 import { deriveIndices, makeDegreeTable, packetSeed } from '../src/core/fountain/prng.js';
 import { LTEncoder } from '../src/core/fountain/encoder.js';
 import { GEDecoder } from '../src/core/fountain/decoder.js';
@@ -66,11 +66,49 @@ describe('params', () => {
   });
 
   it('block geometry matches the model (G7)', () => {
+    // Core geometry (5 values)
     expect(K).toBe(768);
     expect(L).toBe(256);
     expect(PACKET).toBe(269);
     expect(BLOCK).toBe(196608);
     expect((K * K) / 8).toBe(73728); // 72 KB matrix
+
+    // Tile counts (§6.3.2) — 4 values
+    const TILES = 15;
+    const PACKETS_PER_TILE = 2; // R2 nominal rung
+    const FPS = 15;
+    const USER_VISIBLE_PAYLOAD = TILES * PACKETS_PER_TILE * L; // 7,680 B
+    const QR_CAPACITY_V16L = 586; // QR v16-L capacity in bytes
+    const QR_FRAME_CAPACITY = TILES * QR_CAPACITY_V16L; // 8,790 B
+    const PAYLOAD_RATE = USER_VISIBLE_PAYLOAD * FPS; // 115,200 B/s
+
+    expect(TILES).toBe(15);
+    expect(USER_VISIBLE_PAYLOAD / 1024).toBeCloseTo(7.5, 1); // 7.5 KB/frame
+    expect(QR_FRAME_CAPACITY / 1024).toBeCloseTo(8.6, 1); // 8.6 KB/frame
+    expect(PAYLOAD_RATE / 1024).toBeCloseTo(112.5, 1); // 112.5 KB/s
+
+    // Manifest arithmetic (§7.6) — 2 values
+    const BLOCKS_PER_4GB = Math.floor((4 * 1024 ** 3) / BLOCK); // 21,845
+    const MANIFEST_SIZE_4GB_BYTES = BLOCKS_PER_4GB * 4; // 87,380 B
+
+    expect(BLOCKS_PER_4GB).toBe(21845);
+    expect(MANIFEST_SIZE_4GB_BYTES / 1000).toBeCloseTo(87, 0); // 87 KB
+
+    // Dwell table (§8.1) — 2 values
+    const OVERHEAD_P99 = 0.042; // +4.2% from D25
+    const E_MAX = 1 - (1 + OVERHEAD_P99) / DWELL_FACTOR; // 0.349
+
+    expect(DWELL_FACTOR).toBe(1.6);
+    expect(E_MAX * 100).toBeCloseTo(34.9, 1); // 34.9%
+
+    // Corrected working set — 1 value
+    const PAYLOAD_MATRIX = (K * K) / 8; // 72.0 KB
+    const PAYLOAD_BLOCK_SIZE = K * L; // 192.0 KB
+    const MANIFEST_MATRIX = (K * K) / 8; // 72.0 KB
+    const MANIFEST_BLOCK_SIZE = K * L; // 192.0 KB
+    const TOTAL_WORKING_SET = PAYLOAD_MATRIX + PAYLOAD_BLOCK_SIZE + MANIFEST_MATRIX + MANIFEST_BLOCK_SIZE; // 528.0 KB
+
+    expect(TOTAL_WORKING_SET / 1024).toBeCloseTo(528.0, 1); // 528.0 KB
   });
 });
 
@@ -113,11 +151,19 @@ describe('header (I8)', () => {
       { wireVersion: 1, flags: 0, streamId: 5, blockIndex: 2, seq: 9 },
       randomBytes(L, 4),
     );
-    for (let i = 0; i < 12; i++) {
+    // Test bytes 1-11 (CRC and other fields)
+    for (let i = 1; i < 12; i++) {
       const m = Uint8Array.from(p);
       m[i]! ^= 0x01;
       expect(readPacket(m)).toBeNull();
     }
+    // Byte 0: corrupting the version nibble should throw E-VERSION per §16.3
+    const m = Uint8Array.from(p);
+    m[0]! ^= 0x01; // Flip a bit in the version nibble
+    expect(() => readPacket(m)).toThrow(PacketVersionError);
+    expect(() => readPacket(m)).toThrow(expect.objectContaining({
+      code: 'E-VERSION'
+    }));
   });
 
   it('rejects foreign magic and wrong length', () => {
@@ -134,7 +180,12 @@ describe('header (I8)', () => {
     const wrongVersion = Uint8Array.from(p);
     // Change the version nibble to 2 (while keeping magic the same)
     wrongVersion[0] = (wrongVersion[0]! & 0xf0) | 0x02;
-    expect(readPacket(wrongVersion)).toBeNull();
+    // §16.3: MUST report E-VERSION and refuse - never attempt a partial parse
+    expect(() => readPacket(wrongVersion)).toThrow(PacketVersionError);
+    expect(() => readPacket(wrongVersion)).toThrow(expect.objectContaining({
+      code: 'E-VERSION',
+      details: { senderVersion: 2, receiverVersion: 1 }
+    }));
   });
 });
 
