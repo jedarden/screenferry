@@ -40,6 +40,24 @@ export async function runAppInit(): Promise<InitResult> {
   console.log('[Init] Starting app initialization...');
 
   try {
+    // ========================================
+    // VALIDATION INSERTION POINT (bf-1mj8)
+    // ========================================
+    // CONFLICT CHECK VALIDATION SHOULD BE INSERTED HERE
+    //
+    // Location: Immediately after log, before any operations
+    // Timing: BEFORE any async operations or state mutations
+    // Purpose: Validate flag conflicts (compression/resume) early
+    //
+    // Implementation should:
+    // 1. Check current configuration state
+    // 2. Validate no conflicting flag combinations
+    // 3. Add any conflicts to errors array
+    // 4. Continue to health checks even if conflicts exist
+    //
+    // Reference: docs/notes/bf-1mj8-validation-insertion-point.md
+    // ========================================
+
     // Run health check and cleanup in parallel
     const [healthCheckResult, cleanupResult] = await Promise.all([
       runHealthCheck({ skipSlow: true }).catch(e => {
