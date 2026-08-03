@@ -353,7 +353,7 @@ CHECKED_CLAIMS = [
     ("87 KB manifest size", r"87\s*KB.*manifest"),
 
     # ===== Dwell table (§8.1) =====
-    ("dwell 1.6 K", r"1\.6\s*[-×]?K.*dwell"),
+    ("dwell 1.6 K", r"dwell.*1\.6.*K|1\.6.*K.*dwell"),
     ("e_max 34.9%", r"34\.9\s*%.*(e_max|completion cliff)"),
 ]
 

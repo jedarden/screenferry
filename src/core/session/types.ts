@@ -48,7 +48,7 @@ export interface WritePositionTracker {
 /**
  * Common metadata shared across multiple receiver states.
  */
-interface BaseRecvState {
+export interface BaseRecvState {
   streamId: number;
   meta: BeaconMeta;
   complete: Uint8Array;  // block bitmap
@@ -795,6 +795,86 @@ export interface ResumeToken {
   writtenBlocks: Uint8Array;  // bitmap of written blocks
   manifest: BlockHashManifest | null;  // block hashes for verification (may be null if not yet acquired)
   timestamp: number;
+}
+
+/**
+ * Resume validation status.
+ *
+ * Indicates whether a resume token is valid and can be used to restore session state.
+ */
+export enum ResumeValidationStatus {
+  /** Resume token is valid and can be used */
+  VALID = 'VALID',
+  /** Resume token has corrupted or missing fields */
+  CORRUPTED = 'CORRUPTED',
+  /** StreamId mismatch - file changed or wrong file selected */
+  STREAMID_MISMATCH = 'STREAMID_MISMATCH',
+  /** Bitmap size doesn't match block count */
+  BITMAP_SIZE_MISMATCH = 'BITMAP_SIZE_MISMATCH',
+  /** Incompatible wire version */
+  INCOMPATIBLE_VERSION = 'INCOMPATIBLE_VERSION',
+  /** Resume token expired (too old) */
+  EXPIRED = 'EXPIRED',
+}
+
+/**
+ * Resume diagnostics information (bf-280 Phase 0).
+ *
+ * Provides detailed diagnostic information when resume validation fails,
+ * helping users understand why resume is not possible and how to fix it.
+ *
+ * This enables robust cross-session resume as required by D22 and the bf-280 task.
+ */
+export interface ResumeDiagnostics {
+  /** Overall validation status */
+  status: ResumeValidationStatus;
+  /** Human-readable error message */
+  error: string;
+  /** Suggested actions for the user */
+  suggestions: string[];
+  /** Detailed validation results */
+  details: {
+    /** Is the resume token structure valid? */
+    tokenStructureValid: boolean;
+    /** Does the streamId match the current file? */
+    streamIdMatches: boolean;
+    /** Do the bitmaps have correct size? */
+    bitmapSizeValid: boolean;
+    /** Is the wire version compatible? */
+    versionCompatible: boolean;
+    /** Is the resume token too old? */
+    expired: boolean;
+    /** Resume token age in milliseconds */
+    tokenAge: number;
+    /** Percentage of blocks already received */
+    completionProgress: number;
+    /** Number of completed blocks */
+    completedBlocks: number;
+    /** Total number of blocks */
+    totalBlocks: number;
+  };
+}
+
+/**
+ * Resume compatibility check result.
+ *
+ * Result of checking if a resume token is compatible with the current file.
+ */
+export interface ResumeCompatibilityCheck {
+  /** Can resume with this token */
+  compatible: boolean;
+  /** StreamId of current file */
+  currentStreamId: number;
+  /** StreamId from resume token */
+  resumeStreamId: number;
+  /** Do streamIds match? */
+  streamIdMatch: boolean;
+  /** Is the file size the same? */
+  fileSizeMatch: boolean;
+  /** Block count compatibility */
+  blockCountMatch: boolean;
+  /** Diagnostics if not compatible */
+  diagnostics?: ResumeDiagnostics;
 }
 
 /**
