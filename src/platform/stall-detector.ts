@@ -187,8 +187,8 @@ export class StallDetector {
   private readonly MAX_WINDOW_SIZE = 60; // Keep last 60 frames of analysis
 
   // Timing tracking
-  private lastPacketTime: number = 0;
-  private lastDetectionTime: number = 0;
+  private lastPacketTime: number;
+  private lastDetectionTime: number;
   private lastDiagnosisTime: number = 0;
   private startedAt: number = 0;
 
@@ -258,7 +258,11 @@ export class StallDetector {
       thermalFpsDropThreshold: config.thermalFpsDropThreshold || 0.5, // 50% FPS drop = thermal throttle
       etaMaxHours: config.etaMaxHours || 24, // 24 hours max reasonable ETA
     };
-    this.startedAt = performance.now();
+
+    const now = performance.now();
+    this.startedAt = now;
+    this.lastPacketTime = now;
+    this.lastDetectionTime = now;
 
     // Store expected stream ID if provided
     if (this.config.expectedStreamId !== undefined) {
@@ -292,6 +296,8 @@ export class StallDetector {
 
     // Track last detection time
     const detectedCount = result.diagnostics.filter(d => d.decoded).length;
+    // Only update lastDetectionTime if we actually decoded tiles this frame
+    // This allows detecting stalls when we stop receiving decodable tiles
     if (detectedCount > 0) {
       this.lastDetectionTime = now;
     }
@@ -522,21 +528,24 @@ export class StallDetector {
     decodeFps: number;
     packetsPerSec: number;
   }): void {
-    // Don't diagnose too frequently
-    if (now - this.lastDiagnosisTime < this.config.diagnosisDelay) {
-      return;
-    }
-
     const timeSinceLastPacket = now - this.lastPacketTime;
     const timeSinceLastDetection = now - this.lastDetectionTime;
 
     // Check if we're actually stalled
     if (timeSinceLastPacket < this.config.stallThreshold) {
       this.currentDiagnosis = null;
+      this.lastDiagnosisTime = now; // Reset diagnosis timer when not stalled
       return;
     }
 
-    // We're stalled - diagnose why
+    // We're stalled - check if we should diagnose
+    const timeSinceLastDiagnosis = now - this.lastDiagnosisTime;
+    if (timeSinceLastDiagnosis < this.config.diagnosisDelay && this.currentDiagnosis !== null) {
+      // Already diagnosed, don't update too frequently
+      return;
+    }
+
+    // First diagnosis or enough time passed - diagnose why
     this.currentDiagnosis = this.diagnoseStall(
       timeSinceLastPacket,
       timeSinceLastDetection,
@@ -571,7 +580,7 @@ export class StallDetector {
     const recent = this.getRecentAnalysis();
 
     // Classify stall
-    let category: StallCategory;
+    let category: StallCategory | undefined;
     let confidence: Confidence;
     let explanation: string;
     let suggestion: string;
@@ -595,9 +604,7 @@ export class StallDetector {
         suggestion = 'This may be a different file or corrupted stream - verify the sender is transmitting the correct data';
       }
       // Canary checks inconclusive, continue to other priorities
-      else {
-        // Variables not set, fall through to next priority
-      }
+      // Variables not set, fall through to next priority
     }
 
     // PRIORITY 2: Wrong streamId (different file transmission)
@@ -609,85 +616,90 @@ export class StallDetector {
     }
 
     // PRIORITY 3: Duplicate frames (sender paused/asleep)
-    else if (category === undefined && this.duplicateFrameCount >= 5) {
+    if (category === undefined && this.duplicateFrameCount >= 5) {
       category = 'sender-paused';
       confidence = 'high';
       explanation = 'Sender appears to be paused or asleep (duplicate frames detected)';
       suggestion = 'Check that the sender is actively transmitting and not paused';
     }
 
-    // PRIORITY 3: Thermal/battery throttling (environment)
-    else if (category === undefined && this.currentFpsDrop > this.config.thermalFpsDropThreshold) {
+    // PRIORITY 4: Thermal/battery throttling (environment)
+    if (category === undefined && this.currentFpsDrop > this.config.thermalFpsDropThreshold) {
       category = 'environment-thermal';
       confidence = 'high';
       explanation = `Frame rate dropped ${(this.currentFpsDrop * 100).toFixed(0)}%: possible thermal/battery throttling`;
       suggestion = 'Device may be overheating or battery low. Try cooling the device or charging during transfer';
     }
 
-    // PRIORITY 4: Autofocus oscillation (optical)
-    else if (category === undefined && this.autofocusOscillationDetected) {
+    // PRIORITY 5: Autofocus oscillation (optical)
+    if (category === undefined && this.autofocusOscillationDetected) {
       category = 'optical-autofocus';
       confidence = 'medium';
       explanation = 'Camera autofocus oscillating (sharpness variance high)';
       suggestion = 'Try locking autofocus manually or tap to focus on the sender screen';
     }
 
-    // PRIORITY 5: Total optical failure (no QR codes at all)
-    else if (category === undefined && timeSinceLastDetection > timeSinceLastPacket) {
+    // PRIORITY 6: Total optical failure (no QR codes at all)
+    if (category === undefined && recent.decodedCount === 0) {
       category = 'optical-no-codes';
       confidence = 'high';
       explanation = 'No QR codes detected in the camera feed';
       suggestion = 'Ensure the sender screen is visible and within the reticle frame';
     }
 
-    // PRIORITY 6: Specific optical quality issues
-    else if (category === undefined && recent.avgPxPerModule > 0 && recent.avgPxPerModule < this.config.pxModuleCliff) {
+    // PRIORITY 7: Specific optical quality issues
+    if (category === undefined && recent.avgPxPerModule > 0 && recent.avgPxPerModule < this.config.pxModuleCliff) {
       category = 'optical-too-far';
       confidence = 'high';
       explanation = `Camera is too far: ${recent.avgPxPerModule.toFixed(1)} px/module (below ${this.config.pxModuleCliff} cliff)`;
       suggestion = 'Move closer to the sender screen';
     }
-    else if (category === undefined && this.darkTileCount >= 5) {
+
+    if (category === undefined && this.darkTileCount >= 5) {
       category = 'optical-dark';
       confidence = 'high';
       explanation = 'Insufficient light for reliable decoding';
       suggestion = 'Increase the sender screen brightness or improve room lighting';
     }
-    else if (category === undefined && recent.avgSharpness > 0 && recent.avgSharpness < this.config.sharpnessThreshold) {
+
+    if (category === undefined && recent.avgSharpness > 0 && recent.avgSharpness < this.config.sharpnessThreshold) {
       category = 'optical-blur';
       confidence = 'medium';
       explanation = 'Image appears blurry (low sharpness)';
       suggestion = 'Hold the camera steadier or check for autofocus issues';
     }
-    else if (category === undefined && recent.tornFrameRate > this.config.maxTornFrameRate) {
+
+    if (category === undefined && recent.tornFrameRate > this.config.maxTornFrameRate) {
       category = 'optical-torn';
       confidence = 'medium';
       explanation = 'High torn-frame rate detected';
       suggestion = 'Try reducing the sender frame rate or move to better lighting';
     }
-    else if (category === undefined && recent.decodedCount > 0 && recent.packetCount === 0) {
+
+    if (category === undefined && recent.decodedCount > 0 && recent.packetCount === 0) {
       category = 'payload-decode-fail';
       confidence = 'medium';
       explanation = 'QR codes detected but payload extraction failed';
       suggestion = 'This may be a different file or stream - verify the sender is transmitting the correct data';
     }
 
-    // PRIORITY 7: ETA not converging
-    else if (category === undefined && !this.isTransferConverging()) {
+    // PRIORITY 8: ETA not converging
+    if (category === undefined && !this.isTransferConverging()) {
       category = 'eta-not-converging';
       confidence = 'high';
       explanation = `Transfer will not complete at current conditions (est. ${this.etaHours.toFixed(1)}+ hours remaining at ${this.currentTransferRate.toFixed(2)} blocks/sec)`;
       suggestion = 'Move closer to sender, improve lighting, or reduce distance to increase transfer rate';
     }
-    else if (category === undefined && this.etaHours > this.config.etaMaxHours) {
+
+    if (category === undefined && this.etaHours > this.config.etaMaxHours) {
       category = 'eta-not-converging';
       confidence = 'medium';
       explanation = `Transfer will take very long at current rate (est. ${this.etaHours.toFixed(1)}+ hours remaining)`;
       suggestion = 'Move closer to sender, improve lighting, or reduce distance to increase transfer rate';
     }
 
-    // PRIORITY 8: Fallback
-    else if (category === undefined) {
+    // PRIORITY 9: Fallback
+    if (category === undefined) {
       category = 'optical-poor-quality';
       confidence = 'low';
       explanation = 'QR codes are detected but not reliably decoded';
