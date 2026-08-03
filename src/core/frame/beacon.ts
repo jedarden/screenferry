@@ -343,9 +343,9 @@ export function parseBeacon(
   }
 
   // T1: K_manifest bounds check (bf-5fs)
-  // K_manifest is the number of blocks needed to store the block hash manifest.
-  // Unbounded K_manifest is a DoS vector: with MAX_BLOCK_COUNT (16.7M) and blockHashLen=4,
-  // the manifest would be 262,144 fragments and ~8.6 GB of matrix data.
+  // blockCount_manifest is the number of blocks needed to store the block hash manifest.
+  // Unbounded blockCount_manifest is a DoS vector: with MAX_BLOCK_COUNT (16.7M) and blockHashLen=4,
+  // the manifest would require 340 blocks (~66 MB manifest data, ~24 KB matrix per block).
   const blockCountManifest = calculateKManifest(blockCount, blockHashLen);
   if (blockCountManifest > BEACON_LIMITS.MAX_K_MANIFEST_BLOCKS) {
     throw new BeaconValidationError(
