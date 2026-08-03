@@ -25,10 +25,20 @@ The APK contains all expected components:
 - **AndroidX dependencies:** AppCompat, lifecycle components, and other Android Jetpack libraries
 
 ### Build Reproducibility ✅
-Rebuilt with `./gradlew assembleDebug`:
-- **Build status:** SUCCESS (401ms, 30 up-to-date tasks)
-- **APK unchanged:** Same MD5 checksum: `32b2594cd44518c732b18567bbb4ba04`
-- **Timestamp unchanged:** File modification time remains 2026-08-02 21:42:54
+
+**Test 1: Incremental Build**
+- Command: `./gradlew assembleDebug`
+- Build status: SUCCESS (798ms, 27 up-to-date tasks)
+- APK unchanged: Same MD5 checksum: `32b2594cd44518c732b18567bbb4ba04`
+- Timestamp unchanged: File modification time remains 2026-08-02 21:42:54
+
+**Test 2: Clean Build** ✅
+- Command: `./gradlew clean assembleDebug`
+- Build status: SUCCESS (1s, 32 actionable tasks)
+- APK unchanged: Same MD5 checksum: `32b2594cd44518c732b18567bbb4ba04`
+- New timestamp: 2026-08-02 23:00:40
+
+**Conclusion:** Build is fully reproducible - both incremental and clean builds produce identical APK output with consistent checksums.
 
 ## Conclusion
 All acceptance criteria met:
