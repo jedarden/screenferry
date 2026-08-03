@@ -69,6 +69,12 @@ class MockFileSystemDirectoryHandle {
     // Not implemented for mock - return null to indicate not a descendant
     return null;
   }
+
+  async *values(): AsyncIterable<MockFileSystemDirectoryHandle | MockFileSystemFileHandle> {
+    for (const [name, entry] of this.entries) {
+      yield entry;
+    }
+  }
 }
 
 class MockFileSystemFileHandle {

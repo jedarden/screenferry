@@ -60,6 +60,20 @@ export interface OutputArtefact {
 }
 
 /**
+ * Orphaned file metadata with reason for orphaning.
+ */
+export interface OrphanedFile extends OutputArtefact {
+  /** Age of the file in milliseconds */
+  age: number;
+  /** Human-readable reason for why the file is considered orphaned */
+  reason: string;
+  /** Whether the file is inactive (not in active stream IDs) */
+  isInactive: boolean;
+  /** Whether the file exceeds the maximum age threshold */
+  isOld: boolean;
+}
+
+/**
  * Storage manager configuration.
  */
 export interface StorageManagerConfig {
@@ -137,6 +151,17 @@ export interface StorageManager {
    * @returns Count of files cleaned up
    */
   cleanupOrphanedOutputs(activeStreamIds: Set<number>): Promise<number>;
+
+  /**
+   * Scan for orphaned files without deleting them.
+   *
+   * Returns detailed information about orphaned files including
+   * the reason they are considered orphaned.
+   *
+   * @param activeStreamIds - Set of currently active stream IDs
+   * @returns Array of orphaned file metadata
+   */
+  scanOrphanedFiles(activeStreamIds: Set<number>): Promise<OrphanedFile[]>;
 }
 
 /**
@@ -532,6 +557,63 @@ class OPFSStorageManager implements StorageManager {
 
     console.log(`[Storage] Cleanup complete: removed ${cleanupCount} orphaned output(s)`);
     return cleanupCount;
+  }
+
+  async scanOrphanedFiles(activeStreamIds: Set<number>): Promise<OrphanedFile[]> {
+    console.log('[Storage] Starting orphaned file scan...');
+
+    const orphans: OrphanedFile[] = [];
+    const now = Date.now();
+
+    try {
+      const outputDir = await this.getOutputDirectory();
+
+      // Iterate through directory entries
+      for await (const entry of outputDir.values()) {
+        if (entry.kind === 'file' && entry.name.endsWith('.meta.json')) {
+          try {
+            const file = await entry.getFile();
+            const text = await file.text();
+            const metadata = JSON.parse(text) as OutputArtefact;
+
+            // Calculate orphan status
+            const age = now - metadata.createdAt;
+            const isInactive = !activeStreamIds.has(metadata.streamId);
+            const isOld = age > this.config.maxOrphanAge;
+
+            // A file is orphaned if it's both inactive AND old
+            if (isInactive && isOld) {
+              const reasons: string[] = [];
+              if (isInactive) {
+                reasons.push('not in active stream IDs');
+              }
+              if (isOld) {
+                reasons.push(`exceeds maximum age (${Math.round(age / 1000 / 60)} minutes > ${Math.round(this.config.maxOrphanAge / 1000 / 60)} minutes)`);
+              }
+
+              orphans.push({
+                ...metadata,
+                age,
+                reason: reasons.join(' and '),
+                isInactive,
+                isOld,
+              });
+            }
+          } catch (e) {
+            // Handle corrupted metadata gracefully
+            console.error(`[Storage] Failed to parse metadata file: ${entry.name}`, e);
+            // Continue scanning other files
+          }
+        }
+      }
+
+      console.log(`[Storage] Scan complete: found ${orphans.length} orphaned file(s)`);
+      return orphans;
+    } catch (e) {
+      console.error('[Storage] Failed to scan for orphaned files', e);
+      // Return empty array on error rather than throwing
+      return [];
+    }
   }
 }
 
