@@ -18,6 +18,7 @@ import type { DecodedFrameResult, QRPosition } from '../modulation/types.js';
 import { getConstraints, toMediaTrackConstraints, type CaptureResolution } from './capture-resolution.js';
 import type { SubmitResult } from '../workers/qr-decode-pool.js';
 import type { ROI } from '../workers/qr-decode.worker.js';
+import { StallDetector, type StallDiagnosis, type StallDetectorConfig } from './stall-detector.js';
 
 /**
  * Pipeline configuration
@@ -132,6 +133,9 @@ export class CameraPipeline {
   private onFrameResult?: FrameResultCallback;
   private onError?: ErrorCallback;
 
+  // Stall detector (F2: Diagnostic stall detector)
+  private stallDetector: StallDetector;
+
   constructor(config: CameraPipelineConfig = {}) {
     this.config = {
       resolution: config.resolution || '1080p',
@@ -139,6 +143,11 @@ export class CameraPipeline {
       targetDisplayFps: config.targetDisplayFps || 15,
       decodePool: config.decodePool || {},
     };
+
+    // Initialize stall detector with default config
+    this.stallDetector = new StallDetector({
+      enableCanaryDetection: true, // Enable canary tile detection by default
+    });
   }
 
   /**
@@ -366,6 +375,14 @@ export class CameraPipeline {
     // Update ROI based on decoded positions (AP2's ratchet guard)
     this.updateROI(result);
 
+    // Feed frame to stall detector for diagnostic analysis (F2)
+    const stats = {
+      captureFps: this.currentCaptureFps,
+      decodeFps: this.currentDecodeFps,
+      packetsPerSec: this.currentPacketsPerSec,
+    };
+    this.stallDetector.updateFrame(result, stats);
+
     // Invoke callback if set
     if (this.onFrameResult) {
       this.onFrameResult({
@@ -454,6 +471,49 @@ export class CameraPipeline {
    */
   setErrorCallback(callback: ErrorCallback): void {
     this.onError = callback;
+  }
+
+  /**
+   * Get current stall diagnosis from the stall detector (F2).
+   *
+   * Returns the current stall diagnosis if one has been made, or null if
+   * no stall has been detected. The diagnosis includes:
+   * - category: The type of stall (optical, payload, sender, environment, etc.)
+   * - confidence: low/medium/high
+   * - explanation: Human-readable explanation for the user
+   * - suggestion: Suggested action for the user
+   * - details: Technical diagnostic data
+   */
+  getStallDiagnosis(): StallDiagnosis | null {
+    return this.stallDetector.getDiagnosis();
+  }
+
+  /**
+   * Configure transfer parameters for the stall detector (F2).
+   *
+   * This allows the stall detector to validate stream IDs and track
+   * transfer progress for ETA convergence detection.
+   *
+   * @param streamId - Expected stream ID for validation
+   * @param totalBlocks - Total number of blocks in the transfer (for ETA calculation)
+   */
+  setTransferParameters(streamId: number, totalBlocks: number): void {
+    this.stallDetector.setTransferParameters({
+      expectedStreamId: streamId,
+      totalBlocks,
+    });
+  }
+
+  /**
+   * Update transfer progress for ETA convergence tracking (F2).
+   *
+   * The stall detector uses transfer progress to compute ETA and detect
+   * non-converging transfers (where the current rate would never complete).
+   *
+   * @param completedBlocks - Number of blocks completed so far
+   */
+  updateTransferProgress(completedBlocks: number): void {
+    this.stallDetector.updateTransferProgress(completedBlocks);
   }
 
   /**
