@@ -13,7 +13,7 @@
  */
 
 import {describe, it, expect} from 'vitest';
-import type {RecvSessionState} from '../src/core/session/types.js';
+import type {RecvSessionState, PausedState} from '../src/core/session/types.js';
 import {createResumeToken, canResumeRecv} from '../src/core/session/types.js';
 import {isResumeDisabled, BeaconFlags, encodeBeacon, parseBeacon} from '../src/core/frame/beacon.js';
 
@@ -47,16 +47,18 @@ describe('Sender restart with compression (bf-2w1a)', () => {
   /**
    * Helper to create a paused receiving state at 50% completion.
    */
-  function createPausedStateAt50Percent(flags: number, streamId: number = 12345): RecvSessionState {
+  function createPausedStateAt50Percent(flags: number, streamId: number = 12345): PausedState {
     const meta = createMockMeta(flags, streamId);
     const blockCount = 512;
 
     // 50% complete: first 256 blocks done, remaining 256 blocks missing
     const completeBitmap = new Uint8Array(Math.ceil(blockCount / 8));
+    const writtenBitmap = new Uint8Array(Math.ceil(blockCount / 8));
     for (let i = 0; i < 256; i++) {
       const byteIndex = Math.floor(i / 8);
       const bitIndex = i % 8;
       completeBitmap[byteIndex] |= (1 << bitIndex);
+      writtenBitmap[byteIndex] |= (1 << bitIndex);
     }
 
     return {
@@ -66,7 +68,9 @@ describe('Sender restart with compression (bf-2w1a)', () => {
         streamId: meta.streamId,
         meta,
         complete: completeBitmap,
+        writtenBlocks: writtenBitmap,
         active: null,
+        manifestActive: null,
         out: null,
         manifest: null,
         stats: {
@@ -77,7 +81,7 @@ describe('Sender restart with compression (bf-2w1a)', () => {
           dutyCycle: 0.7,
         },
       },
-      pauseReason: 'sender-crash',
+      pauseReason: 'camera-lost',
       pauseTime: Date.now() - 5000,
     };
   }

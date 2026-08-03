@@ -67,7 +67,7 @@ Beacon is explicitly a **packet type flag**.
 ```
 BEACON PACKET
 ├─ 13-byte header with flags = PacketFlags.Beacon
-└─ Beacon metadata payload (fileSize, blockCount, K, etc.)
+└─ Beacon metadata payload (originalSize, payloadLen, blockCount, K, etc.)
     ↓ encoded into
 BEACON TILE (QR symbol)
     ↓ mixed into

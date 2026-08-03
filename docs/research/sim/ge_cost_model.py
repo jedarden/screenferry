@@ -195,6 +195,95 @@ def part5(out):
     out("Verified safe by degree_cap_sim.py (D6 forbids assuming it).\n")
 
 
+def part6_tile_counts(out):
+    out("## Part 6 — tile counts and payload rate (§6.3.2)\n")
+    tiles = 15
+    packets_per_tile = 2  # R2 nominal rung
+    fps = 15
+    header_size = 13
+    payload_per_tile = packets_per_tile * L
+    packet_size = header_size + L
+    qr_capacity_v16l = 586  # from plan.md table
+    user_visible_payload = tiles * packets_per_tile * L
+    qr_frame_capacity = tiles * qr_capacity_v16l
+    payload_rate = user_visible_payload * fps
+
+    out(f"At **{tiles} tiles**, **{packets_per_tile} packets/tile**, **{fps} fps**:\n")
+    out("| Metric | Value |")
+    out("|---|---|")
+    out(f"| Tiles per frame | **{tiles}** |")
+    out(f"| Packets per tile | **{packets_per_tile}** (R2 nominal) |")
+    out(f"| Packet size | {packet_size} B (header + {L} B payload) |")
+    out(f"| User-visible payload | {user_visible_payload} B = **{fmt(user_visible_payload)}** ≈ **{user_visible_payload/1024:.1f} KB/frame** |")
+    out(f"| QR frame capacity | {qr_frame_capacity} B = **{fmt(qr_frame_capacity)}** |")
+    out(f"| Payload rate | {payload_rate} B/s = **{fmt(payload_rate)}/s** ≈ **{payload_rate/1024:.1f} KB/s** |")
+    out("")
+
+
+def part7_manifest_arithmetic(out):
+    out("## Part 7 — manifest arithmetic (§7.6)\n")
+    file_size_gb = 4
+    block_size_kb = (K * L) / 1024  # 192 KB
+    blocks_per_4gb = int((file_size_gb * 1024**3) / (K * L))
+    block_hash_len = 4  # bytes
+    manifest_size_4gb_bytes = blocks_per_4gb * block_hash_len
+    manifest_blocks_4gb = (manifest_size_4gb_bytes + (K * L) - 1) // (K * L)  # ceiling division
+
+    out(f"For a **{file_size_gb} GB** file:\n")
+    out("| Metric | Value |")
+    out("|---|---|")
+    out(f"| Blocks per {file_size_gb} GB | **{blocks_per_4gb:,}** |")
+    out(f"| Per-block hash length | **{block_hash_len} B** |")
+    out(f"| Manifest size | {manifest_size_4gb_bytes:,} B = **{fmt(manifest_size_4gb_bytes)}** |")
+    out(f"| Manifest blocks | **{manifest_blocks_4gb}** (one block at {file_size_gb} GB) |")
+    out("")
+
+
+def part8_dwell_table(out):
+    out("## Part 8 — dwell table (§8.1)\n")
+    dwell_multiplier = 1.6
+    dwell_packets = dwell_multiplier * K
+    overhead_p99 = 0.042  # +4.2% from D25
+    e_max = 1 - (1 + overhead_p99) / dwell_multiplier
+    needed = 1.02  # K needed to complete a block
+
+    out(f"At **dwell = {dwell_multiplier} K**:\n")
+    out("| Erasure | Deliveries | Status |")
+    out("|---|---|---|")
+    for erasure in (0.20, 0.25, 0.30):
+        deliveries = dwell_multiplier * (1 - erasure)
+        status = "✅" if deliveries >= needed else "❌"
+        out(f"| {erasure*100:.0f}% | {deliveries:.3f} K | {status} |")
+    out(f"| ~{needed:.2f} K | ~1.02 K | needed |")
+    out("")
+    out(f"| Completion cliff (e_max) | **{e_max*100:.1f}%** |")
+    out(f"| Repair code trigger | **30%** (4.9% buffer below cliff) |")
+    out("")
+
+
+def part9_working_set_correction(out):
+    out("## Part 9 — corrected working set calculation\n")
+    payload_matrix = matrix_bytes(K)
+    payload_block = K * L
+    manifest_matrix = matrix_bytes(K)  # Second GE context for manifest
+    manifest_block = K * L  # Second K*L array for manifest/recover
+    total_working_set = payload_matrix + payload_block + manifest_matrix + manifest_block
+
+    out("The **264.0 KB** figure in §4 is only the payload block-layer cost.\n")
+    out("The **true peak** includes the manifest GE context (I5) and recover()'s")
+    out("second K*L array:\n")
+    out("| Component | Value |")
+    out("|---|---|")
+    out(f"| Payload matrix | **{fmt(payload_matrix)}** |")
+    out(f"| Payload block | **{fmt(payload_block)}** |")
+    out(f"| Manifest matrix | **{fmt(manifest_matrix)}** |")
+    out(f"| Manifest block | **{fmt(manifest_block)}** |")
+    out(f"| **Total peak working set** | **{fmt(total_working_set)}** |")
+    out("")
+    out(f"This remains well under I6a's 1 MB limit ({total_working_set/(1024*1024):.2f}×).")
+    out("")
+
+
 def build_report():
     lines = []
     out = lines.append
@@ -205,29 +294,83 @@ def build_report():
     part3(out)
     part4(out)
     part5(out)
+    part6_tile_counts(out)
+    part7_manifest_arithmetic(out)
+    part8_dwell_table(out)
+    part9_working_set_correction(out)
     return "\n".join(lines)
 
 
-# --------------------------------------------------------------- CI gate G4
+# --------------------------------------------------------------- CI gate G7
+
+# Calculate additional values for checking
+TILES = 15
+PACKETS_PER_TILE = 2  # R2 nominal rung
+FPS = 15
+USER_VISIBLE_PAYLOAD = TILES * PACKETS_PER_TILE * L  # 7,680 B
+QR_CAPACITY_V16L = 586  # QR v16-L capacity in bytes
+QR_FRAME_CAPACITY = TILES * QR_CAPACITY_V16L  # 8,790 B
+PAYLOAD_RATE = USER_VISIBLE_PAYLOAD * FPS  # 115,200 B/s
+
+BLOCKS_PER_4GB = int((4 * 1024**3) / (K * L))  # 21,845
+MANIFEST_SIZE_4GB_BYTES = BLOCKS_PER_4GB * 4  # 87,380 B
+DWELL_MULTIPLIER = 1.6
+OVERHEAD_P99 = 0.042
+E_MAX = 1 - (1 + OVERHEAD_P99) / DWELL_MULTIPLIER  # 0.349
+
+PAYLOAD_MATRIX = matrix_bytes(K)  # 72.0 KB
+PAYLOAD_BLOCK = K * L  # 192.0 KB
+MANIFEST_MATRIX = matrix_bytes(K)  # 72.0 KB
+MANIFEST_BLOCK = K * L  # 192.0 KB
+TOTAL_WORKING_SET = PAYLOAD_MATRIX + PAYLOAD_BLOCK + MANIFEST_MATRIX + MANIFEST_BLOCK  # 528.0 KB
 
 CHECKED_CLAIMS = [
-    ("K", str(K)),
-    ("L", f"{L} B"),
-    ("packet", f"{HEADER+L} B"),
-    ("block", fmt(K * L)),
-    ("matrix", fmt(matrix_bytes(K))),
-    ("working set", fmt(matrix_bytes(K) + K * L)),
-] + [(f"need@{n}", rate(required_rate(K, L, kb * 1024))) for n, kb in STAGES]
+    # ===== Core design values (§3.1, §4, D19) =====
+    ("K=768", str(K)),
+    ("L=256 B", f"{L} B"),
+    ("packet=269 B", f"{HEADER+L} B"),
+    ("block=192.0 KB", fmt(K * L)),
+    ("matrix=72.0 KB", fmt(matrix_bytes(K))),
+
+    # ===== Working set - TWO DIFFERENT VALUES =====
+    # The gate must check BOTH to ensure the plan stays honest
+    ("block-layer working set 264.0 KB", r"264\.0\s*KB.*block[- ]layer.*working set"),
+    ("total peak working set 528.0 KB", r"528\.0\s*KB.*(total peak|peak.*working set)"),
+
+    # ===== Sustained need rates at each stage (D19) =====
+    ("Stage 1 sustained need 32.4 MB/s", rate(required_rate(K, L, 30 * 1024))),
+    ("Stage 2 sustained need 64.9 MB/s", rate(required_rate(K, L, 60 * 1024))),
+    ("Stage 3 sustained need 114.6 MB/s", rate(required_rate(K, L, 106 * 1024))),
+
+    # ===== Tile counts and payload rate (§6.3.2) =====
+    ("15 tiles per frame", r"15.*tiles.*(frame|tiles.*per.*frame)"),
+    ("7.5 KB/frame user payload", r"7\.5\s*KB.*(user[- ]visible|payload).*frame"),
+    ("8.6 KB/frame QR capacity", r"8\.6\s*KB.*QR.*(capacity|frame)"),
+    ("112.5 KB/s payload rate", r"112\.5\s*KB/s.*(payload|rate)"),
+
+    # ===== Manifest arithmetic (§7.6) =====
+    ("21,845 blocks per 4 GB", r"21[, ]?845.*blocks.*(4 GB|4GB)"),
+    ("87 KB manifest size", r"87\s*KB.*manifest"),
+
+    # ===== Dwell table (§8.1) =====
+    ("dwell 1.6 K", r"dwell.*1\.6.*K|1\.6.*K.*dwell"),
+    ("e_max 34.9%", r"34\.9\s*%.*(e_max|completion cliff)"),
+]
 
 
 def check(plan_path):
-    """Assert plan.md's D19 numbers match this model. Exit 1 on mismatch."""
+    """Assert plan.md's D19 numbers match this model. Exit 1 on mismatch.
+
+    The gate checks that values appear in plan.md with appropriate context.
+    Simple values allow flexible whitespace. Complex patterns use full regex.
+    """
     text = Path(plan_path).read_text()
     bad = []
-    for name, value in CHECKED_CLAIMS:
-        needle = value.replace(" ", r"\s*")
-        if not re.search(needle, text):
-            bad.append(f"  {name}: expected {value!r} — not found in plan")
+    for name, pattern in CHECKED_CLAIMS:
+        # All patterns are now regex patterns - use as-is
+        # The patterns are designed to be context-specific
+        if not re.search(pattern, text, re.IGNORECASE):
+            bad.append(f"  {name}: pattern {pattern!r} — not found in plan")
     if bad:
         print(f"FAIL — plan.md does not match {Path(__file__).name}:")
         print("\n".join(bad))

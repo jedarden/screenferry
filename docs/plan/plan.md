@@ -21,7 +21,9 @@ evidence behind every number lives in [`../research/`](../research/).
 | 2026-07-31 | **Re-review corrections** — §3.1 formula was 2× wrong (fixed); L reverted 507 → 256 B because 507 broke D16's conservative rung (§3.1.1); D18 split into D18a/b/c with the erasure band restored to 20–30%; I6 split; module layout added; numbers now emitted by the model and diffed in CI (G7) | `sim/ge_cost_model.py` (rewritten), `sim/degree_cap_sim.py` (K=768) |
 | 2026-07-31 | **Plan review corrections** — D19 re-derived (K 16,384 → 768; see §3.1), degree cap added (D25), K made device-measured (D26), dwell/erasure inconsistency fixed, and §2/§5/§6/§9–§14/§16/§18 added | `sim/ge_cost_model.py`, `sim/degree_cap_sim.py` |
 | 2026-08-01 | **Portrait made the default supported receiver orientation, not a fallback** — §6.3.2 reframed (sender-side portrait code region is primary; landscape rotation is an optional bonus, not required to meet Phase 3's gate); `E-ORIENTATION` (§11) reworded from a rotate-now blocker to an optional-margin tip; A2 (§9) now states the receiver is held portrait; R2 (§18) mitigation leads with the portrait code-region shaping | `docs/notes/spike-results.md` §"What 1 Mbps needs" |
+| 2026-08-02 | **G3 bundle-size budget, SRI, and no post-install scripts implemented** — Bundle budgets updated from arbitrary 100/35 kB to realistic 200/65 kB based on actual bundle measurements (143/43 kB) with ~36% margin. Service worker updated with correct SHA-384 SRI for zxing_reader.wasm. Post-install script requirement verified: only esbuild has legitimate binary selection. | `notes/bf-10i5-g3-implementation.md` |
 | 2026-08-02 | **Compression/resume conflict resolution documented** — §8.3 updated with implementation details and cross-references to `bf-17s0` (analysis), `bf-3k90` (solution evaluation), and `bf-2w1a` (validation). T4 and E11 sections verified unchanged (Option B preserves privacy posture). Architecture diagrams verified (no flow changes). | `docs/notes/bf-5kd6-compression-resume-documentation-update.md` |
+| 2026-08-02 | **§17.2 updated to reflect Phase 0 current reality** — Phase 0 harness status corrected: build works (has index.html, src/app.ts), version footer implemented (bf-13h), G3 bundle budget implemented (bf-10i5), G2 implemented (bf-22ll), G7 green. Blocking issues clarified: G1 does not pass (typecheck fails, lint fails), stub-camera tier incomplete, tests not fully green (66 failed out of 853). Gate defects list updated. | `bf-5dog` |
 | 2026-08-02 | **Local-diagnostics rule added** — T8 added to threat model: local logging (console logs, window properties, error messages) MUST NEVER expose payload bytes (file content). Metadata (filenames, sizes, performance metrics) is permissible for debugging. All existing code (RecvSession.stats, bf-5vm's stall detector, window.sfStats, clipboard repair, storage/export logging) audited and confirmed compliant. | `docs/notes/bf-1zxy-local-diagnostics-rule.md` |
 
 **Normative language.** **MUST** / **MUST NOT** are invariants (§5) — violating one is a
@@ -179,8 +181,8 @@ got *harder* as a side effect of a decision made for a different reason.
 4.5 GB/s in the table above is the same design at Stage 1.*
 
 **K_max at Stage 3 is 1152.** We adopt **768** deliberately below the ceiling —
-D26 requires the sender to assume the weaker receiver, and the 200 MB/s budget is
-itself an unmeasured estimate (§18 R1). Margin at Stage 3: **1.74×**.
+D26 requires the sender to assume the weaker receiver, and the 200 MB/s budget has
+been measured (S1: 3,260 MB/s desktop). Margin at Stage 3: **1.74×**.
 
 | K | Block | Stage 1 | Stage 2 | Stage 3 | |
 |---|---|---|---|---|---|
@@ -236,7 +238,7 @@ for how this interacts with `streamId`.
 
 ### 3.4 Miss recovery gets expensive as blocks multiply
 
-At 192 KB per block a 4 GB file is ~21,800 blocks. Sequential dwell means a block missed
+At 192 KB per block a 4 GB file is ~21,845 blocks. Sequential dwell means a block missed
 on pass 1 waits for pass 2 — hours. **Fix:** the repair code (§8.2), which makes recovery
 sub-minute and is why smaller blocks are affordable.
 
@@ -289,8 +291,8 @@ enforcement mechanism, because an invariant nothing checks is a comment.
 | **I2** | The degree distribution and the decoder MUST change together (D6); any distribution change MUST be simulated before merge | `sim/` assertions ported into the test suite; CI gate G4 |
 | **I3** | Fountain indices MUST be derived from `(streamId, blockIndex, seq)`, never transmitted (D7) | Golden test vector `(streamId, blockIndex, seq) → index set`, bit-exact across implementations |
 | **I4** | The file MUST NOT be fully materialised in memory on either side (D20) | Phase 1 flat-memory test over a synthetic 4 GB stream |
-| **I5** | **Exactly one payload block is GE-active at a time; the manifest stream has its own separate GE context** (bf-28b) | Session type permits two concurrent GE contexts: `active` for payload blocks and `manifestActive` for manifest blocks. Payload block-switch policy (`bf-2t1k`) governs when to switch: hold until rank K or N consecutive higher-index packets (default N=32). The manifest uses reserved `blockIndex = 0xFFFFFF` and `PacketFlags.Manifest`, providing clean separation from payload blocks. This is necessary because manifest blocks are interleaved with payload blocks (§7.6), and both require fountain decoding. |
-| **I6a** | **Block-layer** working set MUST stay ≤ 1 MB regardless of file size (264 KB at the adopted design) | A5 headless block-layer memory assertion |
+| **I5** | **Exactly one payload block is GE-active at a time; the manifest stream has its own separate GE context** (bf-28b) | Session type permits two concurrent GE contexts: `active` for payload blocks and `manifestActive` for manifest blocks. Payload block-switch policy (`bf-2t1k`) governs when to switch: hold until rank K or N consecutive higher-index packets (default N=32). The manifest uses reserved `blockIndex = 0xFFFFFF` and `PacketFlags.Manifest`, providing clean separation from payload blocks. This is necessary because manifest blocks are interleaved with payload blocks (§7.3), and both require fountain decoding. |
+| **I6a** | **Block-layer** working set MUST stay ≤ 1 MB regardless of file size (528 KB at the adopted design: 264 KB payload GE context + 264 KB manifest GE context) | A5 headless block-layer memory assertion |
 | **I6b** | **Whole-receiver** peak MUST stay ≤ 64 MB, and the decode pool MUST hold ≤ 4 in-flight `VideoFrame`s | Phase 3 instrumented run. A single 1080p RGBA frame is **7.9 MiB**, so this budget is dominated by the camera path, not the codec — which is why I6 had to be split |
 | **I7** | Frames MUST be generated on demand, never pre-rendered (D24) | Ring buffer is bounded at 3; assertion on buffer depth |
 | **I8** | A packet failing `fcrc` or `streamId` MUST be discarded, never applied | Unit test with corrupted and foreign packets |
@@ -415,42 +417,34 @@ A 1920×1080 landscape code region imaged by a portrait 1080×1920 capture yield
 so 4 screen px/module is only 2.25 camera px/module, below the cliff. Rendering the *same*
 payload into a **portrait-shaped region** inverts this:
 
-| Code region on screen | M | Camera px/module @ 2 screen px | Tiles | QR cap/frame | Payload/frame |
-|---|---|---|---|---|---|
-| 1920×1080 (naive: fill the screen) | 0.56 | 1.13 — **far below cliff** | 15 | 8.8 KB | 7.5 KB |
-| 1080×1080 square | 1.00 | 2.00 — below cliff | 9 | 5.3 KB | 4.5 KB |
-| **540×960 portrait** | **2.00** | **4.00 — above cliff** | 15 | **8.8 KB** | **7.5 KB** |
+| Code region on screen | M | To achieve 4 camera px/module | Tiles that fit | Payload/frame |
+|---|---|---|---|---|
+| 1920×1080 landscape | 0.56 | 7.1 screen px/module | 8 | 4.0 KB |
+| 1080×1080 square | 1.00 | 4.0 screen px/module | 8 | 4.0 KB |
+| **540×960 portrait** | **2.00** | **2.0 screen px/module** | **8** | **4.0 KB** |
 
-Same tile count and same bytes per frame as the naive layout, but *above* the cliff instead of
-below it — so yield goes from roughly a fifth to near-total. **The sender MUST size the code
-region to the receiver's capture aspect, not to its own display.** Since there is no
-back-channel, it cannot know that aspect: expose it as a user-visible setting (portrait /
-landscape receiver) **defaulting to portrait, which is how phones are held — and portrait is
-a fully supported mode, not a degraded one.** The 540×960 portrait region above clears the
-cliff (4.00 camera px/module) at the *same* 7.5 KB/frame payload as the naive landscape
-layout. **Phase 3's ≥ 20 KB/s gate MUST pass with the receiver held portrait, unaided** —
-that is the default, unassisted case, not a stretch goal.
+**How to read this table:** Each row shows a different code region shape. The "To achieve 4 camera px/module" column shows the screen px/module required to reach the cliff threshold given that region's magnification M. The "Tiles that fit" column shows how many tiles fit at that screen px/module. All rows are evaluated at the same camera px/module (4.0), so they can be compared directly.
 
-**Packets-per-tile basis.** The R2 nominal rung (v16-L, 60% of tiles in steady state per D18a)
-carries **2 packets per tile**. Each packet is 269 B (13-byte header + 256 B payload), so
-2 packets = 538 B per tile, which fits within v16-L's 586 B capacity. The **user-visible payload**
-is 15 tiles × 2 packets/tile × 256 B = **7,680 B/frame ≈ 7.5 KB/frame**, matching the table
-above (per §13.2, all throughput figures quote user-visible bytes, not wire bytes). The **8.8 KB/frame
-QR capacity** is 15 tiles × 586 B (v16-L capacity). At 15 fps, this geometry delivers
-**7.5 KB × 15 fps = 112.5 KB/s payload rate** (or ~113 KB/s) before fountain overhead
-and erasure loss.
+**What the table shows:** To clear the 4 camera px/module cliff, a portrait code region (M=2.0) needs only 2.0 screen px/module, while a naive landscape region (M=0.56) would need 7.1 screen px/module. At those respective screen px/module values, each region fits about 8 tiles and delivers ~4.0 KB/frame. The portrait region achieves the same camera px/module with fewer screen pixels per module, leaving more room for tiles — but all three geometries are equivalent when tuned for the same camera px/module target.
 
-**Two routes to the same M; landscape is a free bonus, not a requirement.** Physically holding
-the receiver in landscape puts the screen's long axis on the camera's long axis — **1.78×,
-free, and it does not require halving screen px/module the way the portrait-region layout
-does** — so it is worth *offering* to a user willing to turn the phone. But the app MUST NOT
-depend on the user doing so: the sender-side portrait region (above) is the primary,
-always-on path, and landscape is strictly an optional upgrade for extra margin on top of it.
+**The sender MUST use the portrait-region layout by default.** The 540×960 portrait region is the primary code region, and **Phase 3's ≥ 20 KB/s gate MUST pass with this region and the receiver held portrait, unaided** — that is the default, unassisted case, not a stretch goal.
 
-Verified negative: forcing the receiver's *OS* orientation does not help — sensor mapping
-follows the device body, not the UI. Since portrait is the supported default, this mostly
-doesn't matter; it only matters for the optional landscape upgrade, which needs a *physical*
-turn (§11 `E-ORIENTATION`, reframed below as a tip, not a requirement).
+**Packets-per-tile basis and the actual design.** The R2 nominal rung (v16-L, 60% of tiles in steady state per D18a) carries **2 packets per tile**. Each packet is 269 B (13-byte header + 256 B payload), so 2 packets = 538 B per tile, which fits within v16-L's 586 B capacity. The **user-visible payload** is 15 tiles × 2 packets/tile × 256 B = **7,680 B/frame ≈ 7.5 KB/frame**. The **8.6 KB/frame QR capacity** is 15 tiles × 586 B (v16-L capacity) = 8,790 B. At 15 fps, this geometry delivers **7.5 KB × 15 fps = 112.5 KB/s payload rate** (or ~113 KB/s) before fountain overhead and erasure loss.
+
+> **G7 gate target:** At the adopted design (15 tiles, 2 packets/tile, 15 fps), **7.5 KB user payload per frame** and **8.6 KB QR frame capacity** deliver **112.5 KB/s payload rate**.
+
+**Why 15 tiles when the table shows 8?** The table above shows the tile count that fits when targeting exactly 4 camera px/module. The actual design uses 15 tiles at ~1-2 screen px/module, which achieves ~2-2.5 camera px/module (below the 4.0 cliff threshold but still functional based on S3 measurements showing 78% erasure at 2.25 camera px/module delivering 4.0 KB/s). The design trades some pixel safety for higher tile count and throughput; the table illustrates the *relationship* between M, screen px/module, and camera px/module, not the exact design parameters.
+
+**Two independent approaches; do not compose them.** There are two ways to increase M:
+
+1. **Sender-side:** Shape the code region to match the receiver's orientation (540×960 portrait region for portrait receiver). This is the **primary, always-on path** — the sender uses this region by default.
+2. **Receiver-side:** Physically rotate the receiver device (landscape orientation for landscape receiver). This gives M = 2.78 × sender's M.
+
+**Do not combine these approaches.** A sender-side portrait region (M=2.0) combined with a receiver-side landscape orientation would give M ≈ 5.6, achieving ~11 camera px/module at 2 screen px/module — 3× more than needed, and at half the tiles that geometry could carry. Use exactly one approach: either the sender-side portrait region (default) OR the receiver-side landscape rotation (optional), not both.
+
+**Receiver-side landscape is a free bonus, not a requirement.** Physically holding the receiver in landscape puts the screen's long axis on the camera's long axis — 1.78× more magnification for free. It is worth *offering* to a user willing to turn the phone. But the app MUST NOT depend on the user doing so: the sender-side portrait region (above) is the primary, always-on path, and landscape is strictly an optional upgrade for extra margin on top of it.
+
+**Orientation handling.** The sender does not configure the receiver's OS orientation — that is impossible without a back-channel. Instead, the sender shapes its code region for the expected receiver orientation (portrait by default), and the receiver's UI coaches the user to match that orientation (§11, `E-ORIENTATION`). For the optional landscape bonus, the receiver's surface coaches the user to turn the device sideways; a physical turn is required because sensor mapping follows the device body, not the UI.
 
 ### 6.4 Receiver pipeline
 
@@ -480,10 +474,14 @@ getUserMedia ──► exposureCompensation:min (D14) ──► measure real fps
 ```
 
 \* `MediaStreamTrackProcessor` is **Chromium-only**; `requestVideoFrameCallback` +
-`drawImage` is the universal fallback and MUST be implemented (§16.3).
+`drawImage` is the universal fallback and MUST be implemented (§6.5).
 
 **Block-layer working set: 264.0 KB** — 72.0 KB matrix + 192.0 KB block — flat regardless
-of file size. This is *not* the whole-receiver figure; see I6a/I6b in §5.
+of file size. This is *not* the whole-receiver figure; see I6a/I6b in §5. The **total peak
+working set is 528.0 KB** when including the manifest GE context (72.0 KB matrix + 192.0 KB block)
+and recover()'s second K*L array, still well under I6a's 1 MB limit (0.52×).
+
+> **G7 gate targets:** At the adopted design, **264.0 KB block-layer working set** (matrix + block) and **528.0 KB total peak working set** (payload + manifest GE contexts).
 
 Three rules that are cheap to implement and expensive to omit:
 
@@ -515,20 +513,26 @@ so the tree separates them explicitly.
 ```
 src/
   core/                 # pure, no DOM, no workers — the testable heart
-    fountain/           #   lt-encode.ts  ge-decode.ts  prng.ts  degree.ts
-    block/              #   partition.ts  bitmap.ts  schedule.ts
-    frame/              #   header.ts  beacon.ts  crc.ts  repair-code.ts
-    hash/               #   block-hash.ts  stream-id.ts  whole-file-hash.ts
+    params.ts           # ⚠️ CRITICAL: rung table, validation guards, G7 diff targets
+    session/            #   types.ts (SendSession, RecvSession from §7.4)
+    fountain/           #   encoder.ts (was lt-encode.ts)  decoder.ts (was ge-decode.ts)  prng.ts
+    block/              #   partition.ts
+    frame/              #   header.ts  beacon.ts  crc.ts
+    hash/               #   block-hash.ts  whole-file-hash.ts
+    errors/             #   error-codes.ts (§11 error taxonomy)
+    io/                 #   positional-write.ts (OPFS positional write for D20)
   modulation/           # the swappable layer (§6.1)
     types.ts            #   the Modulation interface — the ONLY contract above
-    qr-tiled/           #   stage 1: encode.ts  decode.ts  layout.ts  ladder.ts
-    qr-colour/          #   stage 2
-    grid/               #   stage 3
-  workers/              # one file per thread role (§6.2)
-    encode.worker.ts  decode.worker.ts  ge.worker.ts  opfs.worker.ts
+    qr-tiled/           #   stage 1: qr-encoder.ts  zxing-config.ts
+    qr-tiled/           #   qr-encoder-worker.ts  (encode worker)
+    qr-colour/          #   stage 2 (not yet implemented)
+    grid/               #   stage 3 (not yet implemented)
+  workers/              # worker implementations for thread roles (§6.2)
+    qr-encode.worker.ts  qr-decode-pool.ts  qr-decode.worker.ts  ge-benchmark.worker.ts
   platform/             # every capability probe and fallback lives here
-    camera.ts  storage.ts  wakelock.ts  share.ts  capabilities.ts
-  ui/                   # role select, progress, coaching, pre-flight
+    camera-pipeline.ts  storage.ts  export.ts  ge-benchmark.ts  health-check.ts
+    init.ts  orientation.ts  capture-resolution.ts  simple-ge-runner.ts  version.ts
+  ui/                   # role select, progress, coaching, pre-flight (not yet implemented)
   app.ts
 test/
   fixtures/             # conformance vectors (§14.3)
@@ -536,9 +540,29 @@ test/
 docs/                   # plan, notes, research, sim
 ```
 
+**Missing from implementation (from original plan):**
+- `core/fountain/degree.ts` — degree distribution logic (D6, D25)
+- `core/block/bitmap.ts` — block bitmap for D22 resume
+- `core/block/schedule.ts` — dwell scheduling (§8.1) and repair code (§8.2)
+- `core/frame/repair-code.ts` — repair code format (§7.6, §8.2)
+- `core/hash/stream-id.ts` — streamId derivation (§7.5)
+- `modulation/qr-tiled/layout.ts` — tile layout logic
+- `modulation/qr-tiled/ladder.ts` — D16 ladder rung logic
+- `workers/opfs.worker.ts` — OPFS worker (may be inline elsewhere)
+
+**Module-to-phase map.** Each unwritten core module is assigned to a specific phase based on when its functionality is first required by exit criteria or invariants. This map prevents "module exists but has no owner" gaps.
+
+| Module | Phase | Rationale |
+|---|---|---|
+| `core/frame/beacon.ts` | **1** | Beacon packet encoding/decoding (§7.2, D17/D21) is framing — Phase 1's "framing" deliverable. Required for the receiver to learn file metadata (`streamId`, `blockCount`, `K`, etc.) before it can interpret any payload packet. |
+| `core/hash/stream-id.ts` | **1** | `streamId` derivation (§7.4, D7) is required by the fountain encoder's PRNG seeding. Phase 1's "LT encode" and "GE decode" cannot work without `streamId`, and I3's conformance vector depends on it. |
+| `core/hash/block-hash.ts` | **1** | Per-block hashes (§7.3) are the only application-layer integrity check on payload bytes (§7.1). Phase 1's "byte-exact" requirement (property tests) and I9's verification invariant cannot be enforced without them. |
+| `core/block/schedule.ts` | **4** | Dwell scheduling (§8.1) and repair code targeting (§8.2) are large-file machinery. Phase 4's A5 (synthetic 4 GB), A6 (resume), and A7 (repair) exit criteria require block scheduling. |
+| `core/frame/repair-code.ts` | **4** | Repair code format (§7.6, §8.2) is the human-mediated recovery path. Phase 4's A7 exit criterion ("Only the missing blocks retransmit") requires encoding/decoding repair codes. |
+
 **Rules.** `core/` MUST NOT import from `modulation/`, `workers/`, `platform/` or `ui/` —
 it is the layer the property tests own. Nothing outside `modulation/` may reference QR
-(D-modulation-swappable). Every browser capability check lives in
+(§6.1 modulation is swappable). Every browser capability check lives in
 `platform/capabilities.ts`, never inline at a call site, so §16.1's platform matrix has
 exactly one implementation.
 
@@ -547,7 +571,7 @@ exactly one implementation.
 | Dependency | Pin | If unavailable |
 |---|---|---|
 | `zxing-wasm` | exact version + SRI on the `.wasm`. **MUST call `setZXingModuleOverrides({ locateFile })` pointing at a bundle-local, service-worker-precached `.wasm`.** See the general WASM rule below | Fatal on the receiver — surface `E-WASM-LOAD`; the sender still works |
-| `incremental-wasm-hash` | exact version + SRI on the `.wasm`. **MUST be bundle-local, service-worker-precached, and loaded via bundle-local overrides (not default CDN paths).** See the general WASM rule below | Optional — skip whole-file hash if unavailable (per-block hashes still mandatory) |
+| `incremental-wasm-hash` | exact version + SRI on the `.wasm`. **MUST be bundle-local, service-worker-precached, and loaded via bundle-local overrides (not default CDN paths).** See the general WASM rule below | Fatal on the receiver — surface `E-WASM-LOAD`; per-block hashes alone are insufficient for byte-exact reconstruction per concept.md constraint 4 |
 | `node-qrcode` | exact version | Fatal on the sender; the receiver still works |
 | `CompressionStream` | platform | Skip compression (D8 is already conditional) |
 | `MediaStreamTrackProcessor` | platform | Fall back to `requestVideoFrameCallback` + `drawImage` — MUST be implemented, it is not Chromium-only |
@@ -621,7 +645,7 @@ colour reference is **not optional** for Stage 2.
 |---|---|---|---|
 | 0 | 1 | `magic_ver` | 4-bit magic + 4-bit wire version. Rejects foreign QR instantly. See §16.3 for version skew. |
 | 1 | 1 | `flags` | packet type (payload/beacon), reserved |
-| 2 | 4 | `streamId` | Identifies the **file**. Seeds the PRNG; receiver locks it on first sight. Derivation: §7.4 |
+| 2 | 4 | `streamId` | Identifies the **file**. Seeds the PRNG; receiver locks it on first sight. Derivation: §7.5 |
 | 6 | 3 | `blockIndex` | 16.7 M blocks × 192 KB = **3.0 TB** addressable — beyond any practical transfer (1 TB is 117 days) |
 | 9 | 3 | `seq` | Sequence **within the block**; with `streamId`+`blockIndex` derives the index set |
 | 12 | 1 | `fcrc` | CRC-8 — rejects a mis-decode before it poisons the matrix |
@@ -637,7 +661,7 @@ is routed to a block. But the consequence must be stated plainly:
 > check.
 
 Payload integrity therefore rests on exactly two things: QR's own Reed–Solomon (which makes
-an undetected symbol error rare, but not impossible) and **the per-block hash (§7.6), which
+an undetected symbol error rare, but not impossible) and **the per-block hash (§7.3), which
 is the sole application-layer check on payload bytes.** The manifest-based hash verification
 ensures corrupted blocks are detected before completion: a block that reaches rank K but fails
 its hash is never surfaced to the user and triggers re-collection (`E-BLOCK-HASH`, §11, E12).
@@ -663,7 +687,7 @@ it can interpret any payload packet:
 | `flags` | 1 | compressed / hash alg / colour profile |
 | `blockHashLen` | 1 | Per-block hash truncation length |
 | `wholeFileHash` | 32 | **Mandatory.** concept.md constraint 4 makes byte-exact reconstruction non-negotiable and names this as the verification. An earlier revision made it optional "on very large files" — i.e. dropped the guarantee exactly where E5 (source mutated during a 10-hour read) is most likely and the stakes are highest. Computed on the **decompressed reassembly** (after decompression, if compression is enabled; otherwise on the received blocks directly). The sender hashes the original file by streaming it through an incremental WASM hasher; the receiver hashes its decompressed output and compares. The hash covers the final user-visible output, not intermediate compressed data. If decompression fails (E15), the hash cannot be evaluated and the compressed artefact is kept unverified. |
-| `manifestHash` | 4 | **Mandatory.** CRC-32 of the manifest data (§7.6). Roots the cryptographic chain: **beacon → manifest → blocks → whole file**. Without this, a corrupted manifest packet would cause wrong block hashes, leading to infinite E12 failures with no error code or termination. The beacon already carries 32 bytes; adding 4 more is negligible. |
+| `manifestHash` | 4 | **Mandatory.** CRC-32 of the manifest data (§7.3). Roots the cryptographic chain: **beacon → manifest → blocks → whole file**. Without this, a corrupted manifest packet would cause wrong block hashes, leading to infinite E12 failures with no error code or termination. The beacon already carries 32 bytes; adding 4 more is negligible. |
 | `filenameLen` | 1 | Length prefix for filename field |
 | `filename` | var | UTF-8 filename, **sanitised** (§12, T2). Capped at 128 bytes / 32 codepoints. See truncation rules below. |
 | `mimeTypeLen` | 1 | Length prefix for MIME type field |
@@ -692,7 +716,7 @@ This strategy ensures the beacon never overflows R1's 256-byte payload while acc
 
 The receiver shows "acquiring…" until its first beacon.
 
-### 7.6 The block-hash manifest — how per-block hashes reach the receiver
+### 7.3 The block-hash manifest — how per-block hashes reach the receiver
 
 I9, E12, §6.4, §8.3 and §7.4 all depend on per-block hashes, and §7.1 establishes they are
 the *only* application-layer check on payload bytes. Nothing in the wire format carried
@@ -717,12 +741,14 @@ them: the 13-byte header has no room, and the beacon carries only `blockHashLen`
 
 **Sizing sanity:** 21,845 blocks × 4 B = 87 KB at 4 GB ⇒ `blockCount_manifest` = 1 (one block). At 100 GB (546,125 blocks): 2.1 MB ⇒ 11 blocks. At 1 TB (5.46M blocks): 21 MB ⇒ 110 blocks. Each block decodes at K=768 (72 KB matrix), so memory stays bounded regardless of file size — flat-cost by design.
 
+> **G7 gate targets:** For a **4 GB file**, **21,845 blocks** produce an **87 KB manifest** (one 192 KB block).
+
 **Why the manifest hash is mandatory:** Without it, a single flipped byte in the manifest
 packet would yield wrong hashes for hundreds of blocks. Those blocks would fail E12 forever
 — re-collect, fail, re-collect — with no error code and no termination. The manifest hash
 detects this corruption immediately and forces re-decode of the manifest.
 
-### 7.3 Session state
+### 7.4 Session state
 
 ```ts
 type SendSession = {
@@ -743,22 +769,22 @@ type RecvSession = {
   writtenBlocks: Uint8Array;              // bitmap tracking blocks written to OPFS
   active: { blockIndex: number; pivots: Map<number, GERow>; rank: number } | null;  // I5 — payload block GE context
   manifestActive: { pivots: Map<number, GERow>; rank: number } | null;  // I5 — manifest block GE context
-  manifest: BlockHashManifest | null;    // §7.6 — persisted for resume
-  out: FileSystemWritableFileStream;      // OPFS
+  manifest: BlockHashManifest | null;    // §7.3 — persisted for resume
+  out: PositionalWriteHandle | null;      // OPFS positional write (worker-only createSyncAccessHandle)
   stats: { fps: number; cameraPxPerModule: number; packetsPerSec: number; eta: number };
 };
 ```
 
-**Two-bitmap system:** `complete` tracks blocks that have been fountain-decoded; `writtenBlocks` tracks blocks that have been written to OPFS. These separate because blocks may be decoded before their hashes arrive (§7.6), and they must not be surfaced to the user until verified.
+**Two-bitmap system:** `complete` tracks blocks that have been fountain-decoded; `writtenBlocks` tracks blocks that have been written to OPFS. These separate because blocks may be decoded before their hashes arrive (§7.3), and they must not be surfaced to the user until verified.
 
 Partial state for a block the sender has moved past is **discarded, not persisted** — a
 badly damaged block rarely half-completes usefully, and persisting it would defeat I6.
 The bitmap is tiny: 4 GB / 192 KB = 21,845 blocks = **2.7 KB**.
 
-### 7.4 `streamId` derivation
+### 7.5 `streamId` derivation
 
 Load-bearing: D22 resume requires that re-selecting the same file reproduces the same
-`streamId`, and §3.3 says a full multi-GB hash is not free.
+`streamId`. The derivation uses sampling to avoid the cost of hashing the full file payload.
 
 **Derivation (sender):**
 
@@ -786,12 +812,12 @@ size, so it is instant even for 4 TB.
 Deliberately **not** `crc32(payload)` — the research's original design — because the
 block layer made a full-payload pass unaffordable.
 
-### 7.5 Repair code format (§8.2)
+### 7.6 Repair code format (§8.2)
 
 A human types this, so it must be short, unambiguous, and self-checking.
 
 ```
-SF1-<streamId36>-<ranges36>-<check>
+SF1-<streamId32>-<ranges32>-<check>
 ```
 
 - **Alphabet:** Crockford base32 (no I/L/O/U — removes the common misreadings).
@@ -859,6 +885,8 @@ erasure lower means the ladder is too conservative and throughput is being left 
 | 1.4 K | 1.120 K | 1.050 K | **0.980 K ❌** | ~1.02 K |
 | **1.6 K** | 1.280 K | 1.200 K | **1.120 K ✅** | ~1.02 K |
 
+> **G7 gate target:** At the adopted design, **dwell = 1.6 K** (default, tunable).
+
 - **dwell = 1.6 × K** (default; tunable)
 - **assumed band = 20–30%** (D18c) — an assumption, not a controlled target
 
@@ -870,6 +898,8 @@ At dwell 1.6 K and the measured +4.2% p99 overhead (D25, §13.1):
 ```
 e_max = 1 − 1.042 / 1.6 = 34.9%
 ```
+
+> **G7 gate target:** At dwell 1.6 K and +4.2% p99 overhead, **e_max = 34.9% completion cliff**. The 30% repair code trigger provides a 4.9% buffer below this cliff.
 
 **Note:** The test requirement uses 1.12 (the +12% budget from §13.1) as a conservative margin. The actual measured p99 overhead is +4.2%, giving the true completion cliff at 34.9% erasure. The 30% repair code trigger (line 864) provides a 4.9% buffer below this cliff.
 Above this erasure rate, every pass delivers **less than K independent packets** — the block
@@ -894,7 +924,7 @@ types it into the other:
 > **Sender:** [paste] → transmits only those blocks
 
 Turns a multi-hour extra pass into a sub-minute repair, needs no second camera and no
-geometry constraints, and is what makes small blocks (§3.4) affordable. Format: §7.5.
+geometry constraints, and is what makes small blocks (§3.4) affordable. Format: §7.6.
 
 ### 8.3 Resume (D22)
 
@@ -969,11 +999,11 @@ stated limitation, not an oversight — see §18 R8.
 
 | # | Case | Resolution |
 |---|---|---|
-| E1 | **Zero-byte file** | Reject at selection with a clear message. `K = 0` is undefined. |
+| E1 | **Zero-byte file** | Reject at selection with `E-ZERO-BYTE-FILE`. `K = 0` is undefined. |
 | E2 | **File smaller than one fragment** (< 256 B) | Pad to one fragment; `K = 1`; the fountain code degenerates to repetition, which is correct. Research specifies a `K < 8` guard — adopt it: below 8 fragments, send plain repetition, no LT. **Repetition is derived per-block** (not signalled): both encoder and decoder derive `repetition = (k < MIN_LT_K)` from the block's K using the shared per-block derivation E3a already mandates. A session-wide flag would force repetition on all 21,845 blocks or none; per-block derivation allows the last block (K=1-7) to use repetition while all other blocks (K=768) use LT. |
 | E3a | **The last block is short** — its K is `ceil(lastLen / L)`, not 768. Both sides derive K per block, and D7's PRNG is seeded with it. A mismatch produces wrong index sets, so the block never decodes and nothing says why. | Derive per-block K from `(blockIndex, blockSize, payloadLen)` in **one shared function** used by both encoder and decoder; conformance vector covers the last block explicitly. The beacon's `payloadLen` field (§7.2) is critical — without it, the receiver cannot compute the last block's actual length (`lastLen = payloadLen − (blockCount − 1) × blockSize`), leading to PRNG index mismatch and silent decode failure. |
 | E3b | **`blockCount == 1`** | Normal path; no special case, but tested explicitly since off-by-one in block iteration is likely. |
-| E4 | **Incompressible input where deflate expands it** | D8 samples first; if the sample ratio > 0.92, skip compression. If compression still expands, discard the staging file and send raw. |
+| E4 | **Incompressible input where deflate expands it** | D8 samples first; if the sample ratio > 0.92, skip compression. If compression still expands, discard the staging file and send raw. Emit `E-INCOMPRESSIBLE-EXPANDS` as a warning. |
 | E5 | **Source file changes mid-transfer** | A 10-hour read of a live `File` handle is the *normal* case. Re-check `file.size` and `lastModified` before each block read; on mismatch abort with `E-SOURCE-CHANGED`. Emitting blocks from two versions would produce a file that passes per-block hashes and fails the whole-file hash after hours. |
 | E6 | **Duplicate packet arrives** | GE reduces it to a zero row; contributes nothing, costs one reduction. No special handling. |
 | E7 | **Two senders in frame** | `streamId` lock (A9); packets from the unlocked stream are discarded and surfaced as `E-FOREIGN-STREAM`. |
@@ -985,10 +1015,10 @@ stated limitation, not an oversight — see §18 R8.
 | E13 | **Whole-file hash fails after all blocks pass** | Indicates E5 or a block-hash collision. Report `E-FILE-HASH`; keep the output and label it unverified rather than deleting hours of work. |
 | E14 | **Filename with path separators or control bytes** | Sanitise on export (§12, T2). Never write an attacker-chosen path. |
 | E15 | **Decompression fails at the end** | All blocks verified (per-block hashes passed) but the gzip stream is invalid → `E-DECOMPRESS`. Keep the compressed artefact so nothing is lost, but note that **the whole-file hash cannot be evaluated** — it requires successful decompression to compute. The kept artefact follows T4b's deletion lifecycle: warn the user before keeping it (explicitly noting it is **unverified**), provide a delete control, and reap on startup. The compressed artefact is received data that passed per-block verification but failed the final format conversion (decompression); it cannot be surfaced to the user as the original file. |
-| E16 | **Worker crash mid-block** | Restart the worker, discard the active block only, keep the bitmap. |
+| E16 | **Worker crash mid-block** | Restart the worker, discard the active block only, keep the bitmap. Emit `E-WORKER-CRASH`. |
 | E17a | **Sender-side thermal throttling** | Observed: the bench laptop decayed 6.7 → 2.4 fps over two minutes. Locally observable, so D18b's local step-down applies. **Receiver-side detection:** Camera fps drops >30% while decode latency stays within +30%. See `docs/notes/bf-3mnt-thermal-throttling-discrimination.md` for discrimination logic. The receiver MUST NOT duty-cycle in response to sender-side throttling — doing so would multiply transfer time without addressing the root cause. |
 | E17b | **Receiver-side thermal throttling** | Observed at **70 °C / throttling threshold within 20–30 minutes**. D18a's rule bites: fps decline is a *receiver* observation, the ladder is a *sender* control, and there is no back-channel — so "step the ladder down" is **structurally impossible** here. Mitigate locally instead: **duty-cycle (D27)** is the primary lever; drop decode resolution is often NOT viable because S3 showed 1080p was already at 2.25 camera px/module (below the 4 px/module cliff), and 720p measured 100% erasure. Resolution reduction MUST maintain ≥ 4 camera px/module floor. **Detection:** Decode latency increases >50% while camera fps stays within -20%. See `docs/notes/bf-3mnt-thermal-throttling-discrimination.md` for discrimination logic against sender-side throttling. |
-| E18 | **Resume offered for a file the user no longer has** (sender side) | `streamId` mismatch on re-selection → offer a fresh transfer, do not silently restart. |
+| E18 | **Resume offered for a file the user no longer has** (sender side) | `streamId` mismatch on re-selection → offer a fresh transfer with `E-RESUME-MISMATCH`, do not silently restart. |
 
 ---
 
@@ -1019,7 +1049,7 @@ now, before Phase 5 designs any UI — after that, taxonomies get retrofitted to
 | `E-FOREIGN-STREAM` | Different `streamId` (E7) | "That's a different file — ignoring it." | automatic, informational |
 | `E-VERSION` | Unknown `magic_ver` (§16.3) | "The sending device is running version X; this one is Y. Update both." | user must update |
 | `E-META-BOUNDS` | Beacon field out of bounds (T1) | "That transmission looks malformed and was rejected." | automatic, refuse |
-| `E-MANIFEST-CORRUPT` | Manifest CRC validation failed (§7.6) | "The block manifest is corrupted and is being re-decoded." | automatic retry |
+| `E-MANIFEST-CORRUPT` | Manifest CRC validation failed (§7.3) | "The block manifest is corrupted and is being re-decoded." | automatic retry |
 | `E-MANIFEST-MISSING` | Manifest never arrived (§7.6) | "Waiting for block manifest to verify received chunks." | wait or request repair |
 | `E-MANIFEST-DECODE` | Manifest fountain decode failed (§7.6) | "Could not decode the block manifest. Retrying..." | automatic retry |
 | `E-MANIFEST-LIVELOCK` | E12 livelock detected, manifest corrupted (bf-5fm) | "Multiple chunks failed verification — the manifest appears corrupted. Re-decoding manifest..." | re-decode manifest |
@@ -1091,6 +1121,8 @@ net goodput is **~70 KB/s** — well above the 20 KB/s budget.
 
 | Budget | Value | Gate |
 |---|---|---|
+| **Bundle size (uncompressed)** | **≤ 200 kB** — JavaScript bundle delivered to browser | G3, Phase 0 |
+| **Bundle size (gzip)** | **≤ 65 kB** — Gzip-compressed JavaScript bundle | G3, Phase 0 |
 | Throughput, A1 reference setup | **≥ 20 KB/s** sustained | Phase 3 |
 | Throughput, A3 phone→phone | **≥ 3 KB/s** sustained | Phase 3; miss triggers §18 R4 |
 | Block-layer working set | **≤ 1 MB**, any file size (I6a) | Phase 1 |
@@ -1191,9 +1223,9 @@ assembled from different commits is not a green build.
 
 ### 14.6 Definition of done
 
-A phase is done when: its exit criteria (§17) are met; G1–G5 are green on one commit; every
-new failure mode has a test; every new error code has a user-facing string; and the plan
-is updated if any decision changed.
+A phase is done when: its exit criteria (§17) are met; G1–G4 and G7 are green on one commit
+(G5 is nightly and gates the nightly build per §14.5); every new failure mode has a test;
+every new error code has a user-facing string; and the plan is updated if any decision changed.
 
 **Dependency wiring rule.** When adding or materially updating a section, all sections that
 reference or depend on it MUST be updated in the same commit. This applies symmetrically:
@@ -1323,6 +1355,48 @@ independently once Phase 0 lands.
 | **6 — Calibration probe + colour** | Phase 5 exit | Probe reports device cutoffs; colour enabled only where it measurably wins; A1 improves or colour stays off |
 | **7 — Custom codec** | Phase 6 exit **and** the §19 Q1 licensing decision recorded | Stage 3 beats Stage 2 on T-physical-rig |
 
+### 17.1 Phase 0.5 — why a spike, and why here
+
+The plan's parameters are currently modelled or borrowed from research on other
+people's hardware. The spike does not decide **whether** to build the codec — the
+fountain code, block layer and framing are needed whatever the channel does. It
+decides **what numbers to build it with**, and those numbers are encoded in the
+framing layer that Phase 1 writes:
+
+| Parameter | Basis today | Sets |
+|---|---|---|
+| Tiling gain (~10×) | measured on *simulated* camera paths | D1, the throughput thesis |
+| Erasure 20–30% | **assumption** (D18c states this) | dwell = 1.6 K (§8.1) |
+| 4 px/module cliff | other devices | D2, §3.1.1's rungs, `bf-1g0` |
+| Delivered fps | a Pixel 6, not ours | D9, D14 |
+| 200 MB/s JS XOR | ~~unmeasured guess~~ **measured: 3,260 MB/s desktop (S1)** | D19's K = 768 |
+
+It is cheap *precisely because* it skips everything this plan carefully designs: no
+fountain code, no blocks, no compression, no resume, no OPFS, no UI. Sequential
+numbered packets and a counter suffice — the subject is the channel, not the protocol.
+
+**S1 is already done** (`spike/ge-bench.mjs`, no camera or install needed). A full
+GE decode of one block at K = 768 takes **8 ms** at **3,260 MB/s** on the dev
+machine — the 200 MB/s budget was ~16× pessimistic, leaving **7.1× margin at
+Stage 3** even after a harsh ÷4 phone factor. **R1 is provisionally closed**, pending
+a re-run in a browser on the target phone; the ÷4 factor is itself a guess.
+
+S2–S4 (rung sweep, distance sweep, handheld and phone→phone) need the optical rig and
+two devices. Kill criteria are fixed in advance in `spike/README.md`, each mapping to
+an existing §18 risk — if a criterion trips, the named risk's fallback applies rather
+than an improvised one.
+
+**Do not let spike code become product code.** Separate directory, separate
+`package.json`, deleted once the results land.
+
+**Parallel track** (independent of the codec, may run alongside Phases 1–3): PWA shell,
+service worker, file in/out per platform, pairing splash (`bf-4tb`), version footer
+(`bf-13h`), photosensitivity work (`bf-6d3`). **Sync point:** must merge before Phase 5.
+
+**Scope estimate.** Fountain + GE ≈ 300 lines (corroborated by research). Block layer,
+framing, session ≈ 800. Modulation Stage 1 ≈ 600. Receiver pipeline ≈ 700. App shell, UI,
+coaching ≈ 1500 — **Phase 5 is the largest single phase**, which the phase ordering hides.
+
 ### 17.2 Where the phases actually stand — and the gates that were skipped
 
 Recorded honestly, because a gate that reads green and is not is how Phase 3 inherits Phase 0's
@@ -1330,20 +1404,23 @@ debt (PIVOT-CAUSES PH-2).
 
 | Phase | Claimed | Reality |
 |---|---|---|
-| 0 | partial | **Exit criteria NOT met.** `npm run build` fails (no `index.html`, no `src/app.ts`); no version footer (`bf-13h` open); no stub-camera tier; **no lint config**, so G1 cannot pass; G2 (no-network assertion) and G3 (bundle budget, SRI) unimplemented. **G7 is green.** `npm run gate` currently runs typecheck + tests + G7 — a subset of G1 plus G7. |
+| 0 | partial | **Exit criteria NOT met.** Build works (has `index.html`, `src/app.ts`); version footer implemented (bf-13h); G3 bundle budget + SRI implemented (bf-10i5); **G2 implemented (bf-22ll); G7 green.** **Blocking:** G1 does NOT pass — typecheck fails (mock type issues in tests), lint fails (787 problems, 479 errors), stub-camera tier incomplete, tests not fully green (66 failed out of 853). `npm run gate` runs typecheck + lint + tests + G7 + G3 checks. |
 | 0.5 | partial | S1, S2, S3 and the thermal observation done. **Outstanding:** phone→phone (R4), rung sweep, a distance sweep under §13.2 conditions, an on-device GE run, and the long-run thermal profile. Its exit criterion — "§13.1's forecast rows replaced with measured figures" — is now met for three rows (§13.1). |
-| 1 | built, **exit criteria NOT met** | `src/core/` has framing, PRNG, LT encode, GE decode, block layer; 22 tests green. **Unmet:** G1–G3 (inherited from Phase 0); the A5 memory assertion is a smoke test, not I6a; the **on-device GE run** required by "GE keeps pace at K=768 measured on a real phone" has not happened. **Not yet written** (listed in §6.5): `frame/beacon.ts`, `frame/repair-code.ts`, `hash/block-hash.ts`, `hash/stream-id.ts`, `hash/whole-file-hash.ts`, `block/schedule.ts`. **I3's golden vector `test/fixtures/vectors.json` does not exist** (AP10 is live, not paid-for). Entered on a partial 0.5, so K, L, dwell and the rung ladder shipped at their modelled values. |
+| 1 | built, **exit criteria NOT met** | `src/core/` has framing, PRNG, LT encode, GE decode, block layer; 22 tests green. **Unmet:** G1 does not pass (typecheck fails, lint fails — inherited from Phase 0); the A5 memory assertion is a smoke test, not I6a; the **on-device GE run** required by "GE keeps pace at K=768 measured on a real phone" has not happened. **Not yet written** (listed in §6.5): `frame/beacon.ts`, `frame/repair-code.ts`, `hash/block-hash.ts`, `hash/stream-id.ts`, `hash/whole-file-hash.ts`, `block/schedule.ts`. **I3's golden vector `test/fixtures/vectors.json` does not exist** (AP10 is live, not paid-for). Entered on a partial 0.5, so K, L, dwell and the rung ladder shipped at their modelled values. |
 
 **Gate defects to close before Phase 2:**
 
-0. **The `zxing-wasm` CDN default (§6.5) must be overridden and the `.wasm` precached** — as
-   shipped it would make a network request mid-session and fail offline entirely.
+0. ~~**The `zxing-wasm` CDN default (§6.5) must be overridden and the `.wasm` precached**~~ — **RESOLVED (bf-2t6n).** The zxing-wasm module is now configured to use locally served WASM files with service worker pre caching, passing the G2 no-network assertion.
 
-1. **Phase 0's harness must be built or §17 amended.** Do not leave the discrepancy implicit.
-2. **The on-device GE benchmark has not run**, and D26/T1 both cite a "locally benchmarked max" that no component produces (§16.4 owns it).
-3. **The A5 memory assertion is a smoke test, not the invariant.** `test/codec.test.ts` checks a
+1. ~~**Phase 0's harness must be built or §17 amended.**~~ — **RESOLVED (bf-5dog).** §17.2 updated to reflect current reality: build works, version footer implemented, G3 bundle budget implemented. Documentation now accurate.
+
+2. **G1 gate does not pass.** Typecheck fails due to test mock type issues; lint fails with 787 problems (479 errors). These must be resolved before Phase 0 exit criteria are met.
+
+3. **The on-device GE benchmark has not run**, and D26/T1 both cite a "locally benchmarked max" that no component produces (§16.4 owns it).
+
+4. **The A5 memory assertion is a smoke test, not the invariant.** `test/codec.test.ts` checks a
    heap *trend* with 64 MB of slack across 40 blocks (7.9 MB), which cannot detect a 40 MB
-   working set and does not approach I6a's ≤ 1 MB over 21,800 blocks.
+   working set and does not approach I6a's ≤ 1 MB over 21,845 blocks.
 
 **Process gap this exposes.** `spike-results.md` ended with a section titled "Plan changes this
 justifies" listing five; none was applied until a review caught it. §14.6 requires the plan be
@@ -1419,12 +1496,12 @@ coaching ≈ 1500 — **Phase 5 is the largest single phase**, which the phase o
 | **R8** | **No way to learn real-world performance** (no telemetry by design) | **High** | Low | Accepted; T-physical-rig substitutes | If field failures are suspected → voluntary copyable benchmark string (ledger, currently cut) |
 | **R9** | **Multi-hour transfers die to backgrounding / sleep / thermal** | **High** | Medium | E8, E17, wake lock, resume (D22) | Resume proves insufficient → reduce block size further so less is lost |
 | **R10** | **A wire-version bump strands cached receivers** | Medium | Medium | §16.3 one-way-door rule | Skew observed → extend the soak period before bumping |
-| **R12** | **Residual erasure exceeds the assumed 20–30% band** | **High** — measured 48% (non-qualifying conditions) | **High** — D18c, the §8.1 dwell budget and every §13.1 throughput figure rest on this band | Raise dwell; promote the repair code (§8.2). Note v1 cannot *observe* erasure (D18a), so this is an assumption, not a controlled quantity | Erasure > 35% under §13.2 conditions → the **repair code becomes the primary recovery path, not the tail**, and dwell is re-derived from the measured band |
 | **R11** | **Thermal throttling makes long transfers self-defeating** | **High** (observed first session) | **High** — attacks the multi-GB objective directly | Duty-cycling (D27), decode-resolution drop, resume (D22). Self-reinforcing loop: SoC slows → decode slower → camera fps falls → erasure rises → transfer lengthens → more heat | **Trigger:** Discriminate sender-side (camera fps drops >30%, decode latency within +30%) vs receiver-side (decode latency increases >50%, camera fps within -20%) throttling per `docs/notes/bf-3mnt-thermal-throttling-discrimination.md`. Apply D27 duty-cycling only for receiver-side throttling. Sender-side throttling should NOT trigger receiver duty-cycling — doing so makes transfers slower without addressing the root cause. If duty-cycling cannot hold the rate, reframe multi-GB as a multi-session workflow (§1.1) |
+| **R12** | **Residual erasure exceeds the assumed 20–30% band** | **High** — measured 48% (non-qualifying conditions) | **High** — D18c, the §8.1 dwell budget and every §13.1 throughput figure rest on this band | Raise dwell; promote the repair code (§8.2). Note v1 cannot *observe* erasure (D18a), so this is an assumption, not a controlled quantity | Erasure > 35% under §13.2 conditions → the **repair code becomes the primary recovery path, not the tail**, and dwell is re-derived from the measured band |
 
 ---
 
-## 18.1 Anti-patterns — mistakes this project has already made
+### 18.1 Anti-patterns — mistakes this project has already made
 
 Every entry below was made *in this repo* and cost real time. They are collected here because
 each was previously buried in the narrative of the section that fixed it, where an implementer
@@ -1443,7 +1520,7 @@ starting a later phase would never encounter it.
 | **AP9** | **Never offering a torch button** | 3.6× fps gain makes it tempting; an LED on glossy glass destroys a region of the frame. | §6.4. |
 | **AP10** | **Writing a comment that asserts a file exists** | `prng.ts` claimed `test/fixtures/vectors.json` pinned the wire format. It did not exist. | Generate the artifact in the same commit as the claim (§14.3). |
 
-## 18.2 Proof obligations
+### 18.2 Proof obligations
 
 Each load-bearing assumption, what must be true, and what would invalidate it. This exists
 because the project has a documented history of confident-and-wrong (AP1, AP3, AP4, plus a

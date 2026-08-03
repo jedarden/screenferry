@@ -1,0 +1,2672 @@
+
+> screenferry@0.1.0 test
+> vitest run
+
+
+ RUN  v2.1.4 /home/coding/screenferry
+
+ ✓ test/stub-camera.test.ts  (20 tests) 599ms
+   ✓ T-stub-camera: Canvas-based camera stub > Deterministic behavior > produces identical frames for identical inputs 317ms
+ ✓ test/error-codes-livelock.test.ts  (53 tests) 289ms
+ ✓ test/partial-artefact-warning-integration.test.ts  (15 tests) 17ms
+stdout | test/deletion-integration.test.ts > Integration: End-to-end deletion workflow > writes output, successfully exports, and deletes file
+[Storage] Stored output: streamId=12345, size=5
+[Export] Sharing file: 5 bytes
+[Export] Share successful
+[Export:Deletion] Starting deletion after share {
+  method: 'share',
+  streamId: 12345,
+  filename: 'test-output.bin',
+  timestamp: '2026-08-03T00:42:15.199Z'
+}
+[Storage:Deletion] Starting deletion {
+  streamId: 12345,
+  filename: 'test-output.bin',
+  timestamp: '2026-08-03T00:42:15.200Z'
+}
+[Storage:Deletion] Deleting files {
+  streamId: 12345,
+  filename: 'test-output.bin',
+  files: [ 'output-12345.bin', 'output-12345.meta.json' ]
+}
+[Storage:Deletion] Data file deleted { streamId: 12345, file: 'output-12345.bin' }
+[Storage:Deletion] Metadata file deleted { streamId: 12345, file: 'output-12345.meta.json' }
+[Storage:Deletion] Deletion completed successfully {
+  streamId: 12345,
+  filename: 'test-output.bin',
+  duration: '0.67ms',
+  timestamp: '2026-08-03T00:42:15.201Z'
+}
+[Export:Deletion] Deletion completed successfully {
+  method: 'share',
+  streamId: 12345,
+  filename: 'test-output.bin',
+  duration: '1.82ms',
+  timestamp: '2026-08-03T00:42:15.201Z'
+}
+
+stderr | test/deletion-integration.test.ts > Integration: End-to-end deletion workflow > writes output, successfully exports, and deletes file
+[Storage] Failed to get output: streamId=12345 DOMException {}
+[Storage] Failed to get metadata: streamId=12345 DOMException {}
+[Storage] Failed to list outputs TypeError: outputDir.values(...) is not a function or its return value is not async iterable
+    at OPFSStorageManager.listOutputs (/home/coding/screenferry/src/platform/storage.ts:417:43)
+    at processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at /home/coding/screenferry/test/deletion-integration.test.ts:86:26
+    at file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:533:5
+    at runTest (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1048:11)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runFiles (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1261:5)
+    at startTests (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1270:3)
+    at file:///home/coding/screenferry/node_modules/vitest/dist/chunks/runBaseTests.Dm-659zB.js:126:11
+
+stdout | test/deletion-integration.test.ts > Integration: End-to-end deletion workflow > keeps OPFS file when export fails (non-AbortError)
+[Storage] Stored output: streamId=12345, size=5
+[Export] Sharing file: 5 bytes
+
+stderr | test/deletion-integration.test.ts > Integration: End-to-end deletion workflow > keeps OPFS file when export fails (non-AbortError)
+[Export] Share failed: Error: Network error
+    at /home/coding/screenferry/test/deletion-integration.test.ts:98:48
+    at processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:533:5
+    at runTest (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1048:11)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runFiles (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1261:5)
+    at startTests (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1270:3)
+    at file:///home/coding/screenferry/node_modules/vitest/dist/chunks/runBaseTests.Dm-659zB.js:126:11
+    at withEnv (file:///home/coding/screenferry/node_modules/vitest/dist/chunks/runBaseTests.Dm-659zB.js:90:5)
+[Storage] Failed to list outputs TypeError: outputDir.values(...) is not a function or its return value is not async iterable
+    at OPFSStorageManager.listOutputs (/home/coding/screenferry/src/platform/storage.ts:417:43)
+    at processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at /home/coding/screenferry/test/deletion-integration.test.ts:128:26
+    at file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:533:5
+    at runTest (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1048:11)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runFiles (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1261:5)
+    at startTests (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1270:3)
+    at file:///home/coding/screenferry/node_modules/vitest/dist/chunks/runBaseTests.Dm-659zB.js:126:11
+
+stdout | test/deletion-integration.test.ts > Integration: End-to-end deletion workflow > keeps OPFS file when user cancels (AbortError)
+[Storage] Stored output: streamId=12345, size=5
+[Export] Sharing file: 5 bytes
+[Export] Share cancelled by user
+
+stdout | test/deletion-integration.test.ts > Integration: End-to-end deletion workflow > keeps OPFS file when saveFile fails during write
+[Storage] Stored output: streamId=12345, size=5
+[Export] Saving file: 5 bytes
+
+stderr | test/deletion-integration.test.ts > Integration: End-to-end deletion workflow > keeps OPFS file when saveFile fails during write
+[Export] Save failed: Error: Disk full
+    at /home/coding/screenferry/test/deletion-integration.test.ts:185:40
+    at processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:533:5
+    at runTest (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1048:11)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runFiles (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1261:5)
+    at startTests (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1270:3)
+    at file:///home/coding/screenferry/node_modules/vitest/dist/chunks/runBaseTests.Dm-659zB.js:126:11
+    at withEnv (file:///home/coding/screenferry/node_modules/vitest/dist/chunks/runBaseTests.Dm-659zB.js:90:5)
+
+stdout | test/deletion-integration.test.ts > Integration: End-to-end deletion workflow > writes output, successfully saves, and deletes file
+[Storage] Stored output: streamId=12345, size=5
+[Export] Saving file: 5 bytes
+[Export] Save successful
+[Export:Deletion] Starting deletion after save {
+  method: 'save',
+  streamId: 12345,
+  filename: 'test-output.bin',
+  timestamp: '2026-08-03T00:42:15.228Z'
+}
+[Storage:Deletion] Starting deletion {
+  streamId: 12345,
+  filename: 'test-output.bin',
+  timestamp: '2026-08-03T00:42:15.228Z'
+}
+[Storage:Deletion] Deleting files {
+  streamId: 12345,
+  filename: 'test-output.bin',
+  files: [ 'output-12345.bin', 'output-12345.meta.json' ]
+}
+[Storage:Deletion] Data file deleted { streamId: 12345, file: 'output-12345.bin' }
+[Storage:Deletion] Metadata file deleted { streamId: 12345, file: 'output-12345.meta.json' }
+[Storage:Deletion] Deletion completed successfully {
+  streamId: 12345,
+  filename: 'test-output.bin',
+  duration: '0.32ms',
+  timestamp: '2026-08-03T00:42:15.229Z'
+}
+[Export:Deletion] Deletion completed successfully {
+  method: 'save',
+  streamId: 12345,
+  filename: 'test-output.bin',
+  duration: '0.49ms',
+  timestamp: '2026-08-03T00:42:15.229Z'
+}
+
+stderr | test/deletion-integration.test.ts > Integration: End-to-end deletion workflow > writes output, successfully saves, and deletes file
+[Storage] Failed to get output: streamId=12345 DOMException {}
+[Storage] Failed to get metadata: streamId=12345 DOMException {}
+[Storage] Failed to list outputs TypeError: outputDir.values(...) is not a function or its return value is not async iterable
+    at OPFSStorageManager.listOutputs (/home/coding/screenferry/src/platform/storage.ts:417:43)
+    at processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at /home/coding/screenferry/test/deletion-integration.test.ts:267:26
+    at file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:533:5
+    at runTest (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1048:11)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runFiles (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1261:5)
+    at startTests (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1270:3)
+    at file:///home/coding/screenferry/node_modules/vitest/dist/chunks/runBaseTests.Dm-659zB.js:126:11
+
+stdout | test/deletion-integration.test.ts > Integration: End-to-end deletion workflow > updates manifest correctly after successful deletion
+[Storage] Stored output: streamId=100, size=5
+[Storage] Stored output: streamId=200, size=5
+[Storage] Stored output: streamId=300, size=5
+
+stderr | test/deletion-integration.test.ts > Integration: End-to-end deletion workflow > updates manifest correctly after successful deletion
+[Storage] Failed to list outputs TypeError: outputDir.values(...) is not a function or its return value is not async iterable
+    at OPFSStorageManager.listOutputs (/home/coding/screenferry/src/platform/storage.ts:417:43)
+    at processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at /home/coding/screenferry/test/deletion-integration.test.ts:282:24
+    at file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:533:5
+    at runTest (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1048:11)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runFiles (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1261:5)
+    at startTests (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1270:3)
+    at file:///home/coding/screenferry/node_modules/vitest/dist/chunks/runBaseTests.Dm-659zB.js:126:11
+
+stdout | test/deletion-integration.test.ts > Integration: End-to-end deletion workflow > reaps orphans correctly after export deletions
+[Storage] Stored output: streamId=999, size=5
+[Storage] Stored output: streamId=1000, size=5
+
+stderr | test/deletion-integration.test.ts > Integration: End-to-end deletion workflow > reaps orphans correctly after export deletions
+[Storage] Failed to list outputs TypeError: outputDir.values(...) is not a function or its return value is not async iterable
+    at OPFSStorageManager.listOutputs (/home/coding/screenferry/src/platform/storage.ts:417:43)
+    at processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at /home/coding/screenferry/test/deletion-integration.test.ts:332:24
+    at file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:533:5
+    at runTest (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1048:11)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runFiles (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1261:5)
+    at startTests (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1270:3)
+    at file:///home/coding/screenferry/node_modules/vitest/dist/chunks/runBaseTests.Dm-659zB.js:126:11
+
+stdout | test/deletion-integration.test.ts > Integration: End-to-end deletion workflow > correctly handles multiple exports and deletions
+[Storage] Stored output: streamId=1, size=3
+[Storage] Stored output: streamId=2, size=3
+[Storage] Stored output: streamId=3, size=3
+
+stderr | test/deletion-integration.test.ts > Integration: End-to-end deletion workflow > correctly handles multiple exports and deletions
+[Storage] Failed to list outputs TypeError: outputDir.values(...) is not a function or its return value is not async iterable
+    at OPFSStorageManager.listOutputs (/home/coding/screenferry/src/platform/storage.ts:417:43)
+    at processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at /home/coding/screenferry/test/deletion-integration.test.ts:394:24
+    at file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:533:5
+    at runTest (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1048:11)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runFiles (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1261:5)
+    at startTests (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1270:3)
+    at file:///home/coding/screenferry/node_modules/vitest/dist/chunks/runBaseTests.Dm-659zB.js:126:11
+
+stdout | test/deletion-integration.test.ts > Integration: End-to-end deletion workflow > handles deletion failure gracefully (export still succeeds)
+[Storage] Stored output: streamId=12345, size=5
+[Export] Sharing file: 5 bytes
+[Export] Share successful
+[Export:Deletion] Starting deletion after share {
+  method: 'share',
+  streamId: 12345,
+  filename: 'test-output.bin',
+  timestamp: '2026-08-03T00:42:15.237Z'
+}
+
+stderr | test/deletion-integration.test.ts > Integration: End-to-end deletion workflow > handles deletion failure gracefully (export still succeeds)
+[Export:Deletion] Failed to delete output after share {
+  method: 'share',
+  streamId: 12345,
+  filename: 'test-output.bin',
+  duration: '0.12ms',
+  timestamp: '2026-08-03T00:42:15.237Z',
+  error: {
+    name: 'Error',
+    message: 'Storage failure',
+    stack: 'Error: Storage failure\n' +
+      '    at /home/coding/screenferry/test/deletion-integration.test.ts:443:79\n' +
+      '    at processTicksAndRejections (node:internal/process/task_queues:103:5)\n' +
+      '    at file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:533:5\n' +
+      '    at runTest (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1048:11)\n' +
+      '    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)\n' +
+      '    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)\n' +
+      '    at runFiles (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1261:5)\n' +
+      '    at startTests (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1270:3)\n' +
+      '    at file:///home/coding/screenferry/node_modules/vitest/dist/chunks/runBaseTests.Dm-659zB.js:126:11\n' +
+      '    at withEnv (file:///home/coding/screenferry/node_modules/vitest/dist/chunks/runBaseTests.Dm-659zB.js:90:5)'
+  }
+}
+
+stdout | test/deletion-integration.test.ts > Integration: Real OPFS storage operations > actually removes OPFS file after successful export
+[Storage] Stored output: streamId=500, size=102400
+[Storage:Deletion] Starting deletion {
+  streamId: 500,
+  filename: '(unknown)',
+  timestamp: '2026-08-03T00:42:15.870Z'
+}
+[Storage:Deletion] Deleting files {
+  streamId: 500,
+  filename: '(unknown)',
+  files: [ 'output-500.bin', 'output-500.meta.json' ]
+}
+[Storage:Deletion] Data file deleted { streamId: 500, file: 'output-500.bin' }
+[Storage:Deletion] Metadata file deleted { streamId: 500, file: 'output-500.meta.json' }
+[Storage:Deletion] Deletion completed successfully {
+  streamId: 500,
+  filename: '(unknown)',
+  duration: '0.30ms',
+  timestamp: '2026-08-03T00:42:15.870Z'
+}
+[Storage:Deletion] Starting deletion {
+  streamId: 500,
+  filename: '(unknown)',
+  timestamp: '2026-08-03T00:42:15.870Z'
+}
+[Storage:Deletion] Deleting files {
+  streamId: 500,
+  filename: '(unknown)',
+  files: [ 'output-500.bin', 'output-500.meta.json' ]
+}
+[Storage:Deletion] Data file deleted { streamId: 500, file: 'output-500.bin' }
+[Storage:Deletion] Metadata file deleted { streamId: 500, file: 'output-500.meta.json' }
+[Storage:Deletion] Deletion completed successfully {
+  streamId: 500,
+  filename: '(unknown)',
+  duration: '0.27ms',
+  timestamp: '2026-08-03T00:42:15.871Z'
+}
+
+stderr | test/deletion-integration.test.ts > Integration: Real OPFS storage operations > actually removes OPFS file after successful export
+[Storage] Failed to get metadata: streamId=500 DOMException {}
+[Storage] Failed to get output: streamId=500 DOMException {}
+[Storage] Failed to get metadata: streamId=500 DOMException {}
+
+ ❯ test/deletion-integration.test.ts  (11 tests | 6 failed) 681ms
+   × Integration: End-to-end deletion workflow > keeps OPFS file when export fails (non-AbortError) 8ms
+     → expected [] to have a length of 1 but got +0
+   × Integration: End-to-end deletion workflow > keeps OPFS file when user cancels (AbortError) 3ms
+     → expected undefined to be 'complete' // Object.is equality
+   × Integration: End-to-end deletion workflow > updates manifest correctly after successful deletion 2ms
+     → expected [] to have a length of 3 but got +0
+   × Integration: End-to-end deletion workflow > reaps orphans correctly after export deletions 2ms
+     → expected [] to have a length of 2 but got +0
+   × Integration: End-to-end deletion workflow > correctly handles multiple exports and deletions 2ms
+     → expected [] to have a length of 3 but got +0
+   ✓ Integration: Real OPFS storage operations > actually removes OPFS file after successful export 631ms
+   × Integration: Real OPFS storage operations > maintains manifest consistency across multiple write/delete cycles 1ms
+     → storage.writeOutput is not a function
+stderr | test/storage-capacity.test.ts > Storage Capacity Checking (bf-4d6 F1) > estimateStorageQuota() > returns null when navigator.storage.estimate() is not supported
+[Storage] navigator.storage.estimate() not supported
+
+stderr | test/storage-capacity.test.ts > Storage Capacity Checking (bf-4d6 F1) > estimateStorageQuota() > returns null when navigator.storage is not available
+[Storage] navigator.storage.estimate() not supported
+
+stderr | test/storage-capacity.test.ts > Storage Capacity Checking (bf-4d6 F1) > estimateStorageQuota() > returns null when estimate returns invalid data (null quota)
+[Storage] Invalid storage estimate: { quota: null, usage: 1000000000 }
+
+stderr | test/storage-capacity.test.ts > Storage Capacity Checking (bf-4d6 F1) > estimateStorageQuota() > returns null when estimate returns invalid data (null usage)
+[Storage] Invalid storage estimate: { quota: 100000000000, usage: null }
+
+stderr | test/storage-capacity.test.ts > Storage Capacity Checking (bf-4d6 F1) > estimateStorageQuota() > returns null when estimate returns null
+[Storage] Invalid storage estimate: null
+
+stderr | test/storage-capacity.test.ts > Storage Capacity Checking (bf-4d6 F1) > estimateStorageQuota() > handles errors from navigator.storage.estimate() gracefully
+[Storage] Failed to estimate storage quota: Error: Storage access denied
+    at /home/coding/screenferry/test/storage-capacity.test.ts:120:47
+    at file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:146:14
+    at file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:533:11
+    at runWithTimeout (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:39:7)
+    at runTest (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1048:17)
+    at processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runFiles (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1261:5)
+
+stdout | test/storage-capacity.test.ts > Storage Capacity Checking (bf-4d6 F1) > checkStorageCapacity() > returns hasCapacity: true when sufficient space available
+[Storage] Capacity check passed: { required: '1.6 GB', available: '83.8 GB', margin: '82.2 GB' }
+
+stderr | test/storage-capacity.test.ts > Storage Capacity Checking (bf-4d6 F1) > checkStorageCapacity() > returns hasCapacity: false when insufficient space available
+[Storage] Capacity check failed: Insufficient storage capacity. Required: 8.0 GB, Available: 1.9 GB, Shortfall: 6.2 GB
+
+stderr | test/storage-capacity.test.ts > Storage Capacity Checking (bf-4d6 F1) > checkStorageCapacity() > includes detailed error message with numbers
+[Storage] Capacity check failed: Insufficient storage capacity. Required: 3.2 GB, Available: 953.7 MB, Shortfall: 2.3 GB
+
+stdout | test/storage-capacity.test.ts > Storage Capacity Checking (bf-4d6 F1) > checkStorageCapacity() > applies 1.5x safety margin to required space calculation
+[Storage] Capacity check passed: { required: '1.6 GB', available: '9.3 GB', margin: '7.7 GB' }
+
+stdout | test/storage-capacity.test.ts > Storage Capacity Checking (bf-4d6 F1) > checkStorageCapacity() > includes compression staging buffer in required space
+[Storage] Capacity check passed: { required: '1.6 GB', available: '9.3 GB', margin: '7.7 GB' }
+
+stdout | test/storage-capacity.test.ts > Storage Capacity Checking (bf-4d6 F1) > checkStorageCapacity() > respects additional space parameter
+[Storage] Capacity check passed: { required: '2.3 GB', available: '9.3 GB', margin: '7.0 GB' }
+[Storage] Capacity check passed: { required: '1.6 GB', available: '9.3 GB', margin: '7.7 GB' }
+
+stderr | test/storage-capacity.test.ts > Storage Capacity Checking (bf-4d6 F1) > checkStorageCapacity() > optimistically allows transfer when estimate unavailable
+[Storage] navigator.storage.estimate() not supported
+[Storage] Unable to estimate quota, proceeding with caution
+
+stdout | test/storage-capacity.test.ts > Storage Capacity Checking (bf-4d6 F1) > checkStorageCapacity() > handles edge case of exactly available space
+[Storage] Capacity check passed: { required: '15.0 MB', available: '9.3 GB', margin: '9.3 GB' }
+
+stderr | test/storage-capacity.test.ts > Storage Capacity Checking (bf-4d6 F1) > checkStorageCapacity() > handles large file with small available space
+[Storage] Capacity check failed: Insufficient storage capacity. Required: 1.6 GB, Available: 95.4 MB, Shortfall: 1.5 GB
+
+stderr | test/storage-capacity.test.ts > Storage Capacity Checking (bf-4d6 F1) > checkStorageCapacity() > calculates shortfall correctly in error message
+[Storage] Capacity check failed: Insufficient storage capacity. Required: 3.2 GB, Available: 476.8 MB, Shortfall: 2.8 GB
+
+stdout | test/storage-capacity.test.ts > Storage Capacity Checking (bf-4d6 F1) > Integration Scenarios (bf-4d6) > Chrome desktop scenario: large quota available
+[Storage] Capacity check passed: { required: '16.1 GB', available: '465.7 GB', margin: '449.6 GB' }
+
+stdout | test/storage-capacity.test.ts > Storage Capacity Checking (bf-4d6 F1) > Integration Scenarios (bf-4d6) > Firefox scenario: ~10% of disk, capped ~10 GB
+[Storage] Capacity check passed: { required: '3.2 GB', available: '7.5 GB', margin: '4.2 GB' }
+
+stderr | test/storage-capacity.test.ts > Storage Capacity Checking (bf-4d6 F1) > Integration Scenarios (bf-4d6) > Safari/iOS scenario: ~1 GB before prompting
+[Storage] Capacity check failed: Insufficient storage capacity. Required: 1.3 GB, Available: 476.8 MB, Shortfall: 854.2 MB
+
+stderr | test/storage-capacity.test.ts > Storage Capacity Checking (bf-4d6 F1) > Integration Scenarios (bf-4d6) > large file transfer on quota-limited platform
+[Storage] Capacity check failed: Insufficient storage capacity. Required: 16.1 GB, Available: 8.4 GB, Shortfall: 7.7 GB
+
+stderr | test/storage-capacity.test.ts > Storage Capacity Checking (bf-4d6 F1) > Integration Scenarios (bf-4d6) > refuses clearly with numbers before starting transfer
+[Storage] Capacity check failed: Insufficient storage capacity. Required: 1.6 GB, Available: 476.8 MB, Shortfall: 1.2 GB
+
+stdout | test/storage-capacity.test.ts > Storage Capacity Checking (bf-4d6 F1) > Integration Scenarios (bf-4d6) > handles zero byte file gracefully
+[Storage] Capacity check passed: { required: '15.0 MB', available: '953.7 MB', margin: '938.7 MB' }
+
+stderr | test/storage-capacity.test.ts > Storage Capacity Checking (bf-4d6 F1) > Integration Scenarios (bf-4d6) > pre-transfer validation prevents mid-transfer failure
+[Storage] Capacity check failed: Insufficient storage capacity. Required: 3.2 GB, Available: 953.7 MB, Shortfall: 2.3 GB
+
+ ✓ test/storage-capacity.test.ts  (34 tests) 34ms
+ ✓ test/out-of-order-hash-verification.test.ts  (9 tests) 138ms
+ ✓ test/stream-id.test.ts  (27 tests) 157ms
+ ❯ test/block-bitmap.test.ts  (56 tests | 9 failed) 55ms
+   × block-bitmap > getMissingBlocks and getCompleteBlocks > should return empty missing array when all complete 15ms
+     → expected [ 10, 11, 12, 13, 14, 15 ] to deeply equal []
+   × block-bitmap > isBitmapComplete > should handle partial byte correctly 2ms
+     → expected false to be true // Object.is equality
+   × block-bitmap > getBitmapProgress > should return 1.0 for complete bitmap 1ms
+     → expected 0.625 to be 1 // Object.is equality
+   × block-bitmap > getBitmapProgress > should return correct progress for partial bitmap 1ms
+     → expected 0.04807692307692308 to be 0.05 // Object.is equality
+   × block-bitmap > D22 resume token scenarios > should handle interrupted transfer scenario 1ms
+     → expected 54 to be 50 // Object.is equality
+   × block-bitmap > D22 resume token scenarios > should handle near-complete transfer 2ms
+     → expected [ 95, 96, 97, 98, 99, 100, 101, …(2) ] to deeply equal [ 95, 96, 97, 98, 99 ]
+   × block-bitmap > D22 resume token scenarios > should handle scattered block completion (repair scenario) 1ms
+     → expected 94 to be 90 // Object.is equality
+   × block-bitmap > Performance and edge cases > should handle single block 1ms
+     → expected false to be true // Object.is equality
+   × block-bitmap > Performance and edge cases > should handle just over byte boundary 1ms
+     → expected false to be true // Object.is equality
+stdout | test/compression-resume-regression.test.ts > Regression: Original failure chain (bf-2w1a) > Original failure mode simulation > should demonstrate how re-compression produces different blocks
+First compression:
+  Compressed size: 382 bytes
+  Block count: 1
+  First 5 hashes: 10270000
+
+stdout | test/compression-resume-regression.test.ts > Regression: Original failure chain (bf-2w1a) > Original failure mode simulation > should demonstrate how re-compression produces different blocks
+Second compression (after staging reaped):
+  Compressed size: 382 bytes
+  Block count: 1
+  First 5 hashes: 10270000
+Analysis:
+  Compressed bytes differ: false
+  Block count differs: false
+  Block hashes differ: false
+  ℹ️  Hashes identical in this environment, but SPEC provides no guarantee
+  ℹ️  Issue remains across browsers, versions, platforms
+
+stdout | test/compression-resume-regression.test.ts > Regression: Original failure chain (bf-2w1a) > Original failure mode simulation > should show how invalid bitmap causes silent corruption
+Old bitmap says blocks 0-4 are complete
+  Old hashes: aaaa,bbbb,cccc,dddd,eeee
+New compression has different data for blocks 0-4
+  New hashes: 5555,6666,7777,8888,9999
+  ⚠️  SILENT CORRUPTION: Receiver would use invalid data
+  ⚠️  No hash mismatch detected until final verification (too late!)
+
+stdout | test/compression-resume-regression.test.ts > Regression: Original failure chain (bf-2w1a) > Fix verification: No silent corruption possible > should prevent resume when compression is enabled
+✓ Resume is BLOCKED for compressed transfers
+✓ No resume token persisted
+✓ UI cannot show resume option
+✓ Next transfer is FRESH (no invalid bitmap)
+✓ Silent corruption PREVENTED
+
+stdout | test/compression-resume-regression.test.ts > Regression: Original failure chain (bf-2w1a) > Fix verification: No silent corruption possible > should allow resume when compression is disabled
+✓ Resume works normally for uncompressed transfers
+✓ 50% progress preserved
+✓ Resume token valid
+
+stdout | test/compression-resume-regression.test.ts > Regression: Original failure chain (bf-2w1a) > Regression prevention > should ensure no future code changes reintroduce the bug
+✓ All invariants maintained
+✓ Regression prevented
+
+stdout | test/compression-resume-regression.test.ts > Regression: Original failure chain (bf-2w1a) > Regression prevention > should document the safety guarantees
+Guarantee 1: When compression enabled, resume is always disabled
+Guarantee 2: Resume token is never persisted for compressed transfers
+Guarantee 3: UI can never show resume option for compressed transfers
+Guarantee 4: No silent bitmap invalidation is possible
+Guarantee 5: Fresh transfer always starts after interruption
+Guarantee 6: Normal resume unaffected for uncompressed transfers
+Guarantee 7: Beacon flags correctly signal resume capability
+Guarantee 8: No future code change can silently re-enable compressed resume
+✓ All safety guarantees verified
+✓ No regression possible
+
+ ✓ test/compression-resume-regression.test.ts  (6 tests) 32ms
+stdout | test/compression-silent-state-prevention.test.ts > Silent invalid state prevention (bf-2w1a) > No invalid resume token persistence > should never persist resume token for compressed transfers
+✓ No resume token created for compressed transfers
+✓ No invalid state can be persisted
+
+stdout | test/compression-silent-state-prevention.test.ts > Silent invalid state prevention (bf-2w1a) > No invalid resume token persistence > should always return null for compressed states regardless of progress
+✓ No resume token at any completion level
+✓ Consistent behavior: always null for compressed
+
+stdout | test/compression-silent-state-prevention.test.ts > Silent invalid state prevention (bf-2w1a) > No invalid state can be loaded > should block all resume attempts for compressed transfers
+✓ All resume attempts blocked for compressed transfers
+✓ No code path can bypass the protection
+
+stdout | test/compression-silent-state-prevention.test.ts > Silent invalid state prevention (bf-2w1a) > No invalid state can be loaded > should prevent resume even if UI state is corrupted
+✓ Resume blocked even with inconsistent state
+✓ No bypass possible through state corruption
+
+stdout | test/compression-silent-state-prevention.test.ts > Silent invalid state prevention (bf-2w1a) > No silent corruption scenarios > should prevent the original silent corruption scenario
+✓ Original silent corruption scenario prevented
+✓ Fresh transfer enforced
+
+stdout | test/compression-silent-state-prevention.test.ts > Silent invalid state prevention (bf-2w1a) > No silent corruption scenarios > should ensure all failure modes are detectable
+✓ All failure modes explicitly signaled
+✓ No silent failures possible
+✓ UI can show clear "resume unavailable" message
+
+stdout | test/compression-silent-state-prevention.test.ts > Silent invalid state prevention (bf-2w1a) > State consistency guarantees > should maintain consistency across all resume-related functions
+✓ All functions agree on resume state
+✓ No inconsistent behavior possible
+
+stdout | test/compression-silent-state-prevention.test.ts > Silent invalid state prevention (bf-2w1a) > State consistency guarantees > should handle edge cases without creating invalid state
+✓ All edge cases handled safely
+✓ No invalid state created from edge cases
+
+stdout | test/compression-silent-state-prevention.test.ts > Silent invalid state prevention (bf-2w1a) > No future code can bypass protections > should enforce protection at multiple layers
+✓ Protection enforced at 4 layers
+✓ Defense-in-depth prevents bypass
+
+stdout | test/compression-silent-state-prevention.test.ts > Silent invalid state prevention (bf-2w1a) > No future code can bypass protections > should make protections explicit and verifiable
+✓ All protections explicit in code
+✓ Easy to verify through code review
+✓ Comprehensive test coverage
+
+ ✓ test/compression-silent-state-prevention.test.ts  (10 tests) 13ms
+stderr | test/ge-benchmark.test.ts > GE Benchmark > Beacon validation > rejects beacon with K exceeding local K_max
+[D26/T1] K validation refused: Sender K (768) exceeds local K_max (512).
+
+stderr | test/ge-benchmark.test.ts > GE Benchmark > Beacon validation > provides clear error message for recovery
+[D26/T1] K validation refused: Sender K (768) exceeds local K_max (512).
+
+stdout | test/ge-benchmark.test.ts > GE Benchmark > IndexedDB caching > caches and retrieves benchmark result
+Skipping IndexedDB test in Node environment
+
+stdout | test/ge-benchmark.test.ts > GE Benchmark > IndexedDB caching > returns null for non-existent cache
+Skipping IndexedDB test in Node environment
+
+stdout | test/ge-benchmark.test.ts > GE Benchmark > IndexedDB caching > invalidates cache on version mismatch
+Skipping IndexedDB test in Node environment
+
+stdout | test/ge-benchmark.test.ts > GE Benchmark > IndexedDB caching > overwrites existing cache entry
+Skipping IndexedDB test in Node environment
+
+stdout | test/ge-benchmark.test.ts > GE Benchmark > IndexedDB caching > clears all cache entries
+Skipping IndexedDB test in Node environment
+
+stdout | test/ge-benchmark.test.ts > GE Benchmark > IndexedDB caching > returns null for expired cache entries
+Skipping IndexedDB test in Node environment
+
+stdout | test/ge-benchmark.test.ts > GE Benchmark > IndexedDB caching > returns cached result for fresh entries within TTL
+Skipping IndexedDB test in Node environment
+
+stdout | test/ge-benchmark.test.ts > GE Benchmark > IndexedDB caching > handles entries exactly at TTL boundary
+Skipping IndexedDB test in Node environment
+
+stdout | test/ge-benchmark.test.ts > GE Benchmark > Fallback behavior > returns cached K_max when available
+Skipping IndexedDB test in Node environment
+
+stdout | test/ge-benchmark.test.ts > GE Benchmark > Fallback behavior > falls back to K=512 when no cache exists and benchmark fails
+Skipping IndexedDB test in Node environment
+
+ ✓ test/ge-benchmark.test.ts  (32 tests) 648ms
+ ✓ test/compression-resume.test.ts  (30 tests) 19ms
+stderr | test/network-assertion.test.ts > G2: No-network assertion (plan.md §14.4) > Network API interception > detects WebSocket calls
+WebSocket not available in test environment - skipping test
+
+ ✓ test/network-assertion.test.ts  (12 tests) 26ms
+stdout | test/storage.test.ts > cleanupOrphanedOutputs() > removes outputs older than max age when not in active set
+[Storage] Starting orphaned output cleanup...
+[Storage] Cleanup complete: removed 0 orphaned output(s)
+
+stderr | test/storage.test.ts > cleanupOrphanedOutputs() > removes outputs older than max age when not in active set
+[Storage] Failed to list outputs TypeError: outputDir.values(...) is not a function or its return value is not async iterable
+    at OPFSStorageManager.listOutputs (/home/coding/screenferry/src/platform/storage.ts:417:43)
+    at processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at OPFSStorageManager.cleanupOrphanedOutputs (/home/coding/screenferry/src/platform/storage.ts:509:21)
+    at /home/coding/screenferry/test/storage.test.ts:200:21
+    at file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:533:5
+    at runTest (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1048:11)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runFiles (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1261:5)
+    at startTests (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1270:3)
+
+stdout | test/storage.test.ts > cleanupOrphanedOutputs() > keeps outputs that are in active set regardless of age
+[Storage] Starting orphaned output cleanup...
+[Storage] Cleanup complete: removed 0 orphaned output(s)
+
+stderr | test/storage.test.ts > cleanupOrphanedOutputs() > keeps outputs that are in active set regardless of age
+[Storage] Failed to list outputs TypeError: outputDir.values(...) is not a function or its return value is not async iterable
+    at OPFSStorageManager.listOutputs (/home/coding/screenferry/src/platform/storage.ts:417:43)
+    at processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at OPFSStorageManager.cleanupOrphanedOutputs (/home/coding/screenferry/src/platform/storage.ts:509:21)
+    at /home/coding/screenferry/test/storage.test.ts:214:21
+    at file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:533:5
+    at runTest (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1048:11)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runFiles (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1261:5)
+    at startTests (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1270:3)
+
+stdout | test/storage.test.ts > cleanupOrphanedOutputs() > keeps recent outputs even if not in active set
+[Storage] Starting orphaned output cleanup...
+[Storage] Cleanup complete: removed 0 orphaned output(s)
+
+stderr | test/storage.test.ts > cleanupOrphanedOutputs() > keeps recent outputs even if not in active set
+[Storage] Failed to list outputs TypeError: outputDir.values(...) is not a function or its return value is not async iterable
+    at OPFSStorageManager.listOutputs (/home/coding/screenferry/src/platform/storage.ts:417:43)
+    at processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at OPFSStorageManager.cleanupOrphanedOutputs (/home/coding/screenferry/src/platform/storage.ts:509:21)
+    at /home/coding/screenferry/test/storage.test.ts:228:21
+    at file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:533:5
+    at runTest (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1048:11)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runFiles (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1261:5)
+    at startTests (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1270:3)
+
+stdout | test/storage.test.ts > cleanupOrphanedOutputs() > handles empty storage gracefully
+[Storage] Starting orphaned output cleanup...
+[Storage] Cleanup complete: removed 0 orphaned output(s)
+
+stderr | test/storage.test.ts > cleanupOrphanedOutputs() > handles empty storage gracefully
+[Storage] Failed to list outputs TypeError: outputDir.values(...) is not a function or its return value is not async iterable
+    at OPFSStorageManager.listOutputs (/home/coding/screenferry/src/platform/storage.ts:417:43)
+    at processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at OPFSStorageManager.cleanupOrphanedOutputs (/home/coding/screenferry/src/platform/storage.ts:509:21)
+    at /home/coding/screenferry/test/storage.test.ts:238:21
+    at file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:533:5
+    at runTest (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1048:11)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runFiles (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1261:5)
+    at startTests (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1270:3)
+
+stdout | test/storage.test.ts > cleanupOrphanedOutputs() > handles mixed ages correctly
+[Storage] Starting orphaned output cleanup...
+[Storage] Cleanup complete: removed 0 orphaned output(s)
+
+stderr | test/storage.test.ts > cleanupOrphanedOutputs() > handles mixed ages correctly
+[Storage] Failed to list outputs TypeError: outputDir.values(...) is not a function or its return value is not async iterable
+    at OPFSStorageManager.listOutputs (/home/coding/screenferry/src/platform/storage.ts:417:43)
+    at processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at OPFSStorageManager.cleanupOrphanedOutputs (/home/coding/screenferry/src/platform/storage.ts:509:21)
+    at /home/coding/screenferry/test/storage.test.ts:255:21
+    at file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:533:5
+    at runTest (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1048:11)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runFiles (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1261:5)
+    at startTests (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1270:3)
+
+stdout | test/storage.test.ts > cleanupOrphanedOutputs() > handles deletion errors gracefully
+[Storage] Starting orphaned output cleanup...
+[Storage] Cleanup complete: removed 0 orphaned output(s)
+
+stderr | test/storage.test.ts > cleanupOrphanedOutputs() > handles deletion errors gracefully
+[Storage] Failed to list outputs TypeError: outputDir.values(...) is not a function or its return value is not async iterable
+    at OPFSStorageManager.listOutputs (/home/coding/screenferry/src/platform/storage.ts:417:43)
+    at processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at OPFSStorageManager.cleanupOrphanedOutputs (/home/coding/screenferry/src/platform/storage.ts:509:21)
+    at /home/coding/screenferry/test/storage.test.ts:277:21
+    at file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:533:5
+    at runTest (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1048:11)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runFiles (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1261:5)
+    at startTests (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1270:3)
+
+stdout | test/storage.test.ts > cleanupOrphanedOutputs() > respects custom maxOrphanAge configuration
+[Storage] Starting orphaned output cleanup...
+[Storage] Cleanup complete: removed 0 orphaned output(s)
+
+stderr | test/storage.test.ts > cleanupOrphanedOutputs() > respects custom maxOrphanAge configuration
+[Storage] Failed to list outputs TypeError: outputDir.values(...) is not a function or its return value is not async iterable
+    at OPFSStorageManager.listOutputs (/home/coding/screenferry/src/platform/storage.ts:417:43)
+    at processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at OPFSStorageManager.cleanupOrphanedOutputs (/home/coding/screenferry/src/platform/storage.ts:509:21)
+    at /home/coding/screenferry/test/storage.test.ts:297:21
+    at file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:533:5
+    at runTest (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1048:11)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runFiles (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1261:5)
+    at startTests (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1270:3)
+
+stdout | test/storage.test.ts > runStartupCleanup() > returns cleanup count on success
+[Storage] Starting orphaned output cleanup...
+[Storage] Cleanup complete: removed 0 orphaned output(s)
+
+stderr | test/storage.test.ts > runStartupCleanup() > returns cleanup count on success
+[Storage] Failed to list outputs TypeError: outputDir.values(...) is not a function or its return value is not async iterable
+    at OPFSStorageManager.listOutputs (/home/coding/screenferry/src/platform/storage.ts:417:43)
+    at processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at OPFSStorageManager.cleanupOrphanedOutputs (/home/coding/screenferry/src/platform/storage.ts:509:21)
+    at Module.runStartupCleanup (/home/coding/screenferry/src/platform/storage.ts:599:21)
+    at /home/coding/screenferry/test/storage.test.ts:320:20
+    at file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:533:5
+    at runTest (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1048:11)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runFiles (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1261:5)
+
+stdout | test/storage.test.ts > runStartupCleanup() > returns zero when no orphaned files found
+[Storage] Starting orphaned output cleanup...
+[Storage] Cleanup complete: removed 0 orphaned output(s)
+
+stderr | test/storage.test.ts > runStartupCleanup() > returns zero when no orphaned files found
+[Storage] Failed to list outputs TypeError: outputDir.values(...) is not a function or its return value is not async iterable
+    at OPFSStorageManager.listOutputs (/home/coding/screenferry/src/platform/storage.ts:417:43)
+    at processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at OPFSStorageManager.cleanupOrphanedOutputs (/home/coding/screenferry/src/platform/storage.ts:509:21)
+    at Module.runStartupCleanup (/home/coding/screenferry/src/platform/storage.ts:599:21)
+    at /home/coding/screenferry/test/storage.test.ts:327:20
+    at file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:533:5
+    at runTest (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1048:11)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runFiles (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1261:5)
+
+stderr | test/storage.test.ts > runStartupCleanup() > handles errors gracefully
+[Storage] Startup cleanup failed: Error: Storage manager error
+    at /home/coding/screenferry/test/storage.test.ts:339:7
+    at file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:146:14
+    at file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:533:11
+    at runWithTimeout (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:39:7)
+    at runTest (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1048:17)
+    at processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runFiles (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1261:5)
+    at startTests (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1270:3)
+
+stdout | test/storage.test.ts > runStartupCleanup() > uses empty active set by default
+[Storage] Starting orphaned output cleanup...
+[Storage] Cleanup complete: removed 0 orphaned output(s)
+
+stderr | test/storage.test.ts > runStartupCleanup() > uses empty active set by default
+[Storage] Failed to list outputs TypeError: outputDir.values(...) is not a function or its return value is not async iterable
+    at OPFSStorageManager.listOutputs (/home/coding/screenferry/src/platform/storage.ts:417:43)
+    at processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at OPFSStorageManager.cleanupOrphanedOutputs (/home/coding/screenferry/src/platform/storage.ts:509:21)
+    at Module.runStartupCleanup (/home/coding/screenferry/src/platform/storage.ts:599:21)
+    at /home/coding/screenferry/test/storage.test.ts:353:20
+    at file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:533:5
+    at runTest (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1048:11)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runFiles (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1261:5)
+
+stdout | test/storage.test.ts > runStartupCleanup() > accepts custom active set
+[Storage] Starting orphaned output cleanup...
+[Storage] Cleanup complete: removed 0 orphaned output(s)
+
+stderr | test/storage.test.ts > runStartupCleanup() > accepts custom active set
+[Storage] Failed to list outputs TypeError: outputDir.values(...) is not a function or its return value is not async iterable
+    at OPFSStorageManager.listOutputs (/home/coding/screenferry/src/platform/storage.ts:417:43)
+    at processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at OPFSStorageManager.cleanupOrphanedOutputs (/home/coding/screenferry/src/platform/storage.ts:509:21)
+    at Module.runStartupCleanup (/home/coding/screenferry/src/platform/storage.ts:599:21)
+    at /home/coding/screenferry/test/storage.test.ts:363:20
+    at file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:533:5
+    at runTest (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1048:11)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runFiles (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1261:5)
+
+stdout | test/storage.test.ts > OutputArtefact lifecycle > stores and retrieves output data
+[Storage] Stored output: streamId=123, size=5
+
+stdout | test/storage.test.ts > OutputArtefact lifecycle > stores and retrieves metadata
+[Storage] Stored output: streamId=456, size=4
+
+stdout | test/storage.test.ts > OutputArtefact lifecycle > lists all outputs
+[Storage] Stored output: streamId=1, size=1
+[Storage] Stored output: streamId=2, size=1
+
+stderr | test/storage.test.ts > OutputArtefact lifecycle > lists all outputs
+[Storage] Failed to list outputs TypeError: outputDir.values(...) is not a function or its return value is not async iterable
+    at OPFSStorageManager.listOutputs (/home/coding/screenferry/src/platform/storage.ts:417:43)
+    at processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at /home/coding/screenferry/test/storage.test.ts:412:21
+    at file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:533:5
+    at runTest (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1048:11)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runFiles (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1261:5)
+    at startTests (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1270:3)
+    at file:///home/coding/screenferry/node_modules/vitest/dist/chunks/runBaseTests.Dm-659zB.js:126:11
+
+stdout | test/storage.test.ts > OutputArtefact lifecycle > deletes output by streamId
+[Storage] Stored output: streamId=789, size=3
+[Storage:Deletion] Starting deletion {
+  streamId: 789,
+  filename: '(unknown)',
+  timestamp: '2026-08-03T00:42:26.603Z'
+}
+[Storage:Deletion] Deleting files {
+  streamId: 789,
+  filename: '(unknown)',
+  files: [ 'output-789.bin', 'output-789.meta.json' ]
+}
+[Storage:Deletion] Data file deleted { streamId: 789, file: 'output-789.bin' }
+[Storage:Deletion] Metadata file deleted { streamId: 789, file: 'output-789.meta.json' }
+[Storage:Deletion] Deletion completed successfully {
+  streamId: 789,
+  filename: '(unknown)',
+  duration: '1.16ms',
+  timestamp: '2026-08-03T00:42:26.604Z'
+}
+
+stderr | test/storage.test.ts > OutputArtefact lifecycle > deletes output by streamId
+[Storage] Failed to get output: streamId=789 DOMException {}
+
+stderr | test/storage.test.ts > OutputArtefact lifecycle > returns null for non-existent output
+[Storage] Failed to get output: streamId=999 DOMException {}
+
+stdout | test/storage.test.ts > OutputArtefact lifecycle > handles deletion of non-existent file gracefully
+[Storage:Deletion] Starting deletion {
+  streamId: 999,
+  filename: '(unknown)',
+  timestamp: '2026-08-03T00:42:26.606Z'
+}
+[Storage:Deletion] Deleting files {
+  streamId: 999,
+  filename: '(unknown)',
+  files: [ 'output-999.bin', 'output-999.meta.json' ]
+}
+[Storage:Deletion] Data file deleted { streamId: 999, file: 'output-999.bin' }
+[Storage:Deletion] Metadata file deleted { streamId: 999, file: 'output-999.meta.json' }
+[Storage:Deletion] Deletion completed successfully {
+  streamId: 999,
+  filename: '(unknown)',
+  duration: '0.68ms',
+  timestamp: '2026-08-03T00:42:26.606Z'
+}
+
+ ❯ test/storage.test.ts  (22 tests | 8 failed) 56ms
+   × cleanupOrphanedOutputs() > removes outputs older than max age when not in active set 17ms
+     → expected +0 to be 1 // Object.is equality
+   × cleanupOrphanedOutputs() > keeps outputs that are in active set regardless of age 2ms
+     → expected +0 to be 1 // Object.is equality
+   × cleanupOrphanedOutputs() > handles mixed ages correctly 2ms
+     → expected +0 to be 2 // Object.is equality
+   × cleanupOrphanedOutputs() > respects custom maxOrphanAge configuration 1ms
+     → expected +0 to be 1 // Object.is equality
+   × runStartupCleanup() > returns cleanup count on success 2ms
+     → expected +0 to be 1 // Object.is equality
+   × runStartupCleanup() > uses empty active set by default 2ms
+     → expected +0 to be 1 // Object.is equality
+   × runStartupCleanup() > accepts custom active set 2ms
+     → expected +0 to be 1 // Object.is equality
+   × OutputArtefact lifecycle > lists all outputs 3ms
+     → expected [] to have a length of 2 but got +0
+ ✓ test/codec.test.ts  (23 tests) 6467ms
+   ✓ fountain round-trip (I10) > recovers a full block byte-exactly with no loss 399ms
+   ✓ fountain round-trip (I10) > recovers under 50% loss — Phase 1 exit criterion 387ms
+   ✓ fountain round-trip (I10) > meets the reception-overhead budget across seeds (§13.1) 1152ms
+   ✓ fountain round-trip (I10) > survives a hostile payload: all-zero, all-ones, and 0x00..0xFF (§14.2) 301ms
+   ✓ memory (I6a) > keeps the block-layer working set flat across many blocks 3822ms
+ ✓ test/hostile-beacon-fuzzer.test.ts  (10 tests) 15ms
+ ✓ test/compression-sender-restart.test.ts  (13 tests) 15ms
+stdout | test/qr-decode-pool.test.ts > QR Decode Pool (bf-1nc3) > Worker pool creation > creates pool with default configuration
+[QR Decode Pool] Worker 0 initialized
+[QR Decode Pool] Worker 1 initialized
+[QR Decode Pool] Worker 2 initialized
+[QR Decode Pool] Worker 3 initialized
+[QR Decode Pool] Initialized with 4 workers, max 4 in-flight frames
+[QR Decode Pool] Shutting down...
+[QR Decode Pool] Worker 0 terminated
+[QR Decode Pool] Worker 1 terminated
+[QR Decode Pool] Worker 2 terminated
+[QR Decode Pool] Worker 3 terminated
+[QR Decode Pool] Shutdown complete
+
+stdout | test/qr-decode-pool.test.ts > QR Decode Pool (bf-1nc3) > Worker pool creation > respects custom worker count
+[QR Decode Pool] Worker 0 initialized
+[QR Decode Pool] Worker 1 initialized
+[QR Decode Pool] Initialized with 2 workers, max 4 in-flight frames
+[QR Decode Pool] Shutting down...
+[QR Decode Pool] Worker 0 terminated
+[QR Decode Pool] Worker 1 terminated
+[QR Decode Pool] Shutdown complete
+
+stdout | test/qr-decode-pool.test.ts > QR Decode Pool (bf-1nc3) > Worker pool creation > respects custom max in-flight frames
+[QR Decode Pool] Worker 0 initialized
+[QR Decode Pool] Worker 1 initialized
+[QR Decode Pool] Worker 2 initialized
+[QR Decode Pool] Worker 3 initialized
+[QR Decode Pool] Initialized with 4 workers, max 2 in-flight frames
+[QR Decode Pool] Shutting down...
+[QR Decode Pool] Worker 0 terminated
+[QR Decode Pool] Worker 1 terminated
+[QR Decode Pool] Worker 2 terminated
+[QR Decode Pool] Worker 3 terminated
+[QR Decode Pool] Shutdown complete
+
+stdout | test/qr-decode-pool.test.ts > QR Decode Pool (bf-1nc3) > Worker pool creation > handles zero worker count gracefully
+[QR Decode Pool] Worker 0 initialized
+[QR Decode Pool] Worker 1 initialized
+[QR Decode Pool] Worker 2 initialized
+[QR Decode Pool] Worker 3 initialized
+[QR Decode Pool] Initialized with 4 workers, max 4 in-flight frames
+[QR Decode Pool] Shutting down...
+[QR Decode Pool] Worker 0 terminated
+[QR Decode Pool] Worker 1 terminated
+[QR Decode Pool] Worker 2 terminated
+[QR Decode Pool] Worker 3 terminated
+[QR Decode Pool] Shutdown complete
+
+stdout | test/qr-decode-pool.test.ts > QR Decode Pool (bf-1nc3) > Frame submission and processing > accepts frames when below capacity
+[QR Decode Pool] Worker 0 initialized
+[QR Decode Pool] Worker 1 initialized
+[QR Decode Pool] Initialized with 2 workers, max 4 in-flight frames
+[QR Decode Pool] Shutting down...
+[QR Decode Pool] Worker 0 terminated
+[QR Decode Pool] Worker 1 terminated
+[QR Decode Pool] Shutdown complete
+
+stdout | test/qr-decode-pool.test.ts > QR Decode Pool (bf-1nc3) > Frame submission and processing > drops frames when at capacity (backpressure)
+[QR Decode Pool] Worker 0 initialized
+[QR Decode Pool] Initialized with 1 workers, max 2 in-flight frames
+[QR Decode Pool] Shutting down...
+[QR Decode Pool] Worker 0 terminated
+[QR Decode Pool] Shutdown complete
+
+stderr | test/qr-decode-pool.test.ts > QR Decode Pool (bf-1nc3) > Frame submission and processing > drops frames when at capacity (backpressure)
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+
+stdout | test/qr-decode-pool.test.ts > QR Decode Pool (bf-1nc3) > Frame submission and processing > increments frame index for each submission
+[QR Decode Pool] Worker 0 initialized
+[QR Decode Pool] Worker 1 initialized
+[QR Decode Pool] Worker 2 initialized
+[QR Decode Pool] Worker 3 initialized
+[QR Decode Pool] Initialized with 4 workers, max 4 in-flight frames
+[QR Decode Pool] Shutting down...
+[QR Decode Pool] Worker 0 terminated
+[QR Decode Pool] Worker 1 terminated
+[QR Decode Pool] Worker 2 terminated
+[QR Decode Pool] Worker 3 terminated
+[QR Decode Pool] Shutdown complete
+
+stdout | test/qr-decode-pool.test.ts > QR Decode Pool (bf-1nc3) > Frame submission and processing > processes frames and invokes result callback
+[QR Decode Pool] Worker 0 initialized
+[QR Decode Pool] Initialized with 1 workers, max 4 in-flight frames
+
+stdout | test/qr-decode-pool.test.ts > QR Decode Pool (bf-1nc3) > Frame submission and processing > processes frames and invokes result callback
+[QR Decode Pool] Shutting down...
+[QR Decode Pool] Worker 0 terminated
+[QR Decode Pool] Shutdown complete
+
+stdout | test/qr-decode-pool.test.ts > QR Decode Pool (bf-1nc3) > Frame submission and processing > handles worker errors gracefully
+[QR Decode Pool] Worker 0 initialized
+[QR Decode Pool] Initialized with 1 workers, max 4 in-flight frames
+[QR Decode Pool] Shutting down...
+[QR Decode Pool] Worker 0 terminated
+[QR Decode Pool] Shutdown complete
+
+stderr | test/qr-decode-pool.test.ts > QR Decode Pool (bf-1nc3) > Frame submission and processing > handles worker errors gracefully
+[QR Decode Pool] Failed to send frame to worker: Error: Worker communication failed
+    at MockWorker.worker.postMessage (/home/coding/screenferry/test/qr-decode-pool.test.ts:202:15)
+    at QRDecodePool.submitFrame (/home/coding/screenferry/src/workers/qr-decode-pool.ts:189:30)
+    at /home/coding/screenferry/test/qr-decode-pool.test.ts:206:27
+    at file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:146:14
+    at file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:533:11
+    at runWithTimeout (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:39:7)
+    at runTest (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1048:17)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+
+stdout | test/qr-decode-pool.test.ts > QR Decode Pool (bf-1nc3) > Memory constraints (I6b) > respects 4-frame in-flight limit by default
+[QR Decode Pool] Worker 0 initialized
+[QR Decode Pool] Initialized with 1 workers, max 4 in-flight frames
+[QR Decode Pool] Shutting down...
+[QR Decode Pool] Worker 0 terminated
+[QR Decode Pool] Shutdown complete
+
+stderr | test/qr-decode-pool.test.ts > QR Decode Pool (bf-1nc3) > Memory constraints (I6b) > respects 4-frame in-flight limit by default
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+
+stdout | test/qr-decode-pool.test.ts > QR Decode Pool (bf-1nc3) > Memory constraints (I6b) > prevents memory buildup with backpressure
+[QR Decode Pool] Worker 0 initialized
+[QR Decode Pool] Initialized with 1 workers, max 2 in-flight frames
+[QR Decode Pool] Shutting down...
+[QR Decode Pool] Worker 0 terminated
+[QR Decode Pool] Shutdown complete
+
+stderr | test/qr-decode-pool.test.ts > QR Decode Pool (bf-1nc3) > Memory constraints (I6b) > prevents memory buildup with backpressure
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+
+stdout | test/qr-decode-pool.test.ts > QR Decode Pool (bf-1nc3) > Statistics and monitoring > reports accurate utilization
+[QR Decode Pool] Worker 0 initialized
+[QR Decode Pool] Worker 1 initialized
+[QR Decode Pool] Initialized with 2 workers, max 4 in-flight frames
+[QR Decode Pool] Shutting down...
+[QR Decode Pool] Worker 0 terminated
+[QR Decode Pool] Worker 1 terminated
+[QR Decode Pool] Shutdown complete
+
+stdout | test/qr-decode-pool.test.ts > QR Decode Pool (bf-1nc3) > Statistics and monitoring > tracks in-flight count correctly
+[QR Decode Pool] Worker 0 initialized
+[QR Decode Pool] Initialized with 1 workers, max 4 in-flight frames
+[QR Decode Pool] Shutting down...
+[QR Decode Pool] Worker 0 terminated
+[QR Decode Pool] Shutdown complete
+
+stdout | test/qr-decode-pool.test.ts > QR Decode Pool (bf-1nc3) > Statistics and monitoring > returns valid statistics structure
+[QR Decode Pool] Worker 0 initialized
+[QR Decode Pool] Worker 1 initialized
+[QR Decode Pool] Initialized with 2 workers, max 4 in-flight frames
+[QR Decode Pool] Shutting down...
+[QR Decode Pool] Worker 0 terminated
+[QR Decode Pool] Worker 1 terminated
+[QR Decode Pool] Shutdown complete
+
+stdout | test/qr-decode-pool.test.ts > QR Decode Pool (bf-1nc3) > Pool lifecycle > shuts down cleanly
+[QR Decode Pool] Worker 0 initialized
+[QR Decode Pool] Worker 1 initialized
+[QR Decode Pool] Initialized with 2 workers, max 4 in-flight frames
+[QR Decode Pool] Shutting down...
+[QR Decode Pool] Worker 0 terminated
+[QR Decode Pool] Worker 1 terminated
+[QR Decode Pool] Shutdown complete
+[QR Decode Pool] Shutting down...
+[QR Decode Pool] Shutdown complete
+
+stdout | test/qr-decode-pool.test.ts > QR Decode Pool (bf-1nc3) > Pool lifecycle > rejects frames after shutdown
+[QR Decode Pool] Worker 0 initialized
+[QR Decode Pool] Worker 1 initialized
+[QR Decode Pool] Worker 2 initialized
+[QR Decode Pool] Worker 3 initialized
+[QR Decode Pool] Initialized with 4 workers, max 4 in-flight frames
+[QR Decode Pool] Shutting down...
+[QR Decode Pool] Worker 0 terminated
+[QR Decode Pool] Worker 1 terminated
+[QR Decode Pool] Worker 2 terminated
+[QR Decode Pool] Worker 3 terminated
+[QR Decode Pool] Shutdown complete
+[QR Decode Pool] Shutting down...
+[QR Decode Pool] Shutdown complete
+
+stderr | test/qr-decode-pool.test.ts > QR Decode Pool (bf-1nc3) > Pool lifecycle > rejects frames after shutdown
+[QR Decode Pool] No available workers despite in-flight count check
+
+stdout | test/qr-decode-pool.test.ts > QR Decode Pool (bf-1nc3) > Pool lifecycle > handles multiple shutdown cycles
+[QR Decode Pool] Worker 0 initialized
+[QR Decode Pool] Worker 1 initialized
+[QR Decode Pool] Initialized with 2 workers, max 4 in-flight frames
+[QR Decode Pool] Shutting down...
+[QR Decode Pool] Worker 0 terminated
+[QR Decode Pool] Worker 1 terminated
+[QR Decode Pool] Shutdown complete
+[QR Decode Pool] Worker 0 initialized
+[QR Decode Pool] Initialized with 1 workers, max 4 in-flight frames
+[QR Decode Pool] Shutting down...
+[QR Decode Pool] Worker 0 terminated
+[QR Decode Pool] Shutdown complete
+
+stdout | test/qr-decode-pool.test.ts > QR Decode Pool (bf-1nc3) > VideoFrame handling > closes VideoFrames when processing completes
+[QR Decode Pool] Worker 0 initialized
+[QR Decode Pool] Initialized with 1 workers, max 4 in-flight frames
+
+stdout | test/qr-decode-pool.test.ts > QR Decode Pool (bf-1nc3) > VideoFrame handling > closes VideoFrames when processing completes
+[QR Decode Pool] Shutting down...
+[QR Decode Pool] Worker 0 terminated
+[QR Decode Pool] Shutdown complete
+
+stdout | test/qr-decode-pool.test.ts > QR Decode Pool (bf-1nc3) > VideoFrame handling > closes VideoFrames when dropped
+[QR Decode Pool] Worker 0 initialized
+[QR Decode Pool] Initialized with 1 workers, max 1 in-flight frames
+[QR Decode Pool] Shutting down...
+[QR Decode Pool] Worker 0 terminated
+[QR Decode Pool] Shutdown complete
+
+stderr | test/qr-decode-pool.test.ts > QR Decode Pool (bf-1nc3) > VideoFrame handling > closes VideoFrames when dropped
+[QR Decode Pool] At capacity (1/1), dropping frame 1
+
+stdout | test/qr-decode-pool.test.ts > QR Decode Pool (bf-1nc3) > Edge cases > handles null callback gracefully
+[QR Decode Pool] Worker 0 initialized
+[QR Decode Pool] Worker 1 initialized
+[QR Decode Pool] Worker 2 initialized
+[QR Decode Pool] Worker 3 initialized
+[QR Decode Pool] Initialized with 4 workers, max 4 in-flight frames
+[QR Decode Pool] Shutting down...
+[QR Decode Pool] Worker 0 terminated
+[QR Decode Pool] Worker 1 terminated
+[QR Decode Pool] Worker 2 terminated
+[QR Decode Pool] Worker 3 terminated
+[QR Decode Pool] Shutdown complete
+
+stdout | test/qr-decode-pool.test.ts > QR Decode Pool (bf-1nc3) > Edge cases > handles rapid frame submission
+[QR Decode Pool] Worker 0 initialized
+[QR Decode Pool] Worker 1 initialized
+[QR Decode Pool] Initialized with 2 workers, max 4 in-flight frames
+[QR Decode Pool] Shutting down...
+[QR Decode Pool] Worker 0 terminated
+[QR Decode Pool] Worker 1 terminated
+[QR Decode Pool] Shutdown complete
+
+stderr | test/qr-decode-pool.test.ts > QR Decode Pool (bf-1nc3) > Edge cases > handles rapid frame submission
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+[QR Decode Pool] No available workers despite in-flight count check
+
+stdout | test/qr-decode-pool.test.ts > QR Decode Pool (bf-1nc3) > Edge cases > handles zero-sized frames
+[QR Decode Pool] Worker 0 initialized
+[QR Decode Pool] Worker 1 initialized
+[QR Decode Pool] Worker 2 initialized
+[QR Decode Pool] Worker 3 initialized
+[QR Decode Pool] Initialized with 4 workers, max 4 in-flight frames
+[QR Decode Pool] Shutting down...
+[QR Decode Pool] Worker 0 terminated
+[QR Decode Pool] Worker 1 terminated
+[QR Decode Pool] Worker 2 terminated
+[QR Decode Pool] Worker 3 terminated
+[QR Decode Pool] Shutdown complete
+
+stdout | test/qr-decode-pool.test.ts > QR Decode Pool (bf-1nc3) > Edge cases > handles large frames
+[QR Decode Pool] Worker 0 initialized
+[QR Decode Pool] Worker 1 initialized
+[QR Decode Pool] Worker 2 initialized
+[QR Decode Pool] Worker 3 initialized
+[QR Decode Pool] Initialized with 4 workers, max 4 in-flight frames
+[QR Decode Pool] Shutting down...
+[QR Decode Pool] Worker 0 terminated
+[QR Decode Pool] Worker 1 terminated
+[QR Decode Pool] Worker 2 terminated
+[QR Decode Pool] Worker 3 terminated
+[QR Decode Pool] Shutdown complete
+
+ ❯ test/qr-decode-pool.test.ts  (23 tests | 4 failed) 3438ms
+   × QR Decode Pool (bf-1nc3) > Frame submission and processing > drops frames when at capacity (backpressure) 45ms
+     → expected false to be true // Object.is equality
+   × QR Decode Pool (bf-1nc3) > Memory constraints (I6b) > respects 4-frame in-flight limit by default 440ms
+     → expected 1 to be 4 // Object.is equality
+   ✓ QR Decode Pool (bf-1nc3) > Memory constraints (I6b) > prevents memory buildup with backpressure 1439ms
+   × QR Decode Pool (bf-1nc3) > Pool lifecycle > rejects frames after shutdown 14ms
+     → expected [Function] to throw an error
+   × QR Decode Pool (bf-1nc3) > VideoFrame handling > closes VideoFrames when processing completes 12ms
+     → expected "spy" to be called at least once
+   ✓ QR Decode Pool (bf-1nc3) > Edge cases > handles rapid frame submission 1044ms
+stdout | test/export.test.ts > shareFile() deletion behavior > calls deleteOutput() after successful share
+[Export] Sharing file: 4 bytes
+[Export] Share successful
+[Export:Deletion] Starting deletion after share {
+  method: 'share',
+  streamId: 123,
+  filename: 'test.dat',
+  timestamp: '2026-08-03T00:42:41.429Z'
+}
+[Export:Deletion] Deletion completed successfully {
+  method: 'share',
+  streamId: 123,
+  filename: 'test.dat',
+  duration: '1.01ms',
+  timestamp: '2026-08-03T00:42:41.430Z'
+}
+
+stdout | test/export.test.ts > shareFile() deletion behavior > does NOT call deleteOutput() when share fails
+[Export] Sharing file: 4 bytes
+
+stderr | test/export.test.ts > shareFile() deletion behavior > does NOT call deleteOutput() when share fails
+[Export] Share failed: Error: Network error
+    at /home/coding/screenferry/test/export.test.ts:84:32
+    at file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:146:14
+    at file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:533:11
+    at runWithTimeout (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:39:7)
+    at runTest (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1048:17)
+    at processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runFiles (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1261:5)
+    at startTests (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1270:3)
+
+stdout | test/export.test.ts > shareFile() deletion behavior > does NOT call deleteOutput() when user cancels
+[Export] Sharing file: 4 bytes
+[Export] Share cancelled by user
+
+stdout | test/export.test.ts > shareFile() deletion behavior > handles deletion errors gracefully (share still succeeds)
+[Export] Sharing file: 4 bytes
+[Export] Share successful
+[Export:Deletion] Starting deletion after share {
+  method: 'share',
+  streamId: 123,
+  filename: 'test.dat',
+  timestamp: '2026-08-03T00:42:41.447Z'
+}
+
+stderr | test/export.test.ts > shareFile() deletion behavior > handles deletion errors gracefully (share still succeeds)
+[Export:Deletion] Failed to delete output after share {
+  method: 'share',
+  streamId: 123,
+  filename: 'test.dat',
+  duration: '0.53ms',
+  timestamp: '2026-08-03T00:42:41.448Z',
+  error: {
+    name: 'Error',
+    message: 'Mock deletion failed',
+    stack: 'Error: Mock deletion failed\n' +
+      '    at MockStorageManager.deleteOutput (/home/coding/screenferry/test/export.test.ts:19:13)\n' +
+      '    at Module.shareFile (/home/coding/screenferry/src/platform/export.ts:103:21)\n' +
+      '    at processTicksAndRejections (node:internal/process/task_queues:103:5)\n' +
+      '    at /home/coding/screenferry/test/export.test.ts:129:20\n' +
+      '    at file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:533:5\n' +
+      '    at runTest (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1048:11)\n' +
+      '    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)\n' +
+      '    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)\n' +
+      '    at runFiles (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1261:5)\n' +
+      '    at startTests (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1270:3)'
+  }
+}
+
+stdout | test/export.test.ts > shareFile() deletion behavior > handles share with unknown error type
+[Export] Sharing file: 4 bytes
+
+stderr | test/export.test.ts > shareFile() deletion behavior > handles share with unknown error type
+[Export] Share failed: string error
+
+stdout | test/export.test.ts > shareFile() deletion behavior > handles share with null error
+[Export] Sharing file: 4 bytes
+
+stderr | test/export.test.ts > shareFile() deletion behavior > handles share with null error
+[Export] Share failed: null
+
+stdout | test/export.test.ts > saveFile() deletion behavior > calls deleteOutput() after successful save
+[Export] Saving file: 4 bytes
+[Export] Save successful
+[Export:Deletion] Starting deletion after save {
+  method: 'save',
+  streamId: 456,
+  filename: 'test.dat',
+  timestamp: '2026-08-03T00:42:41.455Z'
+}
+[Export:Deletion] Deletion completed successfully {
+  method: 'save',
+  streamId: 456,
+  filename: 'test.dat',
+  duration: '0.23ms',
+  timestamp: '2026-08-03T00:42:41.455Z'
+}
+
+stdout | test/export.test.ts > saveFile() deletion behavior > does NOT call deleteOutput() when save fails
+[Export] Saving file: 4 bytes
+
+stderr | test/export.test.ts > saveFile() deletion behavior > does NOT call deleteOutput() when save fails
+[Export] Save failed: Error: Disk full
+    at /home/coding/screenferry/test/export.test.ts:280:42
+    at file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:146:14
+    at file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:533:11
+    at runWithTimeout (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:39:7)
+    at runTest (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1048:17)
+    at processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runFiles (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1261:5)
+    at startTests (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1270:3)
+
+stdout | test/export.test.ts > saveFile() deletion behavior > does NOT call deleteOutput() when user cancels
+[Export] Saving file: 4 bytes
+[Export] Save cancelled by user
+
+stdout | test/export.test.ts > saveFile() deletion behavior > handles deletion errors gracefully (save still succeeds)
+[Export] Saving file: 4 bytes
+[Export] Save successful
+[Export:Deletion] Starting deletion after save {
+  method: 'save',
+  streamId: 456,
+  filename: 'test.dat',
+  timestamp: '2026-08-03T00:42:41.460Z'
+}
+
+stderr | test/export.test.ts > saveFile() deletion behavior > handles deletion errors gracefully (save still succeeds)
+[Export:Deletion] Failed to delete output after save {
+  method: 'save',
+  streamId: 456,
+  filename: 'test.dat',
+  duration: '0.17ms',
+  timestamp: '2026-08-03T00:42:41.460Z',
+  error: {
+    name: 'Error',
+    message: 'Mock deletion failed',
+    stack: 'Error: Mock deletion failed\n' +
+      '    at MockStorageManager.deleteOutput (/home/coding/screenferry/test/export.test.ts:19:13)\n' +
+      '    at Module.saveFile (/home/coding/screenferry/src/platform/export.ts:198:21)\n' +
+      '    at processTicksAndRejections (node:internal/process/task_queues:103:5)\n' +
+      '    at /home/coding/screenferry/test/export.test.ts:325:20\n' +
+      '    at file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:533:5\n' +
+      '    at runTest (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1048:11)\n' +
+      '    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)\n' +
+      '    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)\n' +
+      '    at runFiles (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1261:5)\n' +
+      '    at startTests (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1270:3)'
+  }
+}
+
+stdout | test/export.test.ts > saveFile() deletion behavior > handles save with unknown error type
+[Export] Saving file: 4 bytes
+
+stderr | test/export.test.ts > saveFile() deletion behavior > handles save with unknown error type
+[Export] Save failed: string error
+
+stdout | test/export.test.ts > saveFile() deletion behavior > handles save with null error
+[Export] Saving file: 4 bytes
+
+stderr | test/export.test.ts > saveFile() deletion behavior > handles save with null error
+[Export] Save failed: null
+
+stdout | test/export.test.ts > saveFile() deletion behavior > handles picker failure after selection
+[Export] Saving file: 4 bytes
+
+stderr | test/export.test.ts > saveFile() deletion behavior > handles picker failure after selection
+[Export] Save failed: Error: Permission denied
+    at /home/coding/screenferry/test/export.test.ts:404:53
+    at file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:146:14
+    at file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:533:11
+    at runWithTimeout (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:39:7)
+    at runTest (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1048:17)
+    at processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runFiles (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1261:5)
+    at startTests (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1270:3)
+
+stdout | test/export.test.ts > saveFile() deletion behavior > handles writable.close() failure
+[Export] Saving file: 4 bytes
+
+stderr | test/export.test.ts > saveFile() deletion behavior > handles writable.close() failure
+[Export] Save failed: Error: Close failed
+    at /home/coding/screenferry/test/export.test.ts:425:42
+    at file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:146:14
+    at file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:533:11
+    at runWithTimeout (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:39:7)
+    at runTest (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1048:17)
+    at processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runFiles (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1261:5)
+    at startTests (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1270:3)
+
+ ✓ test/export.test.ts  (16 tests) 42ms
+ ✓ test/positional-write.test.ts  (18 tests) 19ms
+ ❯ test/stall-detector.test.ts  (10 tests | 6 failed) 1539ms
+   × Stall Detector > Initial State > should have positive time since last packet initially 9ms
+     → expected 933.379397 to be less than 100
+   × Stall Detector > Optical No-Codes Stall > should detect optical-no-codes stall when no QR codes detected 1508ms
+     → expected null not to be null
+   × Stall Detector > Optical Too-Far Stall > should detect optical-too-far stall below px/module cliff 2ms
+     → expected null not to be null
+   × Stall Detector > Optical Blur Stall > should detect optical-blur stall with low sharpness 2ms
+     → expected null not to be null
+   × Stall Detector > Sender Paused Stall > should detect sender-paused stall with duplicate frames 2ms
+     → expected null not to be null
+   × Stall Detector > Diagnosis Confidence Levels > should assign appropriate confidence levels 4ms
+     → expected 'low' to be 'high' // Object.is equality
+ ✓ test/aim-reticle.test.ts  (19 tests) 56ms
+stderr | test/k-based-stream-refusal.test.ts > K-based stream refusal (bf-pflr) > validateBeaconK function > refuses beacon K exceeding K_max limit
+[D26/T1] K validation refused: Sender K (800) exceeds local K_max (768).
+
+stderr | test/k-based-stream-refusal.test.ts > K-based stream refusal (bf-pflr) > validateBeaconK function > logs refusal with device context when provided
+[D26/T1] K validation refused: Sender K (800) exceeds local K_max (768). [Device: , Signature: |4|unknown|31d86ca3]
+
+stderr | test/k-based-stream-refusal.test.ts > K-based stream refusal (bf-pflr) > validateBeaconK function > logs refusal without device context when not provided
+[D26/T1] K validation refused: Sender K (800) exceeds local K_max (768).
+
+stderr | test/k-based-stream-refusal.test.ts > K-based stream refusal (bf-pflr) > validateBeaconK function > handles large K values
+[D26/T1] K validation refused: Sender K (1600) exceeds local K_max (768).
+
+stderr | test/k-based-stream-refusal.test.ts > K-based stream refusal (bf-pflr) > parseBeacon integration with K validation > refuses beacon when sender K exceeds K_max
+[D26/T1] K validation refused: Sender K (800) exceeds local K_max (768). [Device: , Signature: |4|unknown|31d86ca3]
+[D26/T1] K validation refused: Sender K (800) exceeds local K_max (768). [Device: , Signature: |4|unknown|31d86ca3]
+
+stderr | test/k-based-stream-refusal.test.ts > K-based stream refusal (bf-pflr) > parseBeacon integration with K validation > provides detailed error information on K overflow
+[D26/T1] K validation refused: Sender K (1000) exceeds local K_max (768). [Device: , Signature: |4|unknown|31d86ca3]
+
+stderr | test/k-based-stream-refusal.test.ts > K-based stream refusal (bf-pflr) > D26 compliance > MUST refuse stream if sender K exceeds local K_max
+[D26/T1] K validation refused: Sender K (1200) exceeds local K_max (768). [Device: , Signature: |4|unknown|31d86ca3]
+
+stderr | test/k-based-stream-refusal.test.ts > K-based stream refusal (bf-pflr) > D26 compliance > returns distinct error code E-K-OVERFLOW for K validation failures
+[D26/T1] K validation refused: Sender K (800) exceeds local K_max (768).
+
+ ✓ test/k-based-stream-refusal.test.ts  (15 tests) 22ms
+ ✓ test/position-tracker.test.ts  (31 tests) 24ms
+ ✓ test/block-hash.test.ts  (23 tests) 989ms
+   ✓ block-hash > integration scenarios > should handle multi-block manifest (4 GB file scenario) 923ms
+ ✓ test/capture-resolution.test.ts  (28 tests) 18ms
+ ❯ test/beacon-crc.test.ts  (16 tests | 2 failed) 29ms
+   × Beacon CRC-32 validation (bf-312) > Edge cases > handles maximum-length filename 10ms
+     → Filename too long: 255 bytes (max 128)
+   × Beacon CRC-32 validation (bf-312) > Edge cases > handles maximum-length MIME type 1ms
+     → MIME type too long: 127 bytes (max 58)
+ ✓ test/health-check-orientation-integration.test.ts  (11 tests) 12ms
+stdout | test/sender-splash-ui.test.ts > sender-splash-ui > UI Creation > should create sender splash UI with QR code container
+[Sender Splash] Stopping sender splash UI
+
+stdout | test/sender-splash-ui.test.ts > sender-splash-ui > UI Creation > should create file drop zone
+[Sender Splash] Stopping sender splash UI
+
+stdout | test/sender-splash-ui.test.ts > sender-splash-ui > UI Creation > should create instructions panel
+[Sender Splash] Stopping sender splash UI
+
+stdout | test/sender-splash-ui.test.ts > sender-splash-ui > UI Creation > should create switch mode button
+[Sender Splash] Stopping sender splash UI
+
+stdout | test/sender-splash-ui.test.ts > sender-splash-ui > QR Code Generation > should generate QR code on start
+[Sender Splash] Starting sender splash UI...
+[Sender Splash] Generating QR code...
+[Sender Splash] Receiver link: http://localhost:3000/#recv
+[Sender Splash] Sender splash UI started successfully
+[Sender Splash] Stopping sender splash UI
+
+stderr | test/sender-splash-ui.test.ts > sender-splash-ui > QR Code Generation > should generate QR code on start
+[Sender Splash] Failed to generate QR code: TypeError: ctx.createImageData is not a function
+    at render (/home/coding/screenferry/node_modules/qrcode/lib/renderer/canvas.js:38:21)
+    at /home/coding/screenferry/node_modules/qrcode/lib/browser.js:54:17
+    at new Promise (<anonymous>)
+    at renderCanvas (/home/coding/screenferry/node_modules/qrcode/lib/browser.js:51:12)
+    at SenderSplashUI.generateQR (/home/coding/screenferry/src/platform/sender-splash-ui.ts:525:20)
+    at SenderSplashUI.start (/home/coding/screenferry/src/platform/sender-splash-ui.ts:558:18)
+    at /home/coding/screenferry/test/sender-splash-ui.test.ts:72:22
+    at file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:146:14
+    at file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:533:11
+    at runWithTimeout (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:39:7)
+
+stdout | test/sender-splash-ui.test.ts > sender-splash-ui > QR Code Generation > should generate QR code with receiver deep link
+[Sender Splash] Starting sender splash UI...
+[Sender Splash] Generating QR code...
+[Sender Splash] Receiver link: http://localhost:3000/#recv
+[Sender Splash] Sender splash UI started successfully
+[Sender Splash] Stopping sender splash UI
+
+stderr | test/sender-splash-ui.test.ts > sender-splash-ui > QR Code Generation > should generate QR code with receiver deep link
+[Sender Splash] Failed to generate QR code: TypeError: ctx.createImageData is not a function
+    at render (/home/coding/screenferry/node_modules/qrcode/lib/renderer/canvas.js:38:21)
+    at /home/coding/screenferry/node_modules/qrcode/lib/browser.js:54:17
+    at new Promise (<anonymous>)
+    at renderCanvas (/home/coding/screenferry/node_modules/qrcode/lib/browser.js:51:12)
+    at SenderSplashUI.generateQR (/home/coding/screenferry/src/platform/sender-splash-ui.ts:525:20)
+    at SenderSplashUI.start (/home/coding/screenferry/src/platform/sender-splash-ui.ts:558:18)
+    at /home/coding/screenferry/test/sender-splash-ui.test.ts:85:22
+    at file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:146:14
+    at file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:533:11
+    at runWithTimeout (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:39:7)
+
+stdout | test/sender-splash-ui.test.ts > sender-splash-ui > QR Code Generation > should use custom QR config when provided
+[Sender Splash] Starting sender splash UI...
+[Sender Splash] Generating QR code...
+[Sender Splash] Receiver link: http://localhost:3000/#recv
+[Sender Splash] Sender splash UI started successfully
+[Sender Splash] Stopping sender splash UI
+
+stderr | test/sender-splash-ui.test.ts > sender-splash-ui > QR Code Generation > should use custom QR config when provided
+[Sender Splash] Failed to generate QR code: TypeError: ctx.createImageData is not a function
+    at render (/home/coding/screenferry/node_modules/qrcode/lib/renderer/canvas.js:38:21)
+    at /home/coding/screenferry/node_modules/qrcode/lib/browser.js:54:17
+    at new Promise (<anonymous>)
+    at renderCanvas (/home/coding/screenferry/node_modules/qrcode/lib/browser.js:51:12)
+    at SenderSplashUI.generateQR (/home/coding/screenferry/src/platform/sender-splash-ui.ts:525:20)
+    at SenderSplashUI.start (/home/coding/screenferry/src/platform/sender-splash-ui.ts:558:18)
+    at /home/coding/screenferry/test/sender-splash-ui.test.ts:107:22
+    at file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:146:14
+    at file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:533:11
+    at runWithTimeout (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:39:7)
+
+stdout | test/sender-splash-ui.test.ts > sender-splash-ui > File Drop Zone > should call onFileDrop callback when file is dropped
+[Sender Splash] Starting sender splash UI...
+[Sender Splash] Generating QR code...
+[Sender Splash] Receiver link: http://localhost:3000/#recv
+[Sender Splash] Sender splash UI started successfully
+[Sender Splash] Stopping sender splash UI
+
+stderr | test/sender-splash-ui.test.ts > sender-splash-ui > File Drop Zone > should call onFileDrop callback when file is dropped
+[Sender Splash] Failed to generate QR code: TypeError: ctx.createImageData is not a function
+    at render (/home/coding/screenferry/node_modules/qrcode/lib/renderer/canvas.js:38:21)
+    at /home/coding/screenferry/node_modules/qrcode/lib/browser.js:54:17
+    at new Promise (<anonymous>)
+    at renderCanvas (/home/coding/screenferry/node_modules/qrcode/lib/browser.js:51:12)
+    at SenderSplashUI.generateQR (/home/coding/screenferry/src/platform/sender-splash-ui.ts:525:20)
+    at SenderSplashUI.start (/home/coding/screenferry/src/platform/sender-splash-ui.ts:558:18)
+    at /home/coding/screenferry/test/sender-splash-ui.test.ts:127:22
+    at file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:146:14
+    at file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:533:11
+    at runWithTimeout (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:39:7)
+
+stdout | test/sender-splash-ui.test.ts > sender-splash-ui > File Drop Zone > should update drop zone text when file is selected
+[Sender Splash] Starting sender splash UI...
+[Sender Splash] Generating QR code...
+[Sender Splash] Receiver link: http://localhost:3000/#recv
+[Sender Splash] Sender splash UI started successfully
+[Sender Splash] Stopping sender splash UI
+
+stderr | test/sender-splash-ui.test.ts > sender-splash-ui > File Drop Zone > should update drop zone text when file is selected
+[Sender Splash] Failed to generate QR code: TypeError: ctx.createImageData is not a function
+    at render (/home/coding/screenferry/node_modules/qrcode/lib/renderer/canvas.js:38:21)
+    at /home/coding/screenferry/node_modules/qrcode/lib/browser.js:54:17
+    at new Promise (<anonymous>)
+    at renderCanvas (/home/coding/screenferry/node_modules/qrcode/lib/browser.js:51:12)
+    at SenderSplashUI.generateQR (/home/coding/screenferry/src/platform/sender-splash-ui.ts:525:20)
+    at SenderSplashUI.start (/home/coding/screenferry/src/platform/sender-splash-ui.ts:558:18)
+    at /home/coding/screenferry/test/sender-splash-ui.test.ts:145:22
+    at file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:146:14
+    at file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:533:11
+    at runWithTimeout (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:39:7)
+
+stdout | test/sender-splash-ui.test.ts > sender-splash-ui > F8 Feature Integration > should display pairing instructions for both sender and receiver
+[Sender Splash] Starting sender splash UI...
+[Sender Splash] Generating QR code...
+[Sender Splash] Receiver link: http://localhost:3000/#recv
+[Sender Splash] Sender splash UI started successfully
+[Sender Splash] Stopping sender splash UI
+
+stderr | test/sender-splash-ui.test.ts > sender-splash-ui > F8 Feature Integration > should display pairing instructions for both sender and receiver
+[Sender Splash] Failed to generate QR code: TypeError: ctx.createImageData is not a function
+    at render (/home/coding/screenferry/node_modules/qrcode/lib/renderer/canvas.js:38:21)
+    at /home/coding/screenferry/node_modules/qrcode/lib/browser.js:54:17
+    at new Promise (<anonymous>)
+    at renderCanvas (/home/coding/screenferry/node_modules/qrcode/lib/browser.js:51:12)
+    at SenderSplashUI.generateQR (/home/coding/screenferry/src/platform/sender-splash-ui.ts:525:20)
+    at SenderSplashUI.start (/home/coding/screenferry/src/platform/sender-splash-ui.ts:558:18)
+    at /home/coding/screenferry/test/sender-splash-ui.test.ts:159:22
+    at file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:146:14
+    at file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:533:11
+    at runWithTimeout (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:39:7)
+
+stdout | test/sender-splash-ui.test.ts > sender-splash-ui > F8 Feature Integration > should show offline limitation notice
+[Sender Splash] Starting sender splash UI...
+[Sender Splash] Generating QR code...
+[Sender Splash] Receiver link: http://localhost:3000/#recv
+[Sender Splash] Sender splash UI started successfully
+[Sender Splash] Stopping sender splash UI
+
+stderr | test/sender-splash-ui.test.ts > sender-splash-ui > F8 Feature Integration > should show offline limitation notice
+[Sender Splash] Failed to generate QR code: TypeError: ctx.createImageData is not a function
+    at render (/home/coding/screenferry/node_modules/qrcode/lib/renderer/canvas.js:38:21)
+    at /home/coding/screenferry/node_modules/qrcode/lib/browser.js:54:17
+    at new Promise (<anonymous>)
+    at renderCanvas (/home/coding/screenferry/node_modules/qrcode/lib/browser.js:51:12)
+    at SenderSplashUI.generateQR (/home/coding/screenferry/src/platform/sender-splash-ui.ts:525:20)
+    at SenderSplashUI.start (/home/coding/screenferry/src/platform/sender-splash-ui.ts:558:18)
+    at /home/coding/screenferry/test/sender-splash-ui.test.ts:175:22
+    at file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:146:14
+    at file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:533:11
+    at runWithTimeout (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:39:7)
+
+stdout | test/sender-splash-ui.test.ts > sender-splash-ui > F8 Feature Integration > should support complete pairing workflow
+[Sender Splash] Starting sender splash UI...
+[Sender Splash] Generating QR code...
+[Sender Splash] Receiver link: http://localhost:3000/#recv
+[Sender Splash] Sender splash UI started successfully
+[Sender Splash] Stopping sender splash UI
+
+stderr | test/sender-splash-ui.test.ts > sender-splash-ui > F8 Feature Integration > should support complete pairing workflow
+[Sender Splash] Failed to generate QR code: TypeError: ctx.createImageData is not a function
+    at render (/home/coding/screenferry/node_modules/qrcode/lib/renderer/canvas.js:38:21)
+    at /home/coding/screenferry/node_modules/qrcode/lib/browser.js:54:17
+    at new Promise (<anonymous>)
+    at renderCanvas (/home/coding/screenferry/node_modules/qrcode/lib/browser.js:51:12)
+    at SenderSplashUI.generateQR (/home/coding/screenferry/src/platform/sender-splash-ui.ts:525:20)
+    at SenderSplashUI.start (/home/coding/screenferry/src/platform/sender-splash-ui.ts:558:18)
+    at /home/coding/screenferry/test/sender-splash-ui.test.ts:187:22
+    at file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:146:14
+    at file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:533:11
+    at runWithTimeout (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:39:7)
+
+stdout | test/sender-splash-ui.test.ts > sender-splash-ui > QR Code Styling > should apply proper styling to QR code container
+[Sender Splash] Starting sender splash UI...
+[Sender Splash] Generating QR code...
+[Sender Splash] Receiver link: http://localhost:3000/#recv
+[Sender Splash] Sender splash UI started successfully
+[Sender Splash] Stopping sender splash UI
+
+stderr | test/sender-splash-ui.test.ts > sender-splash-ui > QR Code Styling > should apply proper styling to QR code container
+[Sender Splash] Failed to generate QR code: TypeError: ctx.createImageData is not a function
+    at render (/home/coding/screenferry/node_modules/qrcode/lib/renderer/canvas.js:38:21)
+    at /home/coding/screenferry/node_modules/qrcode/lib/browser.js:54:17
+    at new Promise (<anonymous>)
+    at renderCanvas (/home/coding/screenferry/node_modules/qrcode/lib/browser.js:51:12)
+    at SenderSplashUI.generateQR (/home/coding/screenferry/src/platform/sender-splash-ui.ts:525:20)
+    at SenderSplashUI.start (/home/coding/screenferry/src/platform/sender-splash-ui.ts:558:18)
+    at /home/coding/screenferry/test/sender-splash-ui.test.ts:214:22
+    at file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:146:14
+    at file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:533:11
+    at runWithTimeout (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:39:7)
+
+stdout | test/sender-splash-ui.test.ts > sender-splash-ui > QR Code Styling > should apply proper styling to drop zone
+[Sender Splash] Starting sender splash UI...
+[Sender Splash] Generating QR code...
+[Sender Splash] Receiver link: http://localhost:3000/#recv
+[Sender Splash] Sender splash UI started successfully
+[Sender Splash] Stopping sender splash UI
+
+stderr | test/sender-splash-ui.test.ts > sender-splash-ui > QR Code Styling > should apply proper styling to drop zone
+[Sender Splash] Failed to generate QR code: TypeError: ctx.createImageData is not a function
+    at render (/home/coding/screenferry/node_modules/qrcode/lib/renderer/canvas.js:38:21)
+    at /home/coding/screenferry/node_modules/qrcode/lib/browser.js:54:17
+    at new Promise (<anonymous>)
+    at renderCanvas (/home/coding/screenferry/node_modules/qrcode/lib/browser.js:51:12)
+    at SenderSplashUI.generateQR (/home/coding/screenferry/src/platform/sender-splash-ui.ts:525:20)
+    at SenderSplashUI.start (/home/coding/screenferry/src/platform/sender-splash-ui.ts:558:18)
+    at /home/coding/screenferry/test/sender-splash-ui.test.ts:229:22
+    at file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:146:14
+    at file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:533:11
+    at runWithTimeout (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:39:7)
+
+stdout | test/sender-splash-ui.test.ts > sender-splash-ui > Feature Highlights > should display ScreenFerry features
+[Sender Splash] Starting sender splash UI...
+[Sender Splash] Generating QR code...
+[Sender Splash] Receiver link: http://localhost:3000/#recv
+[Sender Splash] Sender splash UI started successfully
+[Sender Splash] Stopping sender splash UI
+
+stderr | test/sender-splash-ui.test.ts > sender-splash-ui > Feature Highlights > should display ScreenFerry features
+[Sender Splash] Failed to generate QR code: TypeError: ctx.createImageData is not a function
+    at render (/home/coding/screenferry/node_modules/qrcode/lib/renderer/canvas.js:38:21)
+    at /home/coding/screenferry/node_modules/qrcode/lib/browser.js:54:17
+    at new Promise (<anonymous>)
+    at renderCanvas (/home/coding/screenferry/node_modules/qrcode/lib/browser.js:51:12)
+    at SenderSplashUI.generateQR (/home/coding/screenferry/src/platform/sender-splash-ui.ts:525:20)
+    at SenderSplashUI.start (/home/coding/screenferry/src/platform/sender-splash-ui.ts:558:18)
+    at /home/coding/screenferry/test/sender-splash-ui.test.ts:245:22
+    at file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:146:14
+    at file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:533:11
+    at runWithTimeout (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:39:7)
+
+ ✓ test/sender-splash-ui.test.ts  (15 tests) 455ms
+ ✓ test/roi-ratchet-guard.test.ts  (18 tests) 15ms
+stderr | test/simple-ge-runner.test.ts > Simple GE Benchmark Runner > runSimpleGEBenchmarkAsync() async > runs benchmark asynchronously and returns K value
+Worker benchmark failed, trying synchronous fallback ReferenceError: Worker is not defined
+    at runGEBenchmarkInWorker (/home/coding/screenferry/src/platform/ge-benchmark.ts:464:18)
+    at runGEBenchmark (/home/coding/screenferry/src/platform/ge-benchmark.ts:429:26)
+    at Module.runSimpleGEBenchmarkAsync (/home/coding/screenferry/src/platform/simple-ge-runner.ts:129:26)
+    at processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at /home/coding/screenferry/test/simple-ge-runner.test.ts:91:22
+    at file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:533:5
+    at runTest (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1048:11)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+
+stderr | test/simple-ge-runner.test.ts > Simple GE Benchmark Runner > runSimpleGEBenchmarkAsync() async > respects configurable max duration in async mode
+Worker benchmark failed, trying synchronous fallback ReferenceError: Worker is not defined
+    at runGEBenchmarkInWorker (/home/coding/screenferry/src/platform/ge-benchmark.ts:464:18)
+    at runGEBenchmark (/home/coding/screenferry/src/platform/ge-benchmark.ts:429:26)
+    at Module.runSimpleGEBenchmarkAsync (/home/coding/screenferry/src/platform/simple-ge-runner.ts:129:26)
+    at processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at /home/coding/screenferry/test/simple-ge-runner.test.ts:106:22
+    at file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:533:5
+    at runTest (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1048:11)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+
+stderr | test/simple-ge-runner.test.ts > Simple GE Benchmark Runner > runSimpleGEBenchmarkAsync() async > returns structured result with all required fields
+Worker benchmark failed, trying synchronous fallback ReferenceError: Worker is not defined
+    at runGEBenchmarkInWorker (/home/coding/screenferry/src/platform/ge-benchmark.ts:464:18)
+    at runGEBenchmark (/home/coding/screenferry/src/platform/ge-benchmark.ts:429:26)
+    at Module.runSimpleGEBenchmarkAsync (/home/coding/screenferry/src/platform/simple-ge-runner.ts:129:26)
+    at processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at /home/coding/screenferry/test/simple-ge-runner.test.ts:113:22
+    at file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:533:5
+    at runTest (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1048:11)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+
+stderr | test/simple-ge-runner.test.ts > Simple GE Benchmark Runner > runSimpleGEBenchmarkAsync() async > handles custom configuration in async mode
+Worker benchmark failed, trying synchronous fallback ReferenceError: Worker is not defined
+    at runGEBenchmarkInWorker (/home/coding/screenferry/src/platform/ge-benchmark.ts:464:18)
+    at runGEBenchmark (/home/coding/screenferry/src/platform/ge-benchmark.ts:429:26)
+    at Module.runSimpleGEBenchmarkAsync (/home/coding/screenferry/src/platform/simple-ge-runner.ts:129:26)
+    at processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at /home/coding/screenferry/test/simple-ge-runner.test.ts:129:22
+    at file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:533:5
+    at runTest (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1048:11)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+
+stderr | test/simple-ge-runner.test.ts > Simple GE Benchmark Runner > runSimpleGEBenchmarkAsync() async > handles benchmark failures gracefully
+Worker benchmark failed, trying synchronous fallback ReferenceError: Worker is not defined
+    at runGEBenchmarkInWorker (/home/coding/screenferry/src/platform/ge-benchmark.ts:464:18)
+    at runGEBenchmark (/home/coding/screenferry/src/platform/ge-benchmark.ts:429:26)
+    at Module.runSimpleGEBenchmarkAsync (/home/coding/screenferry/src/platform/simple-ge-runner.ts:129:26)
+    at processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at /home/coding/screenferry/test/simple-ge-runner.test.ts:143:22
+    at file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:533:5
+    at runTest (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1048:11)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+
+stderr | test/simple-ge-runner.test.ts > Simple GE Benchmark Runner > Error handling > handles errors gracefully in async mode
+Worker benchmark failed, trying synchronous fallback ReferenceError: Worker is not defined
+    at runGEBenchmarkInWorker (/home/coding/screenferry/src/platform/ge-benchmark.ts:464:18)
+    at runGEBenchmark (/home/coding/screenferry/src/platform/ge-benchmark.ts:429:26)
+    at Module.runSimpleGEBenchmarkAsync (/home/coding/screenferry/src/platform/simple-ge-runner.ts:129:26)
+    at processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at /home/coding/screenferry/test/simple-ge-runner.test.ts:186:22
+    at file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:533:5
+    at runTest (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1048:11)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+
+stderr | test/simple-ge-runner.test.ts > Simple GE Benchmark Runner > Performance characteristics > async version completes within reasonable time
+Worker benchmark failed, trying synchronous fallback ReferenceError: Worker is not defined
+    at runGEBenchmarkInWorker (/home/coding/screenferry/src/platform/ge-benchmark.ts:464:18)
+    at runGEBenchmark (/home/coding/screenferry/src/platform/ge-benchmark.ts:429:26)
+    at Module.runSimpleGEBenchmarkAsync (/home/coding/screenferry/src/platform/simple-ge-runner.ts:129:26)
+    at processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at /home/coding/screenferry/test/simple-ge-runner.test.ts:209:22
+    at file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:533:5
+    at runTest (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1048:11)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+
+ ✓ test/simple-ge-runner.test.ts  (20 tests) 715ms
+stdout | test/compression-determinism.test.ts > CompressionStream determinism (bf-2vke) > should produce different output on multiple runs
+Compression lengths: [ 382, 382, 382, 382, 382 ]
+All identical: true
+
+stdout | test/compression-determinism.test.ts > CompressionStream determinism (bf-2vke) > should show how different compression breaks block hashes
+Compressed 1 length: 28
+Compressed 2 length: 28
+Bytes differ: false
+Even if identical here, the SPEC provides no guarantee
+Run 1 block hashes: [
+  178,   0, 202, 398,
+  330, 598,   8
+]
+Run 2 block hashes: [
+  178,   0, 202, 398,
+  330, 598,   8
+]
+Hashes identical: true
+
+ ✓ test/compression-determinism.test.ts  (3 tests) 27ms
+stdout | test/init.test.ts > runAppInit() > runs health check and cleanup in parallel
+[Init] Starting app initialization...
+[Init] Initialization complete in 1ms
+[Init] Health check: PASSED
+[Init] Orphaned outputs cleaned: 0
+
+stdout | test/init.test.ts > runAppInit() > returns cleanup count from storage
+[Init] Starting app initialization...
+[Init] Initialization complete in 0ms
+[Init] Health check: PASSED
+[Init] Orphaned outputs cleaned: 3
+
+stdout | test/init.test.ts > runAppInit() > handles health check failure gracefully
+[Init] Starting app initialization...
+[Init] Initialization complete in 7ms
+[Init] Health check: FAILED
+[Init] Orphaned outputs cleaned: 0
+
+stderr | test/init.test.ts > runAppInit() > handles health check failure gracefully
+[Init] Health check failed: Error: Camera not available
+    at /home/coding/screenferry/test/init.test.ts:59:49
+    at processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:533:5
+    at runTest (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1048:11)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runFiles (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1261:5)
+    at startTests (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1270:3)
+    at file:///home/coding/screenferry/node_modules/vitest/dist/chunks/runBaseTests.Dm-659zB.js:126:11
+    at withEnv (file:///home/coding/screenferry/node_modules/vitest/dist/chunks/runBaseTests.Dm-659zB.js:90:5)
+[Init] Initialization errors: [ 'Health check: Camera not available' ]
+
+stdout | test/init.test.ts > runAppInit() > handles cleanup failure gracefully
+[Init] Starting app initialization...
+[Init] Initialization complete in 0ms
+[Init] Health check: PASSED
+[Init] Orphaned outputs cleaned: 0
+
+stderr | test/init.test.ts > runAppInit() > handles cleanup failure gracefully
+[Init] Startup cleanup failed: Storage error
+[Init] Initialization errors: [ 'Startup cleanup: Storage error' ]
+
+stdout | test/init.test.ts > runAppInit() > collects multiple errors
+[Init] Starting app initialization...
+[Init] Initialization complete in 1ms
+[Init] Health check: FAILED
+[Init] Orphaned outputs cleaned: 0
+
+stderr | test/init.test.ts > runAppInit() > collects multiple errors
+[Init] Health check failed: Error: Health check failed
+    at /home/coding/screenferry/test/init.test.ts:80:49
+    at processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:533:5
+    at runTest (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1048:11)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runFiles (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1261:5)
+    at startTests (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1270:3)
+    at file:///home/coding/screenferry/node_modules/vitest/dist/chunks/runBaseTests.Dm-659zB.js:126:11
+    at withEnv (file:///home/coding/screenferry/node_modules/vitest/dist/chunks/runBaseTests.Dm-659zB.js:90:5)
+[Init] Startup cleanup failed: Cleanup failed
+[Init] Initialization errors: [
+  'Health check: Health check failed',
+  'Startup cleanup: Cleanup failed'
+]
+
+stdout | test/init.test.ts > runAppInit() > returns successful result when all checks pass
+[Init] Starting app initialization...
+[Init] Initialization complete in 0ms
+[Init] Health check: PASSED
+[Init] Orphaned outputs cleaned: 0
+
+stdout | test/init.test.ts > runAppInit() > handles complete initialization failure
+[Init] Starting app initialization...
+[Init] Initialization complete in 0ms
+[Init] Health check: FAILED
+[Init] Orphaned outputs cleaned: 0
+
+stderr | test/init.test.ts > runAppInit() > handles complete initialization failure
+[Init] Health check failed: Error: Critical failure
+    at /home/coding/screenferry/test/init.test.ts:100:49
+    at processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:533:5
+    at runTest (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1048:11)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runSuite (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1204:15)
+    at runFiles (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1261:5)
+    at startTests (file:///home/coding/screenferry/node_modules/@vitest/runner/dist/index.js:1270:3)
+    at file:///home/coding/screenferry/node_modules/vitest/dist/chunks/runBaseTests.Dm-659zB.js:126:11
+    at withEnv (file:///home/coding/screenferry/node_modules/vitest/dist/chunks/runBaseTests.Dm-659zB.js:90:5)
+[Init] Initialization errors: [ 'Health check: Critical failure' ]
+
+ ✓ test/init.test.ts  (18 tests) 33ms
+ ❯ test/params.test.ts  (24 tests | 6 failed) 32ms
+   × Core Parameters > validateK() > rejects K that would breach I6a memory limit 12ms
+     → expected [Function] to throw an error
+   × Core Parameters > validateK() > rejects extremely large K with clear error message 1ms
+     → expected [Function] to throw an error
+   × Core Parameters > validateK() > provides actionable error message for recovery 1ms
+     → expected [Function] to throw an error
+   × Core Parameters > D26 sender-side desktop override > prevents D26 override from breaching I6a 1ms
+     → expected [Function] to throw an error
+   × Core Parameters > I6a memory constraint > K_MAX yields working set just under 1 MB 1ms
+     → expected 1572864 to be less than 1048576
+   × Core Parameters > I6a memory constraint > default K=768 has comfortable memory margin 1ms
+     → expected 0.4453125 to be close to 0.264, received difference is 0.1813125, but expected 0.005
+ ✓ test/block-switch-policy.test.ts  (7 tests) 10ms
+ ✓ test/orientation.test.ts  (20 tests) 12ms
+ ✓ test/role-inference.test.ts  (16 tests) 25ms
+ ✓ test/qr-encode-pinned-mask.test.ts  (9 tests) 31ms
+stdout | test/health-check-ge-benchmark.test.ts > GE Benchmark Runner > runGEBenchmark() with worker fallback > returns K value from cached result
+Skipping IndexedDB test in Node environment
+
+stdout | test/health-check-ge-benchmark.test.ts > GE Benchmark Runner > runGEBenchmark() with worker fallback > handles benchmark failures gracefully
+Skipping IndexedDB test in Node environment
+
+ ✓ test/health-check-ge-benchmark.test.ts  (8 tests) 372ms
+ ✓ test/vectors.test.ts  (5 tests) 10ms
+stdout | test/debug-beacon.test.ts > Debug beacon encoding > throws E-K-OVERFLOW with blockSize = 200*1024 (K=800)
+Creating meta with blockSize: 204800 blockCount: 6
+Encoded beacon length: 88
+Caught error: E-K-OVERFLOW Sender K (800) exceeds this device's maximum (768). Use a smaller file or a more powerful receiver.
+
+stderr | test/debug-beacon.test.ts > Debug beacon encoding > throws E-K-OVERFLOW with blockSize = 200*1024 (K=800)
+[D26/T1] K validation refused: Sender K (800) exceeds local K_max (768).
+
+ ✓ test/debug-beacon.test.ts  (2 tests) 8ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 41 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/beacon-crc.test.ts > Beacon CRC-32 validation (bf-312) > Edge cases > handles maximum-length filename
+BeaconValidationError: Filename too long: 255 bytes (max 128)
+ ❯ Module.encodeBeacon src/core/frame/beacon.ts:615:11
+    613| 
+    614|   if (filenameBytes.length > BEACON_LIMITS.MAX_FILENAME_BYTES) {
+    615|     throw new BeaconValidationError(
+       |           ^
+    616|       'E-META-BOUNDS',
+    617|       `Filename too long: ${filenameBytes.length} bytes (max ${BEACON_…
+ ❯ test/beacon-crc.test.ts:267:23
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/41]⎯
+
+ FAIL  test/beacon-crc.test.ts > Beacon CRC-32 validation (bf-312) > Edge cases > handles maximum-length MIME type
+BeaconValidationError: MIME type too long: 127 bytes (max 58)
+ ❯ Module.encodeBeacon src/core/frame/beacon.ts:623:11
+    621| 
+    622|   if (mimeTypeBytes.length > BEACON_LIMITS.MAX_MIMETYPE_BYTES) {
+    623|     throw new BeaconValidationError(
+       |           ^
+    624|       'E-META-BOUNDS',
+    625|       `MIME type too long: ${mimeTypeBytes.length} bytes (max ${BEACON…
+ ❯ test/beacon-crc.test.ts:278:23
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/41]⎯
+
+ FAIL  test/block-bitmap.test.ts > block-bitmap > getMissingBlocks and getCompleteBlocks > should return empty missing array when all complete
+AssertionError: expected [ 10, 11, 12, 13, 14, 15 ] to deeply equal []
+
+- Expected
++ Received
+
+- Array []
++ Array [
++   10,
++   11,
++   12,
++   13,
++   14,
++   15,
++ ]
+
+ ❯ test/block-bitmap.test.ts:223:23
+    221|       const missing = getMissingBlocks(bitmap);
+    222| 
+    223|       expect(missing).toEqual([]);
+       |                       ^
+    224|     });
+    225|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/41]⎯
+
+ FAIL  test/block-bitmap.test.ts > block-bitmap > isBitmapComplete > should handle partial byte correctly
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ test/block-bitmap.test.ts:249:40
+    247|         setBitmapBit(bitmap, i);
+    248|       }
+    249|       expect(isBitmapComplete(bitmap)).toBe(true);
+       |                                        ^
+    250| 
+    251|       // Clear one valid bit
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/41]⎯
+
+ FAIL  test/block-bitmap.test.ts > block-bitmap > getBitmapProgress > should return 1.0 for complete bitmap
+AssertionError: expected 0.625 to be 1 // Object.is equality
+
+- Expected
++ Received
+
+- 1
++ 0.625
+
+ ❯ test/block-bitmap.test.ts:404:41
+    402|     it('should return 1.0 for complete bitmap', () => {
+    403|       const bitmap = createBitmapWithBlocks(10, [0, 1, 2, 3, 4, 5, 6, …
+    404|       expect(getBitmapProgress(bitmap)).toBe(1.0);
+       |                                         ^
+    405|     });
+    406| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/41]⎯
+
+ FAIL  test/block-bitmap.test.ts > block-bitmap > getBitmapProgress > should return correct progress for partial bitmap
+AssertionError: expected 0.04807692307692308 to be 0.05 // Object.is equality
+
+- Expected
++ Received
+
+- 0.05
++ 0.04807692307692308
+
+ ❯ test/block-bitmap.test.ts:409:41
+    407|     it('should return correct progress for partial bitmap', () => {
+    408|       const bitmap = createBitmapWithBlocks(100, [0, 1, 2, 3, 4]);
+    409|       expect(getBitmapProgress(bitmap)).toBe(0.05);
+       |                                         ^
+    410|     });
+    411| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/41]⎯
+
+ FAIL  test/block-bitmap.test.ts > block-bitmap > D22 resume token scenarios > should handle interrupted transfer scenario
+AssertionError: expected 54 to be 50 // Object.is equality
+
+- Expected
++ Received
+
+- 50
++ 54
+
+ ❯ test/block-bitmap.test.ts:458:30
+    456|       const complete = getCompleteBlocks(bitmap);
+    457| 
+    458|       expect(missing.length).toBe(50);
+       |                              ^
+    459|       expect(complete.length).toBe(50);
+    460|       expect(getBitmapProgress(bitmap)).toBe(0.5);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/41]⎯
+
+ FAIL  test/block-bitmap.test.ts > block-bitmap > D22 resume token scenarios > should handle near-complete transfer
+AssertionError: expected [ 95, 96, 97, 98, 99, 100, 101, …(2) ] to deeply equal [ 95, 96, 97, 98, 99 ]
+
+- Expected
++ Received
+
+  Array [
+    95,
+    96,
+    97,
+    98,
+    99,
++   100,
++   101,
++   102,
++   103,
+  ]
+
+ ❯ test/block-bitmap.test.ts:479:23
+    477|       const missing = getMissingBlocks(bitmap);
+    478| 
+    479|       expect(missing).toEqual([95, 96, 97, 98, 99]);
+       |                       ^
+    480|       expect(getBitmapProgress(bitmap)).toBe(0.95);
+    481|     });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/41]⎯
+
+ FAIL  test/block-bitmap.test.ts > block-bitmap > D22 resume token scenarios > should handle scattered block completion (repair scenario)
+AssertionError: expected 94 to be 90 // Object.is equality
+
+- Expected
++ Received
+
+- 90
++ 94
+
+ ❯ test/block-bitmap.test.ts:493:30
+    491| 
+    492|       expect(complete).toEqual(scatteredBlocks);
+    493|       expect(missing.length).toBe(90); // 100 - 10
+       |                              ^
+    494|       expect(countSetBits(bitmap)).toBe(10);
+    495|     });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/41]⎯
+
+ FAIL  test/block-bitmap.test.ts > block-bitmap > Performance and edge cases > should handle single block
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ test/block-bitmap.test.ts:521:40
+    519| 
+    520|       setBitmapBit(bitmap, 0);
+    521|       expect(isBitmapComplete(bitmap)).toBe(true);
+       |                                        ^
+    522|       expect(getBitmapProgress(bitmap)).toBe(1.0);
+    523|     });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/41]⎯
+
+ FAIL  test/block-bitmap.test.ts > block-bitmap > Performance and edge cases > should handle just over byte boundary
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ test/block-bitmap.test.ts:546:40
+    544|       }
+    545| 
+    546|       expect(isBitmapComplete(bitmap)).toBe(true);
+       |                                        ^
+    547|     });
+    548|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/41]⎯
+
+ FAIL  test/deletion-integration.test.ts > Integration: End-to-end deletion workflow > keeps OPFS file when export fails (non-AbortError)
+AssertionError: expected [] to have a length of 1 but got +0
+
+- Expected
++ Received
+
+- 1
++ 0
+
+ ❯ test/deletion-integration.test.ts:129:26
+    127|     // Verify manifest still contains the artefact
+    128|     const allArtefacts = await storage.listOutputs();
+    129|     expect(allArtefacts).toHaveLength(1);
+       |                          ^
+    130|     expect(allArtefacts[0].streamId).toBe(testStreamId);
+    131|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/41]⎯
+
+ FAIL  test/deletion-integration.test.ts > Integration: End-to-end deletion workflow > keeps OPFS file when user cancels (AbortError)
+AssertionError: expected undefined to be 'complete' // Object.is equality
+
+- Expected: 
+"complete"
+
++ Received: 
+undefined
+
+ ❯ test/deletion-integration.test.ts:169:35
+    167|     const artefactAfter = await storage.getOutputMetadata(testStreamId…
+    168|     expect(artefactAfter).toBeTruthy();
+    169|     expect(artefactAfter?.status).toBe('complete');
+       |                                   ^
+    170| 
+    171|     // Verify manifest still contains the artefact
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/41]⎯
+
+ FAIL  test/deletion-integration.test.ts > Integration: End-to-end deletion workflow > updates manifest correctly after successful deletion
+AssertionError: expected [] to have a length of 3 but got +0
+
+- Expected
++ Received
+
+- 3
++ 0
+
+ ❯ test/deletion-integration.test.ts:283:26
+    281|     // Verify all three are in manifest
+    282|     let allArtefacts = await storage.listOutputs();
+    283|     expect(allArtefacts).toHaveLength(3);
+       |                          ^
+    284| 
+    285|     // Step 2: Export and delete one file (streamId 200)
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[14/41]⎯
+
+ FAIL  test/deletion-integration.test.ts > Integration: End-to-end deletion workflow > reaps orphans correctly after export deletions
+AssertionError: expected [] to have a length of 2 but got +0
+
+- Expected
++ Received
+
+- 2
++ 0
+
+ ❯ test/deletion-integration.test.ts:333:26
+    331|     // Verify both exist
+    332|     let allArtefacts = await storage.listOutputs();
+    333|     expect(allArtefacts).toHaveLength(2);
+       |                          ^
+    334| 
+    335|     // Step 2: Export the new file (delete it)
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[15/41]⎯
+
+ FAIL  test/deletion-integration.test.ts > Integration: End-to-end deletion workflow > correctly handles multiple exports and deletions
+AssertionError: expected [] to have a length of 3 but got +0
+
+- Expected
++ Received
+
+- 3
++ 0
+
+ ❯ test/deletion-integration.test.ts:395:26
+    393|     // Verify all exist
+    394|     let allArtefacts = await storage.listOutputs();
+    395|     expect(allArtefacts).toHaveLength(3);
+       |                          ^
+    396| 
+    397|     // Step 2: Export file 2 (delete it)
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[16/41]⎯
+
+ FAIL  test/deletion-integration.test.ts > Integration: Real OPFS storage operations > maintains manifest consistency across multiple write/delete cycles
+TypeError: storage.writeOutput is not a function
+ ❯ test/deletion-integration.test.ts:524:19
+    522|   it('maintains manifest consistency across multiple write/delete cycl…
+    523|     // Cycle 1: Write and delete
+    524|     await storage.writeOutput(1, 'cycle1.bin', testMimeType, testData);
+       |                   ^
+    525|     expect(await storage.listOutputs()).toHaveLength(1);
+    526|     await storage.deleteOutput(1);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[17/41]⎯
+
+ FAIL  test/params.test.ts > Core Parameters > validateK() > rejects K that would breach I6a memory limit
+AssertionError: expected [Function] to throw an error
+
+- Expected: 
+null
+
++ Received: 
+undefined
+
+ ❯ test/params.test.ts:73:37
+     71| 
+     72|     it('rejects K that would breach I6a memory limit', () => {
+     73|       expect(() => validateK(1536)).toThrow(/K=1536 exceeds I6a's 1 MB…
+       |                                     ^
+     74|       expect(() => validateK(1536)).toThrow(/1.08 MB/);
+     75|       expect(() => validateK(1536)).toThrow(/exceeds I6a/);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[18/41]⎯
+
+ FAIL  test/params.test.ts > Core Parameters > validateK() > rejects extremely large K with clear error message
+AssertionError: expected [Function] to throw an error
+ ❯ test/params.test.ts:80:37
+     78|     it('rejects extremely large K with clear error message', () => {
+     79|       // K=2048 as mentioned in the task description
+     80|       expect(() => validateK(2048)).toThrow();
+       |                                     ^
+     81| 
+     82|       const error = (() => {
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[19/41]⎯
+
+ FAIL  test/params.test.ts > Core Parameters > validateK() > provides actionable error message for recovery
+AssertionError: expected [Function] to throw an error
+ ❯ test/params.test.ts:111:37
+    109| 
+    110|     it('provides actionable error message for recovery', () => {
+    111|       expect(() => validateK(2048)).toThrow();
+       |                                     ^
+    112| 
+    113|       try {
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[20/41]⎯
+
+ FAIL  test/params.test.ts > Core Parameters > D26 sender-side desktop override > prevents D26 override from breaching I6a
+AssertionError: expected [Function] to throw an error
+
+- Expected: 
+null
+
++ Received: 
+undefined
+
+ ❯ test/params.test.ts:175:40
+    173|       const tooHigh = 1536;
+    174| 
+    175|       expect(() => validateK(tooHigh)).toThrow(/I6a/);
+       |                                        ^
+    176|       expect(() => validateK(tooHigh)).toThrow(/1.08 MB/);
+    177|     });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[21/41]⎯
+
+ FAIL  test/params.test.ts > Core Parameters > I6a memory constraint > K_MAX yields working set just under 1 MB
+AssertionError: expected 1572864 to be less than 1048576
+ ❯ test/params.test.ts:194:26
+    192|       const limitMB = 1;
+    193| 
+    194|       expect(workingSet).toBeLessThan(limitMB * 1_048_576);
+       |                          ^
+    195|       expect(workingSet / 1_048_576).toBeCloseTo(0.97, 1); // ~97% of …
+    196|     });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[22/41]⎯
+
+ FAIL  test/params.test.ts > Core Parameters > I6a memory constraint > default K=768 has comfortable memory margin
+AssertionError: expected 0.4453125 to be close to 0.264, received difference is 0.1813125, but expected 0.005
+ ❯ test/params.test.ts:213:29
+    211|       // Should use significantly less than 1 MB
+    212|       expect(utilizationMB).toBeLessThan(0.5); // Less than 50%
+    213|       expect(utilizationMB).toBeCloseTo(0.264, 2); // ~264 KB per plan…
+       |                             ^
+    214|     });
+    215|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[23/41]⎯
+
+ FAIL  test/qr-decode-pool.test.ts > QR Decode Pool (bf-1nc3) > Frame submission and processing > drops frames when at capacity (backpressure)
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ test/qr-decode-pool.test.ts:155:32
+    153| 
+    154|       expect(result1.accepted).toBe(true);
+    155|       expect(result2.accepted).toBe(true);
+       |                                ^
+    156|       expect(result3.accepted).toBe(false); // At capacity
+    157|       expect(result3.dropped).toBe(true);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[24/41]⎯
+
+ FAIL  test/qr-decode-pool.test.ts > QR Decode Pool (bf-1nc3) > Memory constraints (I6b) > respects 4-frame in-flight limit by default
+AssertionError: expected 1 to be 4 // Object.is equality
+
+- Expected
++ Received
+
+- 4
++ 1
+
+ ❯ test/qr-decode-pool.test.ts:232:24
+    230|       const dropped = results.filter(r => r.dropped).length;
+    231| 
+    232|       expect(accepted).toBe(4);
+       |                        ^
+    233|       expect(dropped).toBe(2);
+    234| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[25/41]⎯
+
+ FAIL  test/qr-decode-pool.test.ts > QR Decode Pool (bf-1nc3) > Pool lifecycle > rejects frames after shutdown
+AssertionError: expected [Function] to throw an error
+ ❯ test/qr-decode-pool.test.ts:312:45
+    310| 
+    311|       const frame = createMockImageData(640, 480);
+    312|       expect(() => pool.submitFrame(frame)).toThrow();
+       |                                             ^
+    313|     });
+    314| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[26/41]⎯
+
+ FAIL  test/qr-decode-pool.test.ts > QR Decode Pool (bf-1nc3) > VideoFrame handling > closes VideoFrames when processing completes
+AssertionError: expected "spy" to be called at least once
+ ❯ test/qr-decode-pool.test.ts:342:25
+    340| 
+    341|       // VideoFrame should be closed
+    342|       expect(mockClose).toHaveBeenCalled();
+       |                         ^
+    343|     });
+    344| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[27/41]⎯
+
+ FAIL  test/stall-detector.test.ts > Stall Detector > Initial State > should have positive time since last packet initially
+AssertionError: expected 933.379397 to be less than 100
+ ❯ test/stall-detector.test.ts:40:25
+     38|       const timeSince = detector.getTimeSinceLastPacket();
+     39|       expect(timeSince).toBeGreaterThanOrEqual(0);
+     40|       expect(timeSince).toBeLessThan(100); // Should be very small
+       |                         ^
+     41|     });
+     42|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[28/41]⎯
+
+ FAIL  test/stall-detector.test.ts > Stall Detector > Optical No-Codes Stall > should detect optical-no-codes stall when no QR codes detected
+AssertionError: expected null not to be null
+ ❯ test/stall-detector.test.ts:109:29
+    107| 
+    108|       // Verify diagnosis
+    109|       expect(diagnosis).not.toBeNull();
+       |                             ^
+    110|       expect(diagnosis?.category).toBe('optical-no-codes');
+    111|       expect(diagnosis?.confidence).toBe('high');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[29/41]⎯
+
+ FAIL  test/stall-detector.test.ts > Stall Detector > Optical Too-Far Stall > should detect optical-too-far stall below px/module cliff
+AssertionError: expected null not to be null
+ ❯ test/stall-detector.test.ts:150:29
+    148| 
+    149|       const diagnosis = detector.getDiagnosis();
+    150|       expect(diagnosis).not.toBeNull();
+       |                             ^
+    151|       expect(diagnosis?.category).toBe('optical-too-far');
+    152|       expect(diagnosis?.confidence).toBe('high');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[30/41]⎯
+
+ FAIL  test/stall-detector.test.ts > Stall Detector > Optical Blur Stall > should detect optical-blur stall with low sharpness
+AssertionError: expected null not to be null
+ ❯ test/stall-detector.test.ts:192:29
+    190| 
+    191|       const diagnosis = detector.getDiagnosis();
+    192|       expect(diagnosis).not.toBeNull();
+       |                             ^
+    193|       expect(diagnosis?.category).toBe('optical-blur');
+    194|       expect(diagnosis?.confidence).toBe('medium');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[31/41]⎯
+
+ FAIL  test/stall-detector.test.ts > Stall Detector > Sender Paused Stall > should detect sender-paused stall with duplicate frames
+AssertionError: expected null not to be null
+ ❯ test/stall-detector.test.ts:236:29
+    234| 
+    235|       const diagnosis = detector.getDiagnosis();
+    236|       expect(diagnosis).not.toBeNull();
+       |                             ^
+    237|       expect(diagnosis?.category).toBe('sender-paused');
+    238|       expect(diagnosis?.confidence).toBe('high');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[32/41]⎯
+
+ FAIL  test/stall-detector.test.ts > Stall Detector > Diagnosis Confidence Levels > should assign appropriate confidence levels
+AssertionError: expected 'low' to be 'high' // Object.is equality
+
+Expected: "high"
+Received: "low"
+
+ ❯ test/stall-detector.test.ts:261:37
+    259|       }
+    260|       let diagnosis = detector.getDiagnosis();
+    261|       expect(diagnosis?.confidence).toBe('high');
+       |                                     ^
+    262| 
+    263|       detector.reset();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[33/41]⎯
+
+ FAIL  test/storage.test.ts > cleanupOrphanedOutputs() > removes outputs older than max age when not in active set
+AssertionError: expected +0 to be 1 // Object.is equality
+
+- Expected
++ Received
+
+- 1
++ 0
+
+ ❯ test/storage.test.ts:202:21
+    200|     const cleaned = await storage.cleanupOrphanedOutputs(activeIds);
+    201| 
+    202|     expect(cleaned).toBe(1);
+       |                     ^
+    203|     expect(testDir.countFiles()).toBe(1); // Only recent file remains
+    204|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[34/41]⎯
+
+ FAIL  test/storage.test.ts > cleanupOrphanedOutputs() > keeps outputs that are in active set regardless of age
+AssertionError: expected +0 to be 1 // Object.is equality
+
+- Expected
++ Received
+
+- 1
++ 0
+
+ ❯ test/storage.test.ts:216:21
+    214|     const cleaned = await storage.cleanupOrphanedOutputs(activeIds);
+    215| 
+    216|     expect(cleaned).toBe(1); // Only stream 100 cleaned up
+       |                     ^
+    217|     expect(testDir.countFiles()).toBe(1); // Stream 200 remains
+    218|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[35/41]⎯
+
+ FAIL  test/storage.test.ts > cleanupOrphanedOutputs() > handles mixed ages correctly
+AssertionError: expected +0 to be 2 // Object.is equality
+
+- Expected
++ Received
+
+- 2
++ 0
+
+ ❯ test/storage.test.ts:257:21
+    255|     const cleaned = await storage.cleanupOrphanedOutputs(activeIds);
+    256| 
+    257|     expect(cleaned).toBe(2); // Streams 3 and 4 cleaned
+       |                     ^
+    258|     expect(testDir.countFiles()).toBe(3); // Streams 1, 2, 5 remain
+    259|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[36/41]⎯
+
+ FAIL  test/storage.test.ts > cleanupOrphanedOutputs() > respects custom maxOrphanAge configuration
+AssertionError: expected +0 to be 1 // Object.is equality
+
+- Expected
++ Received
+
+- 1
++ 0
+
+ ❯ test/storage.test.ts:299:21
+    297|     const cleaned = await storage.cleanupOrphanedOutputs(activeIds);
+    298| 
+    299|     expect(cleaned).toBe(1); // Cleaned up due to short max age
+       |                     ^
+    300|   });
+    301| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[37/41]⎯
+
+ FAIL  test/storage.test.ts > runStartupCleanup() > returns cleanup count on success
+AssertionError: expected +0 to be 1 // Object.is equality
+
+- Expected
++ Received
+
+- 1
++ 0
+
+ ❯ test/storage.test.ts:322:28
+    320|     const result = await runStartupCleanup(new Set());
+    321| 
+    322|     expect(result.cleaned).toBe(1);
+       |                            ^
+    323|     expect(result.error).toBeUndefined();
+    324|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[38/41]⎯
+
+ FAIL  test/storage.test.ts > runStartupCleanup() > uses empty active set by default
+AssertionError: expected +0 to be 1 // Object.is equality
+
+- Expected
++ Received
+
+- 1
++ 0
+
+ ❯ test/storage.test.ts:355:28
+    353|     const result = await runStartupCleanup(); // No active set provided
+    354| 
+    355|     expect(result.cleaned).toBe(1);
+       |                            ^
+    356|   });
+    357| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[39/41]⎯
+
+ FAIL  test/storage.test.ts > runStartupCleanup() > accepts custom active set
+AssertionError: expected +0 to be 1 // Object.is equality
+
+- Expected
++ Received
+
+- 1
++ 0
+
+ ❯ test/storage.test.ts:365:28
+    363|     const result = await runStartupCleanup(activeIds);
+    364| 
+    365|     expect(result.cleaned).toBe(1); // Only stream 100 cleaned
+       |                            ^
+    366|   });
+    367| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[40/41]⎯
+
+ FAIL  test/storage.test.ts > OutputArtefact lifecycle > lists all outputs
+AssertionError: expected [] to have a length of 2 but got +0
+
+- Expected
++ Received
+
+- 2
++ 0
+
+ ❯ test/storage.test.ts:413:21
+    411| 
+    412|     const outputs = await storage.listOutputs();
+    413|     expect(outputs).toHaveLength(2);
+       |                     ^
+    414|     expect(outputs.map(o => o.streamId)).toContain(1);
+    415|     expect(outputs.map(o => o.streamId)).toContain(2);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[41/41]⎯
+
+ Test Files  7 failed | 34 passed (41)
+      Tests  41 failed | 717 passed (758)
+   Start at  20:42:10
+   Duration  56.98s (transform 1.12s, setup 426ms, collect 1.69s, tests 17.19s, environment 24.77s, prepare 4.10s)
+

@@ -370,6 +370,37 @@ export class ConfigurationError extends ScreenferryError {
 }
 
 /**
+ * Error class for K-based stream refusal (D26/T1)
+ */
+export class KOverflowError extends ScreenferryError {
+  public readonly details: {
+    beaconK: number;
+    localKMax: number;
+  };
+
+  constructor(beaconK: number, localKMax: number) {
+    const message = `Sender's chunk size (K=${beaconK}) exceeds this device's maximum supported complexity (K_max=${localKMax}). The sender must use a smaller file or reduce K.`;
+    super('E-K-OVERFLOW', message);
+    this.name = 'KOverflowError';
+    this.details = { beaconK, localKMax };
+  }
+
+  /**
+   * Get formatted error message with recovery guidance
+   */
+  getFormattedMessage(): string {
+    return `${this.message}
+
+Recovery options (on the SENDING device):
+• Compress the file to reduce K (recommended)
+• Split into smaller files
+• Use a more powerful receiver device
+
+The receiver cannot handle this transfer size and has no back-channel to request adjustment.`;
+  }
+}
+
+/**
  * Get error message for a given error code
  * @param code - The error code to look up
  * @returns The user-facing error message, or a generic message if code not found

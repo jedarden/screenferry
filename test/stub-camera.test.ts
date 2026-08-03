@@ -30,9 +30,15 @@ interface StubCameraState {
 }
 
 /**
- * Create a mock MediaStreamTrack.
+ * Create a mock MediaStreamTrack using the global class.
  */
 function createMockVideoTrack(id: string, width = 640, height = 480): MediaStreamTrack {
+  // Use the mock class from setup.ts if available, otherwise create a compatible mock
+  if (typeof (globalThis as any).MockMediaStreamTrack !== 'undefined') {
+    return new (globalThis as any).MockMediaStreamTrack(id, 'video', { width, height }) as MediaStreamTrack;
+  }
+
+  // Fallback to a simple mock that matches the interface
   let enabled = true;
   let muted = false;
   let _readyState: MediaStreamTrackState = 'live';
@@ -77,9 +83,26 @@ function createMockVideoTrack(id: string, width = 640, height = 480): MediaStrea
 }
 
 /**
- * Create a mock MediaStream.
+ * Create a mock MediaStream using the global class.
  */
 function createMockMediaStream(tracks: MediaStreamTrack[]): MediaStream {
+  // Use the global MediaStream class (which is MockMediaStream from setup.ts)
+  // to ensure instanceof checks work correctly
+  if (typeof MediaStream !== 'undefined' && typeof (globalThis as any).MockMediaStream !== 'undefined') {
+    // The global MediaStream is MockMediaStream, so we can use it directly
+    return new (globalThis as any).MockMediaStream(tracks) as MediaStream;
+  }
+
+  // Fallback: if we have a MediaStream constructor, try using it
+  if (typeof MediaStream !== 'undefined' && typeof MediaStream === 'function') {
+    try {
+      return new MediaStream(tracks);
+    } catch {
+      // If MediaStream constructor doesn't work, fall back to plain object
+    }
+  }
+
+  // Last resort: plain object mock
   return {
     id: `mock-stream-${Date.now()}`,
     getVideoTracks() {
@@ -139,35 +162,36 @@ function installStubCamera(config: StubCameraConfig = {}): StubCameraState {
     configurable: true,
     value: {
       ...originalMediaDevices,
-      getUserMedia: async () => {
+      getUserMedia: async (_constraints?: MediaStreamConstraints) => {
         const canvas = Object.assign(document.createElement('canvas'), {
           width,
           height,
         }) as HTMLCanvasElement;
 
+        // Create video track
+        const trackId = `stub-track-${Date.now()}`;
+        const track = createMockVideoTrack(trackId, width, height);
+
+        // Store frame rate for reference (0 = manual requestFrame only)
+        (track as any)._frameRate = 0;
+
+        state.track = track;
+        state.canvas = canvas;
+
+        // Create stream using proper MediaStream class
+        const stream = createMockMediaStream([track]);
+        state.stream = stream;
+
         // Mock captureStream since jsdom doesn't implement it
         canvas.captureStream = function (frameRate: number): MediaStream {
-          const trackId = `stub-track-${Date.now()}`;
-          const track = createMockVideoTrack(trackId);
-
-          // Store frame rate for reference (0 = manual requestFrame only)
           (track as any)._frameRate = frameRate;
-
-          state.track = track;
-          state.stream = createMockMediaStream([track]);
-
-          return state.stream;
+          return stream;
         };
 
-        state.canvas = canvas;
-        state.stream = canvas.captureStream(0); // 0 fps = manual requestFrame only
+        // Update global reference now that canvas exists
+        (window as any).__stubCameraCanvas = canvas;
 
-        const videoTrack = state.stream.getVideoTracks()[0];
-        if (videoTrack) {
-          state.track = videoTrack;
-        }
-
-        return state.stream;
+        return stream;
       },
 
       enumerateDevices: async () => [
@@ -229,21 +253,21 @@ function drawTestFrame(state: StubCameraState, frameData?: Uint8ClampedArray): v
   const width = state.canvas.width;
   const height = state.canvas.height;
 
-  // Clear with black background
-  ctx.fillStyle = '#000000';
-  ctx.fillRect(0, 0, width, height);
-
-  // Draw test pattern (white square in center to simulate QR code area)
-  ctx.fillStyle = '#FFFFFF';
-  const squareSize = Math.min(width, height) / 2;
-  const x = (width - squareSize) / 2;
-  const y = (height - squareSize) / 2;
-  ctx.fillRect(x, y, squareSize, squareSize);
-
-  // If custom frame data provided, use it (for more detailed testing)
+  // If custom frame data provided, use it directly (for more detailed testing)
   if (frameData && frameData.length === width * height * 4) {
     const imageData = new ImageData(frameData, width, height);
     ctx.putImageData(imageData, 0, 0);
+  } else {
+    // Clear with black background (including alpha channel)
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(0, 0, width, height);
+
+    // Draw test pattern (white square in center to simulate QR code area)
+    ctx.fillStyle = '#FFFFFF';
+    const squareSize = Math.min(width, height) / 2;
+    const x = (width - squareSize) / 2;
+    const y = (height - squareSize) / 2;
+    ctx.fillRect(x, y, squareSize, squareSize);
   }
 }
 
@@ -448,8 +472,9 @@ describe('T-stub-camera: Canvas-based camera stub', () => {
       uninstallStubCamera(smallStub);
     });
 
-    it('resets state correctly between tests', () => {
-      // First test
+    it('resets state correctly between tests', async () => {
+      // First test - need to call getUserMedia to initialize the canvas
+      await navigator.mediaDevices.getUserMedia({ video: true });
       requestFrameFromStub(stubState);
       const ctx1 = stubState.canvas?.getContext('2d');
       const data1 = ctx1?.getImageData(0, 0, 640, 480);
@@ -577,7 +602,10 @@ describe('T-stub-camera: Frame-exact capture flow', () => {
       // This is the key property that makes tests deterministic
     });
 
-    it('allows manual frame production via canvas updates', () => {
+    it('allows manual frame production via canvas updates', async () => {
+      // Need to initialize the canvas first
+      await navigator.mediaDevices.getUserMedia({ video: true });
+
       // Initial state: canvas is empty
       const ctx1 = stubState.canvas?.getContext('2d');
       const initialData = ctx1?.getImageData(0, 0, 640, 480);
@@ -594,7 +622,10 @@ describe('T-stub-camera: Frame-exact capture flow', () => {
       expect(initialHash).not.toBe(afterRequestHash);
     });
 
-    it('produces deterministic frame sequence', () => {
+    it('produces deterministic frame sequence', async () => {
+      // Need to initialize the canvas first
+      await navigator.mediaDevices.getUserMedia({ video: true });
+
       const frames: string[] = [];
 
       // Generate sequence of frames
@@ -654,12 +685,12 @@ function createDeterministicFrameData(frameNumber: number, width: number, height
 function hashImageData(data?: Uint8ClampedArray): string {
   if (!data) return 'empty';
 
-  // Simple hash: sum of first 100 pixels (R+G+B)
+  // Simple hash: sum of first 100 pixels (R+G+B+A) to distinguish transparent vs opaque
   let hash = 0;
   const limit = Math.min(data.length, 400); // 100 pixels * 4 channels
 
   for (let i = 0; i < limit; i += 4) {
-    hash += data[i] + data[i + 1] + data[i + 2];
+    hash += data[i] + data[i + 1] + data[i + 2] + data[i + 3];
   }
 
   return `hash-${hash}`;

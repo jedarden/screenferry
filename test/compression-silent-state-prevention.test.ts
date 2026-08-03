@@ -122,7 +122,8 @@ describe('Silent invalid state prevention (bf-2w1a)', () => {
             meta: {
               streamId: 12345,
               wireVersion: 1,
-              fileSize: 10_000_000,
+              originalSize: 10_000_000,
+              payloadLen: 10_000_000,
               blockSize: 196608,
               blockCount: 50,
               fragmentLen: 256,
@@ -193,7 +194,8 @@ describe('Silent invalid state prevention (bf-2w1a)', () => {
           meta: {
             streamId: 99999,
             wireVersion: 1,
-            fileSize: 100_000_000, // Large file
+            originalSize: 100_000_000, // Large file
+            payloadLen: 100_000_000,
             blockSize: 196608,
             blockCount: 500, // Many blocks
             fragmentLen: 256,
@@ -252,7 +254,8 @@ describe('Silent invalid state prevention (bf-2w1a)', () => {
           meta: {
             streamId: 54321,
             wireVersion: 1,
-            fileSize: 5_000_000,
+            originalSize: 5_000_000,
+            payloadLen: 5_000_000,
             blockSize: 196608,
             blockCount: 25,
             fragmentLen: 256,
@@ -365,7 +368,8 @@ describe('Silent invalid state prevention (bf-2w1a)', () => {
           meta: {
             streamId: 11111,
             wireVersion: 1,
-            fileSize: 1000,
+            originalSize: 1000,
+            payloadLen: 1000,
             blockSize: 100,
             blockCount: 10,
             fragmentLen: 32,

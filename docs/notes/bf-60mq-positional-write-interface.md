@@ -342,7 +342,7 @@ async function writeBlock(
 const factory = new PositionalWriteHandleFactory();
 const handle = await factory.createHandle(
   `screenferry-${streamId}.tmp`,
-  meta.fileSize
+  meta.originalSize
 );
 
 // When a block is decoded (can arrive out of order!)
