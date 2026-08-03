@@ -4,6 +4,8 @@
 
 This document traces the first phase of ScreenFerry sender initialization: what happens during current app startup before any sender session begins.
 
+**📋 Detailed trace available:** See [app-initialization-trace.md](./bf-3hbc/app-initialization-trace.md) for comprehensive initialization flow with file references, detailed function signatures, and performance characteristics.
+
 ## Entry Point
 
 **File**: `src/app.ts`
