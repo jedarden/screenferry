@@ -66,6 +66,9 @@ export const ERROR_MESSAGES: Record<string, string> = {
   'E-CAMERA-LOST': 'Camera access ended. Your progress is saved.',
   'E-WAKELOCK-LOST': 'The screen may turn off. Adjust your sleep settings.',
   'E-DECOMPRESS': 'Everything arrived but couldn\'t be unpacked. The raw data was kept.',
+
+  // Configuration
+  'E-COMPRESSION-RESUME-CONFLICT': 'Compression and resume cannot be enabled together. Compression requires non-deterministic streaming that prevents safe resume after interruption.',
 };
 
 /**
@@ -119,6 +122,9 @@ export const ERROR_METADATA: Record<string, {
   'E-CAMERA-LOST': { category: 'resource', recoverable: true, severity: ErrorSeverity.ERROR },
   'E-WAKELOCK-LOST': { category: 'resource', recoverable: true, severity: ErrorSeverity.WARNING },
   'E-DECOMPRESS': { category: 'resource', recoverable: true, severity: ErrorSeverity.ERROR },
+
+  // Configuration
+  'E-COMPRESSION-RESUME-CONFLICT': { category: 'configuration', recoverable: true, severity: ErrorSeverity.FATAL },
 };
 
 /**
@@ -341,6 +347,25 @@ export class BlockVerificationError extends ScreenferryError {
   constructor(code: string, message?: string) {
     super(code, message);
     this.name = 'BlockVerificationError';
+  }
+}
+
+/**
+ * Error class for configuration errors
+ *
+ * Used when invalid or incompatible configuration options are provided.
+ *
+ * Examples include:
+ * - Compression and resume both enabled (E-COMPRESSION-RESUME-CONFLICT)
+ * - Invalid flag combinations that violate protocol constraints
+ *
+ * This error is typically thrown during initialization or when parsing
+ * configuration options, before any data transfer begins.
+ */
+export class ConfigurationError extends ScreenferryError {
+  constructor(code: string, message?: string) {
+    super(code, message);
+    this.name = 'ConfigurationError';
   }
 }
 
