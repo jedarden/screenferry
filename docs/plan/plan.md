@@ -23,6 +23,7 @@ evidence behind every number lives in [`../research/`](../research/).
 | 2026-08-01 | **Portrait made the default supported receiver orientation, not a fallback** — §6.3.2 reframed (sender-side portrait code region is primary; landscape rotation is an optional bonus, not required to meet Phase 3's gate); `E-ORIENTATION` (§11) reworded from a rotate-now blocker to an optional-margin tip; A2 (§9) now states the receiver is held portrait; R2 (§18) mitigation leads with the portrait code-region shaping | `docs/notes/spike-results.md` §"What 1 Mbps needs" |
 | 2026-08-02 | **G3 bundle-size budget, SRI, and no post-install scripts implemented** — Bundle budgets updated from arbitrary 100/35 kB to realistic 200/65 kB based on actual bundle measurements (143/43 kB) with ~36% margin. Service worker updated with correct SHA-384 SRI for zxing_reader.wasm. Post-install script requirement verified: only esbuild has legitimate binary selection. | `notes/bf-10i5-g3-implementation.md` |
 | 2026-08-02 | **Compression/resume conflict resolution documented** — §8.3 updated with implementation details and cross-references to `bf-17s0` (analysis), `bf-3k90` (solution evaluation), and `bf-2w1a` (validation). T4 and E11 sections verified unchanged (Option B preserves privacy posture). Architecture diagrams verified (no flow changes). | `docs/notes/bf-5kd6-compression-resume-documentation-update.md` |
+| 2026-08-02 | **§17.2 updated to reflect Phase 0 current reality** — Phase 0 harness status corrected: build works (has index.html, src/app.ts), version footer implemented (bf-13h), G3 bundle budget implemented (bf-10i5), G2 implemented (bf-22ll), G7 green. Blocking issues clarified: G1 does not pass (typecheck fails, lint fails), stub-camera tier incomplete, tests not fully green (66 failed out of 853). Gate defects list updated. | `bf-5dog` |
 
 **Normative language.** **MUST** / **MUST NOT** are invariants (§5) — violating one is a
 correctness bug. **SHOULD** is a strong default, overridable with a recorded reason.
@@ -1392,17 +1393,21 @@ debt (PIVOT-CAUSES PH-2).
 
 | Phase | Claimed | Reality |
 |---|---|---|
-| 0 | partial | **Exit criteria NOT met.** `npm run build` fails (no `index.html`, no `src/app.ts`); no version footer (`bf-13h` open); stub-camera tier incomplete; **no lint config**, so G1 cannot pass; G3 (bundle budget, SRI) unimplemented. **G2 is implemented (bf-22ll). G7 is green.** `npm run gate` currently runs typecheck + tests + G7 — a subset of G1 plus G7. |
+| 0 | partial | **Exit criteria NOT met.** Build works (has `index.html`, `src/app.ts`); version footer implemented (bf-13h); G3 bundle budget + SRI implemented (bf-10i5); **G2 implemented (bf-22ll); G7 green.** **Blocking:** G1 does NOT pass — typecheck fails (mock type issues in tests), lint fails (787 problems, 479 errors), stub-camera tier incomplete, tests not fully green (66 failed out of 853). `npm run gate` runs typecheck + lint + tests + G7 + G3 checks. |
 | 0.5 | partial | S1, S2, S3 and the thermal observation done. **Outstanding:** phone→phone (R4), rung sweep, a distance sweep under §13.2 conditions, an on-device GE run, and the long-run thermal profile. Its exit criterion — "§13.1's forecast rows replaced with measured figures" — is now met for three rows (§13.1). |
-| 1 | built, **exit criteria NOT met** | `src/core/` has framing, PRNG, LT encode, GE decode, block layer; 22 tests green. **Unmet:** G1–G3 (inherited from Phase 0); the A5 memory assertion is a smoke test, not I6a; the **on-device GE run** required by "GE keeps pace at K=768 measured on a real phone" has not happened. **Not yet written** (listed in §6.5): `frame/beacon.ts`, `frame/repair-code.ts`, `hash/block-hash.ts`, `hash/stream-id.ts`, `hash/whole-file-hash.ts`, `block/schedule.ts`. **I3's golden vector `test/fixtures/vectors.json` does not exist** (AP10 is live, not paid-for). Entered on a partial 0.5, so K, L, dwell and the rung ladder shipped at their modelled values. |
+| 1 | built, **exit criteria NOT met** | `src/core/` has framing, PRNG, LT encode, GE decode, block layer; 22 tests green. **Unmet:** G1 does not pass (typecheck fails, lint fails — inherited from Phase 0); the A5 memory assertion is a smoke test, not I6a; the **on-device GE run** required by "GE keeps pace at K=768 measured on a real phone" has not happened. **Not yet written** (listed in §6.5): `frame/beacon.ts`, `frame/repair-code.ts`, `hash/block-hash.ts`, `hash/stream-id.ts`, `hash/whole-file-hash.ts`, `block/schedule.ts`. **I3's golden vector `test/fixtures/vectors.json` does not exist** (AP10 is live, not paid-for). Entered on a partial 0.5, so K, L, dwell and the rung ladder shipped at their modelled values. |
 
 **Gate defects to close before Phase 2:**
 
 0. ~~**The `zxing-wasm` CDN default (§6.5) must be overridden and the `.wasm` precached**~~ — **RESOLVED (bf-2t6n).** The zxing-wasm module is now configured to use locally served WASM files with service worker pre caching, passing the G2 no-network assertion.
 
-1. **Phase 0's harness must be built or §17 amended.** Do not leave the discrepancy implicit.
-2. **The on-device GE benchmark has not run**, and D26/T1 both cite a "locally benchmarked max" that no component produces (§16.4 owns it).
-3. **The A5 memory assertion is a smoke test, not the invariant.** `test/codec.test.ts` checks a
+1. ~~**Phase 0's harness must be built or §17 amended.**~~ — **RESOLVED (bf-5dog).** §17.2 updated to reflect current reality: build works, version footer implemented, G3 bundle budget implemented. Documentation now accurate.
+
+2. **G1 gate does not pass.** Typecheck fails due to test mock type issues; lint fails with 787 problems (479 errors). These must be resolved before Phase 0 exit criteria are met.
+
+3. **The on-device GE benchmark has not run**, and D26/T1 both cite a "locally benchmarked max" that no component produces (§16.4 owns it).
+
+4. **The A5 memory assertion is a smoke test, not the invariant.** `test/codec.test.ts` checks a
    heap *trend* with 64 MB of slack across 40 blocks (7.9 MB), which cannot detect a 40 MB
    working set and does not approach I6a's ≤ 1 MB over 21,845 blocks.
 
