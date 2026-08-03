@@ -21,6 +21,8 @@ import type { DecodedFrameResult } from '../modulation/types.js';
 import type { StallDiagnosis } from './stall-detector.js';
 import type { RecvSessionState } from '../core/session/types.js';
 import { updateNavigationGuardState, enablePartialNavigationGuard, disablePartialNavigationGuard } from './navigation-guard.js';
+import { createFileListUI, type FileListUI, showToast } from './file-list-ui.js';
+import { getStorageManager, type OutputArtefact } from './storage.js';
 
 /**
  * Configuration for the camera receiver UI
@@ -56,6 +58,9 @@ export class CameraReceiverUI {
   private canvas: HTMLCanvasElement;
   private statsPanel: HTMLElement;
   private stallWarningPanel: HTMLElement;
+  private fileListUI: FileListUI;
+  private fileListToggleButton: HTMLButtonElement;
+  private deleteLatestButton: HTMLButtonElement;
 
   // State
   private running: boolean = false;
@@ -105,6 +110,12 @@ export class CameraReceiverUI {
       border-radius: 8px;
       overflow: hidden;
     `;
+
+    // Create file list toggle button
+    this.fileListToggleButton = this.createFileListToggleButton();
+
+    // Create delete latest file button
+    this.deleteLatestButton = this.createDeleteLatestButton();
 
     // Create video element
     this.video = document.createElement('video');
@@ -174,7 +185,17 @@ export class CameraReceiverUI {
     wrapper.appendChild(this.canvas);
     wrapper.appendChild(this.statsPanel);
     wrapper.appendChild(this.stallWarningPanel);
+    wrapper.appendChild(this.fileListToggleButton);
+    wrapper.appendChild(this.deleteLatestButton);
     this.container.appendChild(wrapper);
+
+    // Create file list UI
+    this.fileListUI = createFileListUI({
+      container: wrapper,
+      onFileDeleted: this.handleFileDeleted.bind(this),
+      onFileListChanged: this.handleFileListChanged.bind(this),
+      position: 'top-left',
+    });
   }
 
   /**
@@ -207,6 +228,9 @@ export class CameraReceiverUI {
       // Initialize navigation guard for partial artefacts (bf-2w6u)
       this.updateSessionState({ type: 'idle' });
 
+      // Update delete latest button state
+      await this.updateDeleteLatestButtonState();
+
       this.running = true;
       console.log('[Camera Receiver UI] Started successfully');
     } catch (error) {
@@ -231,6 +255,317 @@ export class CameraReceiverUI {
     };
 
     return await navigator.mediaDevices.getUserMedia(constraints);
+  }
+
+  /**
+   * Create the file list toggle button
+   */
+  private createFileListToggleButton(): HTMLButtonElement {
+    const button = document.createElement('button');
+    button.className = 'file-list-toggle-button';
+    button.innerHTML = '📁';
+    button.title = 'Show received files (Alt+F)';
+    button.setAttribute('aria-label', 'Toggle received files list');
+    button.style.cssText = `
+      position: absolute;
+      bottom: 10px;
+      right: 10px;
+      background: rgba(0, 0, 0, 0.8);
+      border: 1px solid #444;
+      color: #fff;
+      width: 40px;
+      height: 40px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 18px;
+      z-index: 50;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    `;
+
+    // Hover effect
+    button.addEventListener('mouseover', () => {
+      button.style.background = 'rgba(33, 150, 243, 0.3)';
+      button.style.borderColor = '#2196F3';
+    });
+
+    button.addEventListener('mouseout', () => {
+      button.style.background = 'rgba(0, 0, 0, 0.8)';
+      button.style.borderColor = '#444';
+    });
+
+    // Focus styles for keyboard accessibility
+    button.addEventListener('focus', () => {
+      button.style.outline = '2px solid #4CAF50';
+      button.style.outlineOffset = '2px';
+    });
+
+    button.addEventListener('blur', () => {
+      button.style.outline = 'none';
+      button.style.outlineOffset = '0';
+    });
+
+    // Toggle file list on click
+    button.addEventListener('click', () => {
+      this.toggleFileList();
+    });
+
+    // Keyboard support
+    button.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        this.toggleFileList();
+      }
+    });
+
+    // Global keyboard shortcut (Alt+F)
+    document.addEventListener('keydown', (e) => {
+      if (e.altKey && e.key === 'f') {
+        e.preventDefault();
+        this.toggleFileList();
+      }
+    });
+
+    return button;
+  }
+
+  /**
+   * Create the delete latest file button
+   */
+  private createDeleteLatestButton(): HTMLButtonElement {
+    const button = document.createElement('button');
+    button.className = 'delete-latest-button';
+    button.innerHTML = '🗑️ Delete latest file';
+    button.title = 'Delete the most recently received file (Alt+D)';
+    button.setAttribute('aria-label', 'Delete latest received file');
+    button.disabled = true; // Disabled by default until files exist
+    button.style.cssText = `
+      position: absolute;
+      bottom: 10px;
+      right: 60px;
+      background: rgba(244, 67, 54, 0.8);
+      border: 1px solid #F44336;
+      color: #fff;
+      padding: 8px 16px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 500;
+      z-index: 50;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    `;
+
+    // Hover effect
+    button.addEventListener('mouseover', () => {
+      if (!button.disabled) {
+        button.style.background = 'rgba(244, 67, 54, 0.9)';
+        button.style.borderColor = '#ff6b5b';
+      }
+    });
+
+    button.addEventListener('mouseout', () => {
+      button.style.background = 'rgba(244, 67, 54, 0.8)';
+      button.style.borderColor = '#F44336';
+    });
+
+    // Focus styles for keyboard accessibility
+    button.addEventListener('focus', () => {
+      button.style.outline = '2px solid #4CAF50';
+      button.style.outlineOffset = '2px';
+    });
+
+    button.addEventListener('blur', () => {
+      button.style.outline = 'none';
+      button.style.outlineOffset = '0';
+    });
+
+    // Delete action
+    button.addEventListener('click', () => {
+      this.handleDeleteLatestClick();
+    });
+
+    // Keyboard support
+    button.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        this.handleDeleteLatestClick();
+      }
+    });
+
+    // Global keyboard shortcut (Alt+D)
+    document.addEventListener('keydown', (e) => {
+      if (e.altKey && e.key === 'd') {
+        e.preventDefault();
+        this.handleDeleteLatestClick();
+      }
+    });
+
+    return button;
+  }
+
+  /**
+   * Handle delete latest button click
+   */
+  private async handleDeleteLatestClick(): Promise<void> {
+    if (this.deleteLatestButton.disabled) {
+      return;
+    }
+
+    try {
+      const storage = getStorageManager();
+      const files = await storage.listOutputs();
+
+      // Sort by creation date (newest first)
+      files.sort((a, b) => b.createdAt - a.createdAt);
+
+      if (files.length === 0) {
+        showToast('No files to delete', 'info');
+        return;
+      }
+
+      const latestFile = files[0];
+
+      // Show confirmation dialog
+      const confirmed = await this.showDeleteConfirmation(latestFile);
+      if (!confirmed) {
+        return;
+      }
+
+      // Delete the file
+      await storage.deleteOutput(latestFile.streamId, latestFile.filename);
+      console.log('[Camera Receiver UI] Deleted latest file:', latestFile.filename);
+
+      // Show success notification
+      showToast('File deleted successfully', 'success');
+
+      // Notify callback
+      if (this.fileListUI) {
+        this.handleFileDeleted(latestFile.streamId);
+      }
+
+      // Update button state
+      await this.updateDeleteLatestButtonState();
+    } catch (error) {
+      console.error('[Camera Receiver UI] Failed to delete latest file:', error);
+      showToast('Failed to delete file', 'error');
+    }
+  }
+
+  /**
+   * Show delete confirmation dialog
+   */
+  private async showDeleteConfirmation(file: OutputArtefact): Promise<boolean> {
+    return new Promise((resolve) => {
+      const confirmed = window.confirm(
+        `Are you sure you want to delete "${file.filename}"?\n\n` +
+        `Size: ${this.formatFileSize(file.size)}\n` +
+        `Received: ${this.formatDate(file.createdAt)}\n\n` +
+        `This action cannot be undone.`
+      );
+      resolve(confirmed);
+    });
+  }
+
+  /**
+   * Update the delete latest button state based on file existence
+   */
+  private async updateDeleteLatestButtonState(): Promise<void> {
+    try {
+      const storage = getStorageManager();
+      const files = await storage.listOutputs();
+
+      const hasFiles = files.length > 0;
+      this.deleteLatestButton.disabled = !hasFiles;
+
+      // Update button text based on state
+      if (hasFiles) {
+        const latestFile = files.sort((a, b) => b.createdAt - a.createdAt)[0];
+        this.deleteLatestButton.title = `Delete "${latestFile.filename}" (Alt+D)`;
+      } else {
+        this.deleteLatestButton.title = 'No files to delete';
+      }
+    } catch (error) {
+      console.error('[Camera Receiver UI] Failed to update delete button state:', error);
+      this.deleteLatestButton.disabled = true;
+    }
+  }
+
+  /**
+   * Format file size for display
+   */
+  private formatFileSize(bytes: number): string {
+    if (bytes < 1024) {
+      return `${bytes} B`;
+    } else if (bytes < 1024 * 1024) {
+      return `${(bytes / 1024).toFixed(1)} KB`;
+    } else if (bytes < 1024 * 1024 * 1024) {
+      return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    } else {
+      return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+    }
+  }
+
+  /**
+   * Format date for display
+   */
+  private formatDate(timestamp: number): string {
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    if (diffMins < 1) {
+      return 'just now';
+    } else if (diffMins < 60) {
+      return `${diffMins} minute${diffMins > 1 ? 's' : ''} ago`;
+    } else if (diffHours < 24) {
+      return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
+    } else if (diffDays < 7) {
+      return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
+    } else {
+      return date.toLocaleDateString();
+    }
+  }
+
+  /**
+   * Toggle the file list visibility
+   */
+  private async toggleFileList(): Promise<void> {
+    await this.fileListUI.toggle();
+    this.updateFileListButtonState();
+  }
+
+  /**
+   * Update the file list button state based on visibility
+   */
+  private updateFileListButtonState(): void {
+    const isVisible = this.fileListUI.isPanelVisible();
+    this.fileListToggleButton.innerHTML = isVisible ? '✕' : '📁';
+    this.fileListToggleButton.title = isVisible ? 'Hide received files (Alt+F)' : 'Show received files (Alt+F)';
+  }
+
+  /**
+   * Handle file deletion event
+   */
+  private handleFileDeleted(streamId: number): void {
+    console.log('[Camera Receiver UI] File deleted:', streamId);
+    // Additional cleanup if needed
+  }
+
+  /**
+   * Handle file list changes
+   */
+  private handleFileListChanged(files: OutputArtefact[]): void {
+    console.log('[Camera Receiver UI] File list changed:', files.length, 'files');
+    // Update delete latest button state
+    this.updateDeleteLatestButtonState();
   }
 
   /**
@@ -345,6 +680,9 @@ export class CameraReceiverUI {
     console.log('[Camera Receiver UI] Stopping...');
 
     this.running = false;
+
+    // Clean up file list UI
+    this.fileListUI.destroy();
 
     // Disable navigation guard for partial artefacts (bf-2w6u)
     disablePartialNavigationGuard();
