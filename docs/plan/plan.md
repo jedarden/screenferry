@@ -893,18 +893,16 @@ A test MUST assert `dwell × (1 − erasure_max) ≥ 1.12`, matching §13.1's +1
 overhead budget, so dwell and the band cannot drift apart again.
 
 **The e_max completion cliff.** A block completes on a pass iff `dwell × (1 − e) ≥ 1 + overhead`.
-At dwell 1.6 K and the measured +4.2% p99 overhead (D25, §13.1):
+At dwell 1.6 K and the measured +2.97% mean overhead (D25, §13.1):
 ```
-e_max = 1 − 1.042 / 1.6 = 34.9%
+e_max = 1 − 1.030 / 1.6 = 35.6%
 ```
 
-> **G7 gate target:** At dwell 1.6 K and +4.2% p99 overhead, **e_max = 34.9% completion cliff**. The 30% repair code trigger provides a 4.9% buffer below this cliff.
+> **G7 gate target:** At dwell 1.6 K and +2.97% mean overhead, **e_max = 35.6% completion cliff**. The 30% repair code trigger provides a 5.6% buffer below this cliff.
 
-**Note:** The test requirement uses 1.12 (the +12% budget from §13.1) as a conservative margin. The actual measured p99 overhead is +4.2%, giving the true completion cliff at 34.9% erasure. The 30% repair code trigger (line 864) provides a 4.9% buffer below this cliff.
-Above this erasure rate, every pass delivers **less than K independent packets** — the block
-never reaches full rank, the decoder resets, and the next pass starts from rank 0. **The transfer
-NEVER FINISHES**, at any file size, with the progress bar frozen at zero blocks. This is why the
-repair code (§8.2) exists: when real erasure exceeds e_max, human mediation is the designed recovery path.
+**CRITICAL: Above e_max, the transfer NEVER FINISHES.** When erasure exceeds e_max (35.6% at the adopted design), every pass delivers **less than K independent packets** — the block never reaches full rank, the decoder resets, and the next pass starts from rank 0. The transfer **never completes**, at any file size, with the progress bar frozen at zero blocks. This is why the repair code (§8.2) exists: when real erasure exceeds e_max, human mediation is the designed recovery path.
+
+**Note:** The test requirement uses 1.12 (the +12% budget from §13.1) as a conservative margin. The actual measured mean overhead is +2.97%, giving the true completion cliff at 35.6% erasure. The 30% repair code trigger provides a 5.6% buffer below this cliff. Using p99 overhead (+4.2%) gives e_max = 34.9%, providing a more conservative 4.9% buffer.
 
 **When real erasure exceeds 30%** — which nothing in v1 can detect (D18a) — blocks miss
 and the **repair code (§8.2) is the recovery path**, not a tighter loop. This is the
