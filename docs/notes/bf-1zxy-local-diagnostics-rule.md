@@ -35,31 +35,49 @@
 
 ## Applied Fixes
 
-### 1. `src/platform/storage.ts:193` ✅
-**Before:**
-```typescript
-console.log(`[Storage] Stored output: streamId=${streamId}, filename=${filename}, size=${data.length}`);
-```
-
-**After:**
+### 1. `src/platform/storage.ts:380` ✅
+**Status:** Already compliant - logs size only
+**Current code:**
 ```typescript
 console.log(`[Storage] Stored output: streamId=${streamId}, size=${data.length}`);
 ```
 
-**Reason:** Filenames reveal user content. Fixed in bf-1zxy.
+**Reason:** Safe - logs streamId and size only, no filename or payload content.
 
-### 2. `src/platform/storage.ts:286` ✅
-**Before:**
-```typescript
-console.log(`[Storage] Cleaning up orphaned output: streamId=${output.streamId}, filename=${output.filename}, age=${Math.round((now - output.createdAt) / 1000 / 60)} minutes`);
-```
-
-**After:**
+### 2. `src/platform/storage.ts:522` ✅
+**Status:** Already compliant - logs streamId and age only
+**Current code:**
 ```typescript
 console.log(`[Storage] Cleaning up orphaned output: streamId=${output.streamId}, age=${Math.round((now - output.createdAt) / 1000 / 60)} minutes`);
 ```
 
-**Reason:** Filenames in cleanup logs copied to diagnostic output. Fixed in bf-1zxy.
+**Reason:** Safe - logs streamId and age only, no filename or payload content.
+
+### 3. `src/platform/camera-receiver-ui.ts:441` ✅
+**Before:**
+```typescript
+console.log('[Camera Receiver UI] Deleted latest file:', latestFile.filename);
+```
+
+**After:**
+```typescript
+console.log('[Camera Receiver UI] Deleted latest file: streamId=', latestFile.streamId);
+```
+
+**Reason:** Filenames reveal user content. Fixed in bf-1zxy.
+
+### 4. `src/platform/file-list-ui.ts:430` ✅
+**Before:**
+```typescript
+console.log(`[FileListUI] Deleted file: ${file.filename} (streamId: ${file.streamId})`);
+```
+
+**After:**
+```typescript
+console.log(`[FileListUI] Deleted file: streamId=${file.streamId}, size=${file.size}`);
+```
+
+**Reason:** Filenames reveal user content. Fixed in bf-1zxy.
 
 ## Threat Model
 
@@ -86,9 +104,11 @@ console.log(`[Storage] Cleaning up orphaned output: streamId=${output.streamId},
 | Component | Status | Notes |
 |-----------|--------|-------|
 | `RecvSession.stats` | ✅ Safe | Metrics only (fps, cameraPxPerModule, packetsPerSec, eta, dutyCycle) |
-| `bf-5vm` stall detector | ✅ Safe | Logs stall events, no payload data |
+| `bf-5vm` stall detector | ✅ Safe | Logs stall events and metrics only, no payload data |
 | `window.sfStats` | ⚠️ Audit needed | Not currently implemented; if added, metrics only |
 | Clipboard repair (§8.2) | ⚠️ Audit needed | Not yet implemented; must never log clipboard content |
+| Storage logging | ✅ Safe | Fixed - logs streamId and size only |
+| UI file deletion logs | ✅ Safe | Fixed - logs streamId and size only |
 
 ## Verification Checklist
 

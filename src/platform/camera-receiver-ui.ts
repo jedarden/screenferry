@@ -438,7 +438,7 @@ export class CameraReceiverUI {
 
       // Delete the file
       await storage.deleteOutput(latestFile.streamId, latestFile.filename);
-      console.log('[Camera Receiver UI] Deleted latest file:', latestFile.filename);
+      console.log('[Camera Receiver UI] Deleted latest file: streamId=', latestFile.streamId);
 
       // Show success notification
       showToast('File deleted successfully', 'success');
