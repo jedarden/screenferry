@@ -827,7 +827,8 @@ export function createResumeToken(state: RecvSessionState): ResumeToken | null {
   }
 
   // Check beacon flags for resume disabled (e.g., when compression is enabled)
-  const meta = state.type === 'paused' ? state.previousState.meta : state.meta;
+  // After canResumeRecv(), state is either 'paused' or 'complete'
+  const meta = state.type === 'paused' ? state.previousState.meta : (state as CompleteState).meta;
   if (isResumeDisabled(meta.flags)) {
     // Do NOT persist resume state when compression is enabled
     // This prevents silent corruption from non-deterministic compression

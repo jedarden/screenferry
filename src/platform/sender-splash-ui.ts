@@ -16,6 +16,7 @@
 
 import QRCode from 'qrcode';
 import { generateReceiverLink, switchToReceiverMode } from './role-inference.js';
+import { checkStorageCapacity, type StorageCapacityResult } from './storage.js';
 
 /**
  * Configuration for the sender splash UI
@@ -320,10 +321,18 @@ export class SenderSplashUI {
   }
 
   /**
-   * Handle file drop
+   * Handle file drop with storage pre-flight check (bf-4d6 F1)
    */
-  private handleFileDrop(file: File): void {
-    console.log('[Sender Splash] File dropped:', file.name, file.size, 'bytes');
+  private async handleFileDrop(file: File): Promise<void> {
+    console.log('[Sender Splash] File dropped:', file.size, 'bytes');
+
+    // Check storage capacity before accepting the file
+    const capacityCheck = await this.checkStorageCapacity(file);
+
+    if (!capacityCheck.hasCapacity) {
+      this.showStorageWarning(file, capacityCheck);
+      return;
+    }
 
     // Update drop zone to show selected file
     this.dropZoneText.innerHTML = `
@@ -336,6 +345,157 @@ export class SenderSplashUI {
     if (this.onFileDrop) {
       this.onFileDrop(file);
     }
+  }
+
+  /**
+   * Check storage capacity for file transfer (bf-4d6 F1)
+   */
+  private async checkStorageCapacity(file: File): Promise<StorageCapacityResult> {
+    try {
+      console.log('[Sender Splash] Checking storage capacity for file:', file.size, 'bytes');
+
+      const check = await checkStorageCapacity(file.size);
+
+      console.log('[Sender Splash] Storage capacity check result:', {
+        hasCapacity: check.hasCapacity,
+        required: this.formatFileSize(check.requiredSpace),
+        available: this.formatFileSize(check.availableSpace),
+      });
+
+      return check;
+    } catch (error) {
+      console.error('[Sender Splash] Storage capacity check failed:', error);
+      // On error, optimistically allow the transfer - let it fail naturally if storage is insufficient
+      return {
+        hasCapacity: true,
+        estimate: { quota: 0, usage: 0, available: 0 },
+        requiredSpace: file.size,
+        availableSpace: 0,
+      };
+    }
+  }
+
+  /**
+   * Show storage warning to user (bf-4d6 F1)
+   */
+  private showStorageWarning(file: File, capacityCheck: StorageCapacityResult): void {
+    console.warn('[Sender Splash] Insufficient storage capacity:', capacityCheck.error);
+
+    // Update drop zone to show error
+    this.dropZoneText.innerHTML = `
+      <div style="font-size: 2rem; margin-bottom: 0.5rem;">⚠️</div>
+      <div style="font-weight: 500; color: #F44336;">Insufficient Storage</div>
+      <div style="font-size: 0.85rem; margin-top: 0.5rem; color: #ff6b5b;">${file.name}</div>
+      <div style="font-size: 0.8rem; margin-top: 0.5rem; color: #999;">
+        Required: ${this.formatFileSize(capacityCheck.requiredSpace)}<br/>
+        Available: ${this.formatFileSize(capacityCheck.availableSpace)}
+      </div>
+    `;
+
+    // Show detailed error in a modal/toast
+    this.showStorageErrorModal(file, capacityCheck);
+  }
+
+  /**
+   * Show detailed storage error modal (bf-4d6 F1)
+   */
+  private showStorageErrorModal(file: File, capacityCheck: StorageCapacityResult): void {
+    const modal = document.createElement('div');
+    modal.style.cssText = `
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.8);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+    `;
+
+    const content = document.createElement('div');
+    content.style.cssText = `
+      background: #1a1a1a;
+      border: 1px solid #F44336;
+      border-radius: 8px;
+      padding: 2rem;
+      max-width: 500px;
+      color: #fff;
+      box-shadow: 0 4px 20px rgba(244, 67, 54, 0.3);
+    `;
+
+    content.innerHTML = `
+      <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 1.5rem;">
+        <span style="font-size: 2rem;">⚠️</span>
+        <h2 style="margin: 0; font-size: 1.3rem; color: #F44336;">Insufficient Storage Capacity</h2>
+      </div>
+
+      <p style="margin: 0 0 1rem 0; line-height: 1.6;">
+        <strong>${file.name}</strong> (${this.formatFileSize(file.size)}) cannot be transferred because there is not enough storage space available.
+      </p>
+
+      <div style="background: #0a0a0a; padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem; font-size: 0.9rem;">
+        <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
+          <span>Required space:</span>
+          <span style="color: #F44336; font-weight: 500;">${this.formatFileSize(capacityCheck.requiredSpace)}</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
+          <span>Available space:</span>
+          <span style="color: #4CAF50; font-weight: 500;">${this.formatFileSize(capacityCheck.availableSpace)}</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; padding-top: 0.5rem; border-top: 1px solid #333;">
+          <span>Shortfall:</span>
+          <span style="color: #F44336; font-weight: 500;">${this.formatFileSize(capacityCheck.requiredSpace - capacityCheck.availableSpace)}</span>
+        </div>
+      </div>
+
+      <p style="margin: 0 0 1.5rem 0; font-size: 0.85rem; color: #999; line-height: 1.5;">
+        <strong>Note:</strong> Storage quotas vary by platform (Chrome: ~60% of disk, Firefox: ~10%, Safari: ~1GB). This estimate is a minimum — actual quota may be lower.
+      </p>
+
+      <button id="close-modal" style="
+        background: #2196F3;
+        color: white;
+        border: none;
+        padding: 0.75rem 1.5rem;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 1rem;
+        width: 100%;
+        transition: background 0.2s ease;
+      ">Close</button>
+    `;
+
+    modal.appendChild(content);
+    document.body.appendChild(modal);
+
+    // Close button handler
+    const closeBtn = content.querySelector('#close-modal') as HTMLButtonElement;
+    closeBtn.addEventListener('click', () => {
+      document.body.removeChild(modal);
+      // Reset drop zone
+      this.resetDropZone();
+    });
+
+    // Close on backdrop click
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) {
+        document.body.removeChild(modal);
+        this.resetDropZone();
+      }
+    });
+  }
+
+  /**
+   * Reset drop zone to initial state
+   */
+  private resetDropZone(): void {
+    this.dropZoneText.innerHTML = `
+      <div style="font-size: 2rem; margin-bottom: 0.5rem;">📁</div>
+      <div style="font-weight: 500; color: #fff;">Drop a file here to send</div>
+      <div style="font-size: 0.9rem; margin-top: 0.5rem;">or click to browse</div>
+    `;
   }
 
   /**

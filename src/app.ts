@@ -11,6 +11,8 @@ import { AppMode, getCurrentMode } from './platform/role-inference.js';
 import { createCameraReceiverUI, type CameraReceiverUI } from './platform/camera-receiver-ui.js';
 import { createSenderSplashUI, type SenderSplashUI } from './platform/sender-splash-ui.js';
 import { CaptureResolution } from './platform/capture-resolution.js';
+import { showPhotosensitivityWarning, type PhotosensitivityWarningResult } from './platform/photosensitivity-warning.js';
+import { getReducedMotionManager } from './platform/reduced-motion.js';
 
 /**
  * Register the service worker for WASM precaching.
@@ -64,10 +66,90 @@ let currentModeInstance: CameraReceiverUI | SenderSplashUI | null = null;
 let currentMode: AppMode = AppMode.RECEIVER;
 
 /**
+ * Photosensitivity warning state
+ */
+let warningAcknowledged = false;
+let pendingModeSwitch: AppMode | null = null;
+
+/**
+ * Show photosensitivity warning before starting mode (F4: WCAG 2.3.1 safeguard)
+ *
+ * Shows the WCAG 2.3.1 compliant warning dialog before starting QR code animation.
+ * Returns true if user acknowledged, false if they cancelled.
+ */
+async function ensurePhotosensitivityWarning(): Promise<boolean> {
+  // Skip if already acknowledged in this session
+  if (warningAcknowledged) {
+    return true;
+  }
+
+  try {
+    console.log('[App] Showing photosensitivity warning...');
+    const result = await showPhotosensitivityWarning({
+      showReducedMotionOption: true,
+    });
+
+    if (result.acknowledged) {
+      warningAcknowledged = true;
+
+      // Apply reduced-motion setting if user opted in
+      if (result.reducedMotion) {
+        const manager = getReducedMotionManager();
+        manager.setEnabled(true);
+        console.log('[App] Reduced-motion mode enabled by user choice');
+      }
+
+      console.log('[App] Photosensitivity warning acknowledged');
+      return true;
+    } else {
+      console.log('[App] Photosensitivity warning cancelled by user');
+      return false;
+    }
+  } catch (error) {
+    console.error('[App] Failed to show photosensitivity warning:', error);
+    // On error, allow proceeding to avoid blocking the app
+    return true;
+  }
+}
+
+/**
  * Render receiver mode UI
  */
 async function renderReceiverMode(app: HTMLElement): Promise<void> {
   console.log('[App] Rendering receiver mode...');
+
+  // Show photosensitivity warning before starting camera (F4: WCAG 2.3.1)
+  const acknowledged = await ensurePhotosensitivityWarning();
+  if (!acknowledged) {
+    console.log('[App] User cancelled photosensitivity warning, not starting receiver mode');
+    // Show a message explaining why the app isn't starting
+    app.innerHTML = `
+      <div style="max-width: 1280px; margin: 0 auto; padding: 1rem;">
+        <header style="margin-bottom: 1rem; padding-bottom: 1rem; border-bottom: 1px solid #333;">
+          <h1 style="margin: 0; font-size: 1.5rem;">ScreenFerry</h1>
+          <p style="margin: 0.5rem 0 0 0; color: #999; font-size: 0.9rem;">
+            F3: Aim reticle and distance coach
+          </p>
+        </header>
+
+        <div style="padding: 2rem; background: #1a1a1a; border-radius: 8px; text-align: center;">
+          <div style="font-size: 2rem; margin-bottom: 1rem;">⚠️</div>
+          <h2 style="color: #F44336; margin-bottom: 1rem;">Photosensitivity Warning Not Acknowledged</h2>
+          <p style="color: #ccc; line-height: 1.6;">
+            For your safety, ScreenFerry requires acknowledgment of the photosensitivity warning
+            before starting the camera receiver mode.
+          </p>
+          <p style="color: #999; margin-top: 1rem;">
+            If you have concerns about photosensitivity, please consult your healthcare provider
+            before using this application.
+          </p>
+        </div>
+
+        ${getVersionFooterHTML()}
+      </div>
+    `;
+    return;
+  }
 
   // Update UI with header and version footer (bf-13h)
   app.innerHTML = `
@@ -126,6 +208,39 @@ async function renderReceiverMode(app: HTMLElement): Promise<void> {
  */
 async function renderSenderMode(app: HTMLElement): Promise<void> {
   console.log('[App] Rendering sender mode...');
+
+  // Show photosensitivity warning before showing QR codes (F4: WCAG 2.3.1)
+  const acknowledged = await ensurePhotosensitivityWarning();
+  if (!acknowledged) {
+    console.log('[App] User cancelled photosensitivity warning, not starting sender mode');
+    // Show a message explaining why the app isn't starting
+    app.innerHTML = `
+      <div style="max-width: 1280px; margin: 0 auto; padding: 1rem;">
+        <header style="margin-bottom: 1rem; padding-bottom: 1rem; border-bottom: 1px solid #333;">
+          <h1 style="margin: 0; font-size: 1.5rem;">ScreenFerry</h1>
+          <p style="margin: 0.5rem 0 0 0; color: #999; font-size: 0.9rem;">
+            F8: Pairing splash QR
+          </p>
+        </header>
+
+        <div style="padding: 2rem; background: #1a1a1a; border-radius: 8px; text-align: center;">
+          <div style="font-size: 2rem; margin-bottom: 1rem;">⚠️</div>
+          <h2 style="color: #F44336; margin-bottom: 1rem;">Photosensitivity Warning Not Acknowledged</h2>
+          <p style="color: #ccc; line-height: 1.6;">
+            For your safety, ScreenFerry requires acknowledgment of the photosensitivity warning
+            before displaying QR codes.
+          </p>
+          <p style="color: #999; margin-top: 1rem;">
+            If you have concerns about photosensitivity, please consult your healthcare provider
+            before using this application.
+          </p>
+        </div>
+
+        ${getVersionFooterHTML()}
+      </div>
+    `;
+    return;
+  }
 
   // Clear the app container
   app.innerHTML = '<div id="sender-container"></div>';

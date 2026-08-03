@@ -106,7 +106,13 @@ export class AimReticle {
    */
   updateFromFrame(result: DecodedFrameResult): void {
     const now = performance.now();
-    if (now - this.lastUpdate < this.updateInterval) {
+
+    // Get throttled frame interval from reduced-motion manager (F4: WCAG 2.3.1)
+    const throttledInterval = this.reducedMotionManager.getFrameInterval(
+      1000 / this.updateInterval
+    );
+
+    if (now - this.lastUpdate < throttledInterval) {
       return; // Throttle updates
     }
 

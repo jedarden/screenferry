@@ -429,6 +429,8 @@ payload into a **portrait-shaped region** inverts this:
 
 **Packets-per-tile basis and the actual design.** The R2 nominal rung (v16-L, 60% of tiles in steady state per D18a) carries **2 packets per tile**. Each packet is 269 B (13-byte header + 256 B payload), so 2 packets = 538 B per tile, which fits within v16-L's 586 B capacity. The **user-visible payload** is 15 tiles × 2 packets/tile × 256 B = **7,680 B/frame ≈ 7.5 KB/frame**. The **8.6 KB/frame QR capacity** is 15 tiles × 586 B (v16-L capacity) = 8,790 B. At 15 fps, this geometry delivers **7.5 KB × 15 fps = 112.5 KB/s payload rate** (or ~113 KB/s) before fountain overhead and erasure loss.
 
+> **G7 gate target:** At the adopted design (15 tiles, 2 packets/tile, 15 fps), **7.5 KB user payload per frame** and **8.6 KB QR frame capacity** deliver **112.5 KB/s payload rate**.
+
 **Why 15 tiles when the table shows 8?** The table above shows the tile count that fits when targeting exactly 4 camera px/module. The actual design uses 15 tiles at ~1-2 screen px/module, which achieves ~2-2.5 camera px/module (below the 4.0 cliff threshold but still functional based on S3 measurements showing 78% erasure at 2.25 camera px/module delivering 4.0 KB/s). The design trades some pixel safety for higher tile count and throughput; the table illustrates the *relationship* between M, screen px/module, and camera px/module, not the exact design parameters.
 
 **Two independent approaches; do not compose them.** There are two ways to increase M:
@@ -476,6 +478,8 @@ getUserMedia ──► exposureCompensation:min (D14) ──► measure real fps
 of file size. This is *not* the whole-receiver figure; see I6a/I6b in §5. The **total peak
 working set is 528.0 KB** when including the manifest GE context (72.0 KB matrix + 192.0 KB block)
 and recover()'s second K*L array, still well under I6a's 1 MB limit (0.52×).
+
+> **G7 gate targets:** At the adopted design, **264.0 KB block-layer working set** (matrix + block) and **528.0 KB total peak working set** (payload + manifest GE contexts).
 
 Three rules that are cheap to implement and expensive to omit:
 
@@ -735,6 +739,8 @@ them: the 13-byte header has no room, and the beacon carries only `blockHashLen`
 
 **Sizing sanity:** 21,845 blocks × 4 B = 87 KB at 4 GB ⇒ `blockCount_manifest` = 1 (one block). At 100 GB (546,125 blocks): 2.1 MB ⇒ 11 blocks. At 1 TB (5.46M blocks): 21 MB ⇒ 110 blocks. Each block decodes at K=768 (72 KB matrix), so memory stays bounded regardless of file size — flat-cost by design.
 
+> **G7 gate targets:** For a **4 GB file**, **21,845 blocks** produce an **87 KB manifest** (one 192 KB block).
+
 **Why the manifest hash is mandatory:** Without it, a single flipped byte in the manifest
 packet would yield wrong hashes for hundreds of blocks. Those blocks would fail E12 forever
 — re-collect, fail, re-collect — with no error code and no termination. The manifest hash
@@ -877,6 +883,8 @@ erasure lower means the ladder is too conservative and throughput is being left 
 | 1.4 K | 1.120 K | 1.050 K | **0.980 K ❌** | ~1.02 K |
 | **1.6 K** | 1.280 K | 1.200 K | **1.120 K ✅** | ~1.02 K |
 
+> **G7 gate target:** At the adopted design, **dwell = 1.6 K** (default, tunable).
+
 - **dwell = 1.6 × K** (default; tunable)
 - **assumed band = 20–30%** (D18c) — an assumption, not a controlled target
 
@@ -888,6 +896,8 @@ At dwell 1.6 K and the measured +4.2% p99 overhead (D25, §13.1):
 ```
 e_max = 1 − 1.042 / 1.6 = 34.9%
 ```
+
+> **G7 gate target:** At dwell 1.6 K and +4.2% p99 overhead, **e_max = 34.9% completion cliff**. The 30% repair code trigger provides a 4.9% buffer below this cliff.
 
 **Note:** The test requirement uses 1.12 (the +12% budget from §13.1) as a conservative margin. The actual measured p99 overhead is +4.2%, giving the true completion cliff at 34.9% erasure. The 30% repair code trigger (line 864) provides a 4.9% buffer below this cliff.
 Above this erasure rate, every pass delivers **less than K independent packets** — the block

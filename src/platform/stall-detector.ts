@@ -18,6 +18,37 @@
 import type { DecodedFrameResult, TileDiagnostics } from '../modulation/types.js';
 
 /**
+ * Canary tile constants for known-value detection
+ *
+ * A canary tile is a QR tile with known content embedded in every frame.
+ * If it decodes successfully: optical path works, packet failures are payload issues.
+ * If it fails to decode: optical problem (distance, blur, lighting, etc.).
+ *
+ * This single signal cleanly separates optical from payload failure classes.
+ */
+export const CANARY_TILE_INDEX = 0; // Canary is always tile index 0
+export const CANARY_PAYLOAD = new Uint8Array([0x43, 0x41, 0x4E, 0x41, 0x52, 0x59]); // "CANARY" in bytes
+export const CANARY_TILE_PATTERN = 'CANARY';
+
+/**
+ * Check if decoded packet data matches canary pattern
+ *
+ * @param packetData - Decoded packet bytes
+ * @returns true if this is a canary tile payload
+ */
+export function isCanaryPayload(packetData: Uint8Array): boolean {
+  if (packetData.length < CANARY_PAYLOAD.length) {
+    return false;
+  }
+  for (let i = 0; i < CANARY_PAYLOAD.length; i++) {
+    if (packetData[i] !== CANARY_PAYLOAD[i]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
  * Stall classification categories
  */
 export type StallCategory =
@@ -30,11 +61,15 @@ export type StallCategory =
   | 'optical-dark'            // Insufficient exposure (optical issue)
   | 'optical-glare'           // Saturated regions (optical issue)
   | 'optical-torn'            // Rolling shutter mismatch (optical issue)
+  | 'optical-canary-fail'     // Canary tile failed (optical issue - definitive signal)
+  | 'optical-autofocus'       // Autofocus oscillation detected (optical issue)
   | 'payload-decode-fail'     // QR codes detected but payload decode failed (payload issue)
+  | 'payload-canary-ok'       // Canary decodes but payload fails (payload issue - definitive signal)
   | 'sender-paused'           // Duplicate frames detected (sender issue)
   | 'sender-wrong-stream'     // Wrong streamId (sender issue)
   | 'environment-wake-lock'   // Wake-lock failure (environment issue)
   | 'environment-thermal'     // Thermal/battery throttling (environment issue)
+  | 'eta-not-converging'     // ETA shows transfer will never complete at current rate
   | 'unknown';                // Cause unclear
 
 /**
@@ -107,6 +142,21 @@ export interface StallDetectorConfig {
 
   /** Maximum acceptable torn frame rate (0-1) */
   maxTornFrameRate?: number;
+
+  /** Expected stream ID for validation (optional) */
+  expectedStreamId?: number;
+
+  /** Enable canary tile detection (if modulation layer supports it) */
+  enableCanaryDetection?: boolean;
+
+  /** Autofocus oscillation threshold (sharpness variance) */
+  autofocusOscillationThreshold?: number;
+
+  /** Thermal throttling detection (FPS drop threshold) */
+  thermalFpsDropThreshold?: number;
+
+  /** ETA not-converging threshold (hours remaining at current rate) */
+  etaMaxHours?: number;
 }
 
 /**
@@ -153,6 +203,30 @@ export class StallDetector {
   private wakeLock: any = null; // WakeSentinel type
   private wakeLockLostTime: number | null = null;
 
+  // Canary tile tracking (optical vs payload separation)
+  private canaryLastDecoded: number = 0;
+  private canaryDecodeRate: number = 0;
+  private canaryTotalAttempts: number = 0;
+  private canarySuccessCount: number = 0;
+
+  // Stream ID validation (wrong-stream detection)
+  private currentStreamId: number | null = null;
+  private streamIdValidated: boolean = false;
+
+  // Autofocus oscillation detection
+  private sharpnessHistory: number[] = [];
+  private readonly SHARPNESS_HISTORY_SIZE = 20;
+  private autofocusOscillationDetected: boolean = false;
+
+  // Thermal throttling detection
+  private baselineCaptureFps: number | null = null;
+  private currentFpsDrop: number = 0;
+
+  // ETA convergence tracking
+  private packetsRemaining: number = 0;
+  private currentTransferRate: number = 0;
+  private etaHours: number = 0;
+
   constructor(config: StallDetectorConfig = {}) {
     this.config = {
       stallThreshold: config.stallThreshold || 2000, // 2 seconds without packets
@@ -161,8 +235,18 @@ export class StallDetector {
       pxModuleCliff: config.pxModuleCliff || 4.0, // The critical cliff
       sharpnessThreshold: config.sharpnessThreshold || 100, // Below this = blur
       maxTornFrameRate: config.maxTornFrameRate || 0.3, // 30% torn frames = bad
+      expectedStreamId: config.expectedStreamId,
+      enableCanaryDetection: config.enableCanaryDetection ?? true, // Default enabled
+      autofocusOscillationThreshold: config.autofocusOscillationThreshold || 50, // Sharpness variance threshold
+      thermalFpsDropThreshold: config.thermalFpsDropThreshold || 0.5, // 50% FPS drop = thermal throttle
+      etaMaxHours: config.etaMaxHours || 24, // 24 hours max reasonable ETA
     };
     this.startedAt = performance.now();
+
+    // Store expected stream ID if provided
+    if (this.config.expectedStreamId !== undefined) {
+      this.currentStreamId = this.config.expectedStreamId;
+    }
   }
 
   /**
@@ -200,6 +284,17 @@ export class StallDetector {
 
     // Check for duplicate frames (sender paused)
     this.checkDuplicateFrames(analysis);
+
+    // Track canary tile decode status (if enabled)
+    if (this.config.enableCanaryDetection) {
+      this.trackCanaryTile(result, now);
+    }
+
+    // Track sharpness for autofocus oscillation detection
+    this.trackAutofocusOscillation(result);
+
+    // Track thermal throttling (FPS drop)
+    this.trackThermalThrottling(stats);
 
     // Only diagnose if we have enough data
     if (this.analysisWindow.length >= this.config.minAnalysisFrames) {
@@ -266,6 +361,91 @@ export class StallDetector {
   }
 
   /**
+   * Track canary tile decode status
+   *
+   * The canary tile is tile index 0 with known payload "CANARY".
+   * If it decodes: optical path works, payload failures are data issues.
+   * If it fails: optical problem (distance, blur, lighting, etc.).
+   */
+  private trackCanaryTile(result: DecodedFrameResult, now: number): void {
+    this.canaryTotalAttempts++;
+
+    // Check if canary tile (index 0) was decoded
+    const canaryTile = result.diagnostics.find(d => d.tileIndex === CANARY_TILE_INDEX);
+    if (canaryTile?.decoded) {
+      // Check if canary payload matches expected pattern
+      const canaryPacket = result.packets.find(p => isCanaryPayload(p));
+      if (canaryPacket) {
+        this.canaryLastDecoded = now;
+        this.canarySuccessCount++;
+      }
+    }
+
+    // Calculate canary decode rate over recent history
+    if (this.canaryTotalAttempts >= 10) {
+      this.canaryDecodeRate = this.canarySuccessCount / this.canaryTotalAttempts;
+    }
+  }
+
+  /**
+   * Track sharpness for autofocus oscillation detection
+   *
+   * Autofocus oscillation is detected when sharpness variance is high
+   * (camera hunting back and forth between focus distances).
+   */
+  private trackAutofocusOscillation(result: DecodedFrameResult): void {
+    const decodedTiles = result.diagnostics.filter(d => d.decoded && d.sharpness !== undefined);
+    if (decodedTiles.length === 0) return;
+
+    const avgSharpness = decodedTiles.reduce((sum, t) => sum + (t.sharpness || 0), 0) / decodedTiles.length;
+    this.sharpnessHistory.push(avgSharpness);
+
+    // Keep history at fixed size
+    if (this.sharpnessHistory.length > this.SHARPNESS_HISTORY_SIZE) {
+      this.sharpnessHistory.shift();
+    }
+
+    // Check for oscillation (high variance)
+    if (this.sharpnessHistory.length >= this.SHARPNESS_HISTORY_SIZE) {
+      const variance = this.calculateVariance(this.sharpnessHistory);
+      this.autofocusOscillationDetected = variance > this.config.autofocusOscillationThreshold;
+    }
+  }
+
+  /**
+   * Track thermal throttling via FPS drop
+   *
+   * Thermal/battery throttling causes significant FPS drops.
+   * We track baseline FPS at start and alert on sustained drops.
+   */
+  private trackThermalThrottling(stats: {
+    captureFps: number;
+    decodeFps: number;
+    packetsPerSec: number;
+  }): void {
+    // Establish baseline on first frames
+    if (this.baselineCaptureFps === null && stats.captureFps > 0) {
+      this.baselineCaptureFps = stats.captureFps;
+    }
+
+    // Calculate FPS drop if baseline exists
+    if (this.baselineCaptureFps !== null && this.baselineCaptureFps > 0) {
+      this.currentFpsDrop = 1 - (stats.captureFps / this.baselineCaptureFps);
+    }
+  }
+
+  /**
+   * Calculate variance of an array of numbers
+   */
+  private calculateVariance(values: number[]): number {
+    if (values.length === 0) return 0;
+
+    const mean = values.reduce((sum, v) => sum + v, 0) / values.length;
+    const squaredDiffs = values.map(v => Math.pow(v - mean, 2));
+    return squaredDiffs.reduce((sum, d) => sum + d, 0) / values.length;
+  }
+
+  /**
    * Update the current diagnosis based on recent data
    */
   private updateDiagnosis(now: number, stats: {
@@ -298,6 +478,16 @@ export class StallDetector {
 
   /**
    * Diagnose the cause of a stall
+   *
+   * Priority order:
+   * 1. Canary tile signals (definitive optical vs payload separation)
+   * 2. Duplicate frames (sender paused)
+   * 3. Thermal throttling (environment)
+   * 4. Autofocus oscillation (optical)
+   * 5. Total optical failure (no QR codes)
+   * 6. Specific optical issues (too far, blur, torn, dark, glare)
+   * 7. Payload decode failures
+   * 8. Fallback
    */
   private diagnoseStall(
     timeSinceLastPacket: number,
@@ -317,49 +507,93 @@ export class StallDetector {
     let explanation: string;
     let suggestion: string;
 
-    // Check for duplicate frames first (sender paused)
+    // PRIORITY 1: Canary tile signals (definitive optical vs payload separation)
+    if (this.config.enableCanaryDetection && this.canaryTotalAttempts >= 5) {
+      const timeSinceCanary = performance.now() - this.canaryLastDecoded;
+
+      // Canary failing but other tiles detected: optical problem (definitive)
+      if (timeSinceCanary > this.config.stallThreshold && recent.decodedCount > 0) {
+        category = 'optical-canary-fail';
+        confidence = 'high';
+        explanation = 'Known canary tile failing: optical path problem detected';
+        suggestion = 'The camera cannot reliably read QR codes. Try moving closer, improving lighting, or adjusting camera angle';
+      }
+      // Canary working but no payload: payload problem (definitive)
+      else if (timeSinceCanary < this.config.stallThreshold && recent.decodedCount > 0 && recent.packetCount === 0) {
+        category = 'payload-canary-ok';
+        confidence = 'high';
+        explanation = 'Canary tile reads correctly but payload fails: data extraction issue';
+        suggestion = 'This may be a different file or corrupted stream - verify the sender is transmitting the correct data';
+      }
+    }
+
+    // PRIORITY 2: Duplicate frames (sender paused/asleep)
     if (this.duplicateFrameCount >= 5) {
       category = 'sender-paused';
       confidence = 'high';
-      explanation = 'Sender appears to be paused or asleep';
-      suggestion = 'Check that the sender is actively transmitting';
+      explanation = 'Sender appears to be paused or asleep (duplicate frames detected)';
+      suggestion = 'Check that the sender is actively transmitting and not paused';
     }
-    // Check for total optical failure (no QR codes at all)
+
+    // PRIORITY 3: Thermal/battery throttling (environment)
+    else if (this.currentFpsDrop > this.config.thermalFpsDropThreshold) {
+      category = 'environment-thermal';
+      confidence = 'high';
+      explanation = `Frame rate dropped ${(this.currentFpsDrop * 100).toFixed(0)}%: possible thermal/battery throttling`;
+      suggestion = 'Device may be overheating or battery low. Try cooling the device or charging during transfer';
+    }
+
+    // PRIORITY 4: Autofocus oscillation (optical)
+    else if (this.autofocusOscillationDetected) {
+      category = 'optical-autofocus';
+      confidence = 'medium';
+      explanation = 'Camera autofocus oscillating (sharpness variance high)';
+      suggestion = 'Try locking autofocus manually or tap to focus on the sender screen';
+    }
+
+    // PRIORITY 5: Total optical failure (no QR codes at all)
     else if (timeSinceLastDetection > timeSinceLastPacket) {
       category = 'optical-no-codes';
       confidence = 'high';
       explanation = 'No QR codes detected in the camera feed';
       suggestion = 'Ensure the sender screen is visible and within the reticle frame';
     }
-    // Check for optical quality issues
+
+    // PRIORITY 6: Specific optical quality issues
     else if (recent.avgPxPerModule > 0 && recent.avgPxPerModule < this.config.pxModuleCliff) {
       category = 'optical-too-far';
       confidence = 'high';
       explanation = `Camera is too far: ${recent.avgPxPerModule.toFixed(1)} px/module (below ${this.config.pxModuleCliff} cliff)`;
       suggestion = 'Move closer to the sender screen';
     }
-    // Check for blur
     else if (recent.avgSharpness > 0 && recent.avgSharpness < this.config.sharpnessThreshold) {
       category = 'optical-blur';
       confidence = 'medium';
       explanation = 'Image appears blurry (low sharpness)';
       suggestion = 'Hold the camera steadier or check for autofocus issues';
     }
-    // Check for torn frames
     else if (recent.tornFrameRate > this.config.maxTornFrameRate) {
       category = 'optical-torn';
       confidence = 'medium';
       explanation = 'High torn-frame rate detected';
       suggestion = 'Try reducing the sender frame rate or move to better lighting';
     }
-    // Check if some codes are detected but no payload
     else if (recent.decodedCount > 0 && recent.packetCount === 0) {
       category = 'payload-decode-fail';
       confidence = 'medium';
       explanation = 'QR codes detected but payload extraction failed';
       suggestion = 'This may be a different file or stream - verify the sender is transmitting the correct data';
     }
-    // Fallback: optical issue but unclear what
+
+    // PRIORITY 7: ETA not converging
+    else if (this.etaHours > this.config.etaMaxHours) {
+      category = 'eta-not-converging';
+      confidence = 'medium';
+      explanation = `Transfer will not complete at current rate (est. ${this.etaHours.toFixed(1)}+ hours remaining)`;
+      suggestion = 'Move closer to sender, improve lighting, or reduce distance to increase transfer rate';
+    }
+
+    // PRIORITY 8: Fallback
     else {
       category = 'optical-poor-quality';
       confidence = 'low';

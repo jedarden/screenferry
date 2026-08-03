@@ -78,7 +78,7 @@ export async function shareFile(options: ExportOptions): Promise<ExportResult> {
     // Create a File object from the data
     const file = new File([data], filename, { type: mimeType });
 
-    console.log(`[Export] Sharing file: ${filename} (${data.length} bytes)`);
+    console.log(`[Export] Sharing file: ${data.length} bytes`);
 
     // Share the file
     await navigator.share({
@@ -87,7 +87,7 @@ export async function shareFile(options: ExportOptions): Promise<ExportResult> {
       text: `Shared via ScreenFerry`,
     });
 
-    console.log(`[Export] Share successful for ${filename}`);
+    console.log('[Export] Share successful');
 
     // Delete the file from OPFS after successful share
     const deleteStartTime = performance.now();
@@ -132,7 +132,7 @@ export async function shareFile(options: ExportOptions): Promise<ExportResult> {
   } catch (e) {
     // User cancelled or share failed
     if (e instanceof Error && e.name === 'AbortError') {
-      console.log(`[Export] Share cancelled by user: ${filename}`);
+      console.log('[Export] Share cancelled by user');
       return { success: false, method: 'cancelled' };
     }
 
@@ -166,7 +166,7 @@ export async function saveFile(options: ExportOptions): Promise<ExportResult> {
   }
 
   try {
-    console.log(`[Export] Saving file: ${filename} (${data.length} bytes)`);
+    console.log(`[Export] Saving file: ${data.length} bytes`);
 
     // Show file picker
     const fileHandle = await window.showSaveFilePicker({
@@ -182,7 +182,7 @@ export async function saveFile(options: ExportOptions): Promise<ExportResult> {
     await writable.write(data);
     await writable.close();
 
-    console.log(`[Export] Save successful for ${filename}`);
+    console.log('[Export] Save successful');
 
     // Delete the file from OPFS after successful save
     const deleteStartTime = performance.now();
@@ -227,7 +227,7 @@ export async function saveFile(options: ExportOptions): Promise<ExportResult> {
   } catch (e) {
     // User cancelled or save failed
     if (e instanceof Error && e.name === 'AbortError') {
-      console.log(`[Export] Save cancelled by user: ${filename}`);
+      console.log('[Export] Save cancelled by user');
       return { success: false, method: 'cancelled' };
     }
 
@@ -272,7 +272,7 @@ export async function downloadFile(options: ExportOptions): Promise<ExportResult
   const { data, filename, mimeType, streamId } = options;
 
   try {
-    console.log(`[Export] Downloading file: ${filename} (${data.length} bytes)`);
+    console.log(`[Export] Downloading file: ${data.length} bytes`);
 
     // Create a blob and download link
     const blob = new Blob([data], { type: mimeType });
@@ -285,7 +285,7 @@ export async function downloadFile(options: ExportOptions): Promise<ExportResult
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
 
-    console.log(`[Export] Download initiated for ${filename}`);
+    console.log('[Export] Download initiated');
 
     // Delete the file from OPFS after download starts
     // Note: We can't detect when download completes or if user cancelled

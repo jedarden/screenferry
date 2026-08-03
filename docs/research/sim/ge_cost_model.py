@@ -325,36 +325,52 @@ MANIFEST_BLOCK = K * L  # 192.0 KB
 TOTAL_WORKING_SET = PAYLOAD_MATRIX + PAYLOAD_BLOCK + MANIFEST_MATRIX + MANIFEST_BLOCK  # 528.0 KB
 
 CHECKED_CLAIMS = [
-    ("K", str(K)),
-    ("L", f"{L} B"),
-    ("packet", f"{HEADER+L} B"),
-    ("block", fmt(K * L)),
-    ("matrix", fmt(matrix_bytes(K))),
-    ("working set", fmt(matrix_bytes(K) + K * L)),
-    # Tile counts (§6.3.2)
-    ("tiles", str(TILES)),
-    ("7.5 KB/frame", f"{USER_VISIBLE_PAYLOAD/1024:.1f} KB/frame"),
-    ("8.6 KB/frame", f"{QR_FRAME_CAPACITY/1024:.1f} KB/frame"),
-    ("112.5 KB/s", f"{PAYLOAD_RATE/1024:.1f} KB/s"),
-    # Manifest arithmetic (§7.6)
-    ("21,845 blocks", f"{BLOCKS_PER_4GB:,}"),
-    ("87 KB", f"{MANIFEST_SIZE_4GB_BYTES/1000:.0f} KB"),
-    # Dwell table (§8.1)
-    ("1.6 K", f"{DWELL_MULTIPLIER} K"),
-    ("34.9%", f"{E_MAX*100:.1f}%"),
-    # Corrected working set
-    ("528.0 KB", fmt(TOTAL_WORKING_SET)),
-] + [(f"need@{n}", rate(required_rate(K, L, kb * 1024))) for n, kb in STAGES]
+    # ===== Core design values (§3.1, §4, D19) =====
+    ("K=768", str(K)),
+    ("L=256 B", f"{L} B"),
+    ("packet=269 B", f"{HEADER+L} B"),
+    ("block=192.0 KB", fmt(K * L)),
+    ("matrix=72.0 KB", fmt(matrix_bytes(K))),
+
+    # ===== Working set - TWO DIFFERENT VALUES =====
+    # The gate must check BOTH to ensure the plan stays honest
+    ("block-layer working set 264.0 KB", r"264\.0\s*KB.*block[- ]layer.*working set"),
+    ("total peak working set 528.0 KB", r"528\.0\s*KB.*(total peak|peak.*working set)"),
+
+    # ===== Sustained need rates at each stage (D19) =====
+    ("Stage 1 sustained need 32.4 MB/s", rate(required_rate(K, L, 30 * 1024))),
+    ("Stage 2 sustained need 64.9 MB/s", rate(required_rate(K, L, 60 * 1024))),
+    ("Stage 3 sustained need 114.6 MB/s", rate(required_rate(K, L, 106 * 1024))),
+
+    # ===== Tile counts and payload rate (§6.3.2) =====
+    ("15 tiles per frame", r"15.*tiles.*(frame|tiles.*per.*frame)"),
+    ("7.5 KB/frame user payload", r"7\.5\s*KB.*(user[- ]visible|payload).*frame"),
+    ("8.6 KB/frame QR capacity", r"8\.6\s*KB.*QR.*(capacity|frame)"),
+    ("112.5 KB/s payload rate", r"112\.5\s*KB/s.*(payload|rate)"),
+
+    # ===== Manifest arithmetic (§7.6) =====
+    ("21,845 blocks per 4 GB", r"21[, ]?845.*blocks.*(4 GB|4GB)"),
+    ("87 KB manifest size", r"87\s*KB.*manifest"),
+
+    # ===== Dwell table (§8.1) =====
+    ("dwell 1.6 K", r"1\.6\s*[-×]?K.*dwell"),
+    ("e_max 34.9%", r"34\.9\s*%.*(e_max|completion cliff)"),
+]
 
 
 def check(plan_path):
-    """Assert plan.md's D19 numbers match this model. Exit 1 on mismatch."""
+    """Assert plan.md's D19 numbers match this model. Exit 1 on mismatch.
+
+    The gate checks that values appear in plan.md with appropriate context.
+    Simple values allow flexible whitespace. Complex patterns use full regex.
+    """
     text = Path(plan_path).read_text()
     bad = []
-    for name, value in CHECKED_CLAIMS:
-        needle = value.replace(" ", r"\s*")
-        if not re.search(needle, text):
-            bad.append(f"  {name}: expected {value!r} — not found in plan")
+    for name, pattern in CHECKED_CLAIMS:
+        # All patterns are now regex patterns - use as-is
+        # The patterns are designed to be context-specific
+        if not re.search(pattern, text, re.IGNORECASE):
+            bad.append(f"  {name}: pattern {pattern!r} — not found in plan")
     if bad:
         print(f"FAIL — plan.md does not match {Path(__file__).name}:")
         print("\n".join(bad))

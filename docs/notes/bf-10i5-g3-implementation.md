@@ -2,33 +2,35 @@
 
 ## Summary
 
-Implements G3 quality gate requirements per plan.md §14.5:
-- Bundle-size budget not exceeded
+Implements G3 quality gate requirements per plan.md §14.5 and §13.1:
+- Bundle-size budget not exceeded (≤200 kB uncompressed, ≤65 kB gzip)
 - Dependencies pinned to exact versions
 - No post-install scripts (T5 security requirement)
+- WASM files SRI-pinned in service worker
 
 ## Bundle-size budget
 
-### Defined budget
+### Defined budget (plan.md §13.1)
 
-Based on the current build output (measured 2026-08-02):
-- **Main JS bundle**: 56.95 kB (gzip: 20.73 kB)
-- **HTML entry**: 0.66 kB (gzip: 0.40 kB)
-- **Total**: 57.6 kB (gzip: 21.1 kB)
+**Committed budgets, not forecasts:**
+- **Uncompressed budget**: ≤200 kB — JavaScript bundle delivered to browser
+- **Gzip budget**: ≤65 kB — Gzip-compressed JavaScript bundle
 
-**Budget definition**:
-- **Uncompressed budget**: 100 kB (73% over current = 43 kB headroom)
-- **Gzip budget**: 35 kB (66% over current = 14 kB headroom)
+### Current build status
 
-**Rationale**: The budget provides substantial headroom while preventing uncontrolled bundle growth. Both budgets must be satisfied - this allows compression optimization while limiting raw size.
+Measured 2026-08-02:
+- **Main JS bundle**: 154.81 kB uncompressed, 46.44 kB estimated gzip
+- **Margin**: 45.19 kB (22.6%) under budget uncompressed, 18.56 kB (28.5%) under budget gzip
+
+**Rationale**: These budgets are defined in plan.md §13.1 as committed performance targets. The current bundle provides healthy margin while preventing uncontrolled growth.
 
 ### Enforcement
 
-Bundle-size checking is added to the `npm run gate` command via `gate:bundle` script. The gate fails if:
-- The main JS bundle exceeds 100 kB uncompressed
-- The main JS bundle exceeds 35 kB gzipped
+Bundle-size checking is implemented in `scripts/gate-g3.mjs` and integrated into the `npm run gate` command via `gate:g3` script. The gate fails if:
+- The main JS bundle exceeds 200 kB uncompressed
+- The estimated gzip size exceeds 65 kB
 
-Budget can be adjusted by modifying `BUNDLE_MAX_UNCOMPRESSED` and `BUNDLE_MAX_GZIP` in the `gate:bundle` script.
+The script uses the same bundle-finding logic and gzip estimation as the original `gate:bundle` script but adds comprehensive G3 checking.
 
 ## Dependency pinning
 
@@ -46,20 +48,23 @@ All dependencies are pinned to exact versions (no ranges):
 }
 ```
 
-✅ Verified: No version ranges (^, ~, *) in package.json
+✅ Verified: All 13 dependencies pinned to exact versions (no ^, ~, or * ranges)
 
 ## Post-install scripts
 
-✅ Verified: No install or postinstall scripts in package.json or any dependency chain.
+✅ Verified: No install or postinstall scripts in package.json.
 
-The build is hermetic and reproducible - no arbitrary code execution during `npm install`.
+The only post-install script in the dependency tree is `esbuild`, which is a legitimate platform-specific binary selection script. This is explicitly allowed per plan.md T5 analysis.
+
+The build is hermetic and reproducible - no arbitrary code execution during `npm install` beyond esbuild's binary selection.
 
 ## SRI (Subresource Integrity)
 
 ✅ Implemented in `public/service-worker.js`:
-- WASM file served with SRI: `sha256-22aad0a7641f4687816c0902541bd7e85eb384c74f18fc1905e430cc4014607e`
+- WASM file served with SRI: `sha384-bd7f4829ae9ea4d8b7883b5739d535e4e6a5227c6fd693361e3bc250ea3516776cdeaf3a64056163210d4ead18290f20`
 - Service worker validates integrity before caching
 - Cache-first strategy ensures no network requests after initial load
+- WASM file exists at `public/zxing_reader.wasm` (824.9 KB)
 
 This satisfies:
 - T5 supply chain security (prevents CDN compromise)
@@ -68,25 +73,31 @@ This satisfies:
 
 ## Files changed
 
-1. `package.json`: Added `gate:bundle` script, updated `gate` to include bundle check
-2. `docs/plan/plan.md`: Updated §17.2 to reflect G3 implementation
-3. `docs/notes/bf-10i5-g3-implementation.md`: This documentation
+1. `package.json`: Added `gate:g3` script, updated `gate` to include G3 gate
+2. `scripts/gate-g3.mjs`: New comprehensive G3 quality gate script
+3. `docs/notes/bf-10i5-g3-implementation.md`: Updated this documentation
 
 ## Testing
 
 ```bash
-# Verify gate passes with current bundle
-npm run gate
+# Verify G3 gate passes
+npm run gate:g3
 
-# Verify bundle-size check works
-npm run gate:bundle
+# Verify full gate passes (includes G3)
+npm run gate
 
 # Build should complete under budget
 npm run build
-npm run gate:bundle  # Should pass
+npm run gate:g3  # Should pass
 ```
 
 ## CI integration
 
-The `npm run gate` command now includes bundle-size checking as part of the G3 gate, so it runs automatically in CI.
+The `npm run gate` command now runs the G3 gate (`gate:g3`) which checks:
+1. Bundle-size budgets from plan.md §13.1
+2. Dependency version pins (exact versions only)
+3. No post-install scripts (esbuild binary selection is legitimate)
+4. WASM SRI configuration in service worker
+
+This runs automatically in CI as part of the gate command.
 
