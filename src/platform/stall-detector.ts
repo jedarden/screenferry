@@ -227,6 +227,23 @@ export class StallDetector {
   private currentTransferRate: number = 0;
   private etaHours: number = 0;
 
+  // Transfer progress tracking for ETA convergence
+  private totalBlocks: number = 0;
+  private completedBlocks: number = 0;
+  private transferStartTime: number = 0;
+  private rateHistory: { time: number; rate: number; completed: number }[] = [];
+  private readonly RATE_HISTORY_SIZE = 30;
+
+  // Wrong streamId detection
+  private foreignStreamIdCount: number = 0;
+  private foreignStreamIdDetected: number | null = null;
+
+  // Ambient lighting conditions detection
+  private darkTileCount: number = 0;
+  private lowExposureHistory: number[] = [];
+  private readonly EXPOSURE_HISTORY_SIZE = 20;
+  private ambientLightWarningIssued: boolean = false;
+
   constructor(config: StallDetectorConfig = {}) {
     this.config = {
       stallThreshold: config.stallThreshold || 2000, // 2 seconds without packets
@@ -258,13 +275,19 @@ export class StallDetector {
       captureFps: number;
       decodeFps: number;
       packetsPerSec: number;
-    }
+    },
+    packetStreamIds?: number[] // Stream IDs for each packet (if available)
   ): void {
     const now = performance.now();
 
-    // Track last packet time
+    // Track last packet time and validate stream IDs
     if (result.packets.length > 0) {
       this.lastPacketTime = now;
+
+      // Check for foreign stream IDs if provided
+      if (packetStreamIds) {
+        this.validateStreamIds(packetStreamIds);
+      }
     }
 
     // Track last detection time
@@ -292,6 +315,9 @@ export class StallDetector {
 
     // Track sharpness for autofocus oscillation detection
     this.trackAutofocusOscillation(result);
+
+    // Track ambient lighting conditions
+    this.trackAmbientLighting(result);
 
     // Track thermal throttling (FPS drop)
     this.trackThermalThrottling(stats);
@@ -435,6 +461,49 @@ export class StallDetector {
   }
 
   /**
+   * Track ambient lighting conditions
+   *
+   * Dark-room detection: monitors E-DARK errors and overall exposure levels.
+   * Poor ambient lighting is a common cause of decode failures.
+   */
+  private trackAmbientLighting(result: DecodedFrameResult): void {
+    let currentFrameDarkCount = 0;
+    let totalLuminance = 0;
+    let luminanceSampleCount = 0;
+
+    for (const tile of result.diagnostics) {
+      // Count E-DARK errors
+      if (tile.error === 'E-DARK') {
+        currentFrameDarkCount++;
+        this.darkTileCount++;
+      }
+
+      // Collect luminance data if available (from sharpness as proxy)
+      // Higher sharpness often correlates with better lighting conditions
+      if (tile.decoded && tile.sharpness !== undefined) {
+        totalLuminance += tile.sharpness;
+        luminanceSampleCount++;
+      }
+    }
+
+    // Track average sharpness as a proxy for lighting conditions
+    if (luminanceSampleCount > 0) {
+      const avgSharpness = totalLuminance / luminanceSampleCount;
+      this.lowExposureHistory.push(avgSharpness);
+
+      // Keep history at fixed size
+      if (this.lowExposureHistory.length > this.EXPOSURE_HISTORY_SIZE) {
+        this.lowExposureHistory.shift();
+      }
+    }
+
+    // Reset dark count if current frame is clean
+    if (currentFrameDarkCount === 0) {
+      this.darkTileCount = Math.max(0, this.darkTileCount - 1);
+    }
+  }
+
+  /**
    * Calculate variance of an array of numbers
    */
   private calculateVariance(values: number[]): number {
@@ -525,10 +594,22 @@ export class StallDetector {
         explanation = 'Canary tile reads correctly but payload fails: data extraction issue';
         suggestion = 'This may be a different file or corrupted stream - verify the sender is transmitting the correct data';
       }
+      // Canary checks inconclusive, continue to other priorities
+      else {
+        // Variables not set, fall through to next priority
+      }
     }
 
-    // PRIORITY 2: Duplicate frames (sender paused/asleep)
-    if (this.duplicateFrameCount >= 5) {
+    // PRIORITY 2: Wrong streamId (different file transmission)
+    if (category === undefined && this.foreignStreamIdCount >= 3) {
+      category = 'sender-wrong-stream';
+      confidence = 'high';
+      explanation = `Receiving packets from a different file (stream ID ${this.foreignStreamIdDetected} vs expected ${this.currentStreamId})`;
+      suggestion = 'Point the camera at the correct sending device, or verify the sender is transmitting the intended file';
+    }
+
+    // PRIORITY 3: Duplicate frames (sender paused/asleep)
+    else if (category === undefined && this.duplicateFrameCount >= 5) {
       category = 'sender-paused';
       confidence = 'high';
       explanation = 'Sender appears to be paused or asleep (duplicate frames detected)';
@@ -536,7 +617,7 @@ export class StallDetector {
     }
 
     // PRIORITY 3: Thermal/battery throttling (environment)
-    else if (this.currentFpsDrop > this.config.thermalFpsDropThreshold) {
+    else if (category === undefined && this.currentFpsDrop > this.config.thermalFpsDropThreshold) {
       category = 'environment-thermal';
       confidence = 'high';
       explanation = `Frame rate dropped ${(this.currentFpsDrop * 100).toFixed(0)}%: possible thermal/battery throttling`;
@@ -544,7 +625,7 @@ export class StallDetector {
     }
 
     // PRIORITY 4: Autofocus oscillation (optical)
-    else if (this.autofocusOscillationDetected) {
+    else if (category === undefined && this.autofocusOscillationDetected) {
       category = 'optical-autofocus';
       confidence = 'medium';
       explanation = 'Camera autofocus oscillating (sharpness variance high)';
@@ -552,7 +633,7 @@ export class StallDetector {
     }
 
     // PRIORITY 5: Total optical failure (no QR codes at all)
-    else if (timeSinceLastDetection > timeSinceLastPacket) {
+    else if (category === undefined && timeSinceLastDetection > timeSinceLastPacket) {
       category = 'optical-no-codes';
       confidence = 'high';
       explanation = 'No QR codes detected in the camera feed';
@@ -560,25 +641,31 @@ export class StallDetector {
     }
 
     // PRIORITY 6: Specific optical quality issues
-    else if (recent.avgPxPerModule > 0 && recent.avgPxPerModule < this.config.pxModuleCliff) {
+    else if (category === undefined && recent.avgPxPerModule > 0 && recent.avgPxPerModule < this.config.pxModuleCliff) {
       category = 'optical-too-far';
       confidence = 'high';
       explanation = `Camera is too far: ${recent.avgPxPerModule.toFixed(1)} px/module (below ${this.config.pxModuleCliff} cliff)`;
       suggestion = 'Move closer to the sender screen';
     }
-    else if (recent.avgSharpness > 0 && recent.avgSharpness < this.config.sharpnessThreshold) {
+    else if (category === undefined && this.darkTileCount >= 5) {
+      category = 'optical-dark';
+      confidence = 'high';
+      explanation = 'Insufficient light for reliable decoding';
+      suggestion = 'Increase the sender screen brightness or improve room lighting';
+    }
+    else if (category === undefined && recent.avgSharpness > 0 && recent.avgSharpness < this.config.sharpnessThreshold) {
       category = 'optical-blur';
       confidence = 'medium';
       explanation = 'Image appears blurry (low sharpness)';
       suggestion = 'Hold the camera steadier or check for autofocus issues';
     }
-    else if (recent.tornFrameRate > this.config.maxTornFrameRate) {
+    else if (category === undefined && recent.tornFrameRate > this.config.maxTornFrameRate) {
       category = 'optical-torn';
       confidence = 'medium';
       explanation = 'High torn-frame rate detected';
       suggestion = 'Try reducing the sender frame rate or move to better lighting';
     }
-    else if (recent.decodedCount > 0 && recent.packetCount === 0) {
+    else if (category === undefined && recent.decodedCount > 0 && recent.packetCount === 0) {
       category = 'payload-decode-fail';
       confidence = 'medium';
       explanation = 'QR codes detected but payload extraction failed';
@@ -586,15 +673,21 @@ export class StallDetector {
     }
 
     // PRIORITY 7: ETA not converging
-    else if (this.etaHours > this.config.etaMaxHours) {
+    else if (category === undefined && !this.isTransferConverging()) {
+      category = 'eta-not-converging';
+      confidence = 'high';
+      explanation = `Transfer will not complete at current conditions (est. ${this.etaHours.toFixed(1)}+ hours remaining at ${this.currentTransferRate.toFixed(2)} blocks/sec)`;
+      suggestion = 'Move closer to sender, improve lighting, or reduce distance to increase transfer rate';
+    }
+    else if (category === undefined && this.etaHours > this.config.etaMaxHours) {
       category = 'eta-not-converging';
       confidence = 'medium';
-      explanation = `Transfer will not complete at current rate (est. ${this.etaHours.toFixed(1)}+ hours remaining)`;
+      explanation = `Transfer will take very long at current rate (est. ${this.etaHours.toFixed(1)}+ hours remaining)`;
       suggestion = 'Move closer to sender, improve lighting, or reduce distance to increase transfer rate';
     }
 
     // PRIORITY 8: Fallback
-    else {
+    else if (category === undefined) {
       category = 'optical-poor-quality';
       confidence = 'low';
       explanation = 'QR codes are detected but not reliably decoded';
@@ -705,6 +798,167 @@ export class StallDetector {
     this.currentDiagnosis = null;
     this.duplicateFrameCount = 0;
     this.lastFrameHash = null;
+    this.foreignStreamIdCount = 0;
+    this.foreignStreamIdDetected = null;
+  }
+
+  /**
+   * Validate stream IDs from decoded packets
+   *
+   * Detects when we're receiving packets from a different stream (different file).
+   * This is the E-FOREIGN-STREAM error: "That's a different file — ignoring it."
+   */
+  private validateStreamIds(streamIds: number[]): void {
+    for (const streamId of streamIds) {
+      // First valid stream ID we see becomes the expected one
+      if (this.currentStreamId === null) {
+        this.currentStreamId = streamId;
+        this.streamIdValidated = true;
+        console.log(`[Stall Detector] Locked to stream ID: ${streamId}`);
+        continue;
+      }
+
+      // Check for foreign stream ID
+      if (streamId !== this.currentStreamId) {
+        this.foreignStreamIdCount++;
+        if (this.foreignStreamIdDetected !== streamId) {
+          this.foreignStreamIdDetected = streamId;
+          console.warn(`[Stall Detector] Foreign stream ID detected: ${streamId} (expected ${this.currentStreamId})`);
+        }
+      }
+    }
+  }
+
+  /**
+   * Set the expected stream ID (if known in advance)
+   *
+   * This can be used when the receiver knows the stream ID before receiving packets.
+   */
+  setExpectedStreamId(streamId: number): void {
+    this.currentStreamId = streamId;
+    this.config.expectedStreamId = streamId;
+    console.log(`[Stall Detector] Expected stream ID set to: ${streamId}`);
+  }
+
+  /**
+   * Get the current stream ID we're locked to
+   */
+  getCurrentStreamId(): number | null {
+    return this.currentStreamId;
+  }
+
+  /**
+   * Set transfer parameters for ETA calculation
+   *
+   * @param totalBlocks - Total number of blocks to transfer
+   * @param completedBlocks - Number of blocks already completed (for resume)
+   */
+  setTransferParameters(totalBlocks: number, completedBlocks: number = 0): void {
+    this.totalBlocks = totalBlocks;
+    this.completedBlocks = completedBlocks;
+    this.transferStartTime = performance.now();
+    this.rateHistory = [];
+    console.log(`[Stall Detector] Transfer parameters set: ${totalBlocks} total blocks, ${completedBlocks} completed`);
+  }
+
+  /**
+   * Update transfer progress for ETA tracking
+   *
+   * @param completedBlocks - Current number of completed blocks
+   */
+  updateTransferProgress(completedBlocks: number): void {
+    const now = performance.now();
+    const previousCompleted = this.completedBlocks;
+    this.completedBlocks = completedBlocks;
+
+    // Only track rate if we have progress
+    if (completedBlocks > previousCompleted && this.transferStartTime > 0) {
+      const elapsedSeconds = (now - this.transferStartTime) / 1000;
+      const currentRate = completedBlocks / elapsedSeconds; // blocks per second
+
+      // Add to rate history
+      this.rateHistory.push({
+        time: now,
+        rate: currentRate,
+        completed: completedBlocks,
+      });
+
+      // Trim history
+      if (this.rateHistory.length > this.RATE_HISTORY_SIZE) {
+        this.rateHistory.shift();
+      }
+
+      // Update current rate (average over recent history)
+      this.updateCurrentRate();
+    }
+
+    // Update ETA calculation
+    this.updateETA();
+  }
+
+  /**
+   * Update current transfer rate based on recent history
+   */
+  private updateCurrentRate(): void {
+    if (this.rateHistory.length < 2) {
+      this.currentTransferRate = 0;
+      return;
+    }
+
+    // Calculate rate over the last several measurements
+    const recent = this.rateHistory.slice(-Math.min(10, this.rateHistory.length));
+    if (recent.length < 2) return;
+
+    const oldest = recent[0];
+    const newest = recent[recent.length - 1];
+    const timeDiff = (newest.time - oldest.time) / 1000; // seconds
+    const blocksDiff = newest.completed - oldest.completed;
+
+    if (timeDiff > 0) {
+      this.currentTransferRate = blocksDiff / timeDiff; // blocks per second
+    }
+  }
+
+  /**
+   * Update ETA calculation
+   */
+  private updateETA(): void {
+    const remainingBlocks = this.totalBlocks - this.completedBlocks;
+
+    if (remainingBlocks <= 0 || this.currentTransferRate <= 0) {
+      this.etaHours = 0;
+      return;
+    }
+
+    const remainingSeconds = remainingBlocks / this.currentTransferRate;
+    this.etaHours = remainingSeconds / 3600; // Convert to hours
+  }
+
+  /**
+   * Check if transfer is converging (ETA trending down or stable)
+   *
+   * Non-convergence detection: if ETA is trending up or erratic, the transfer
+   * may never complete at current conditions.
+   */
+  private isTransferConverging(): boolean {
+    if (this.rateHistory.length < 5) return true; // Not enough data
+
+    // Check if rate is declining (bad sign)
+    const recentRates = this.rateHistory.slice(-5).map(r => r.rate);
+    const firstRate = recentRates[0];
+    const lastRate = recentRates[recentRates.length - 1];
+
+    // If rate dropped by more than 50%, not converging well
+    if (lastRate < firstRate * 0.5) {
+      return false;
+    }
+
+    // Check if ETA is reasonable (not trending to infinity)
+    if (this.etaHours > this.config.etaMaxHours) {
+      return false;
+    }
+
+    return true;
   }
 
   /**

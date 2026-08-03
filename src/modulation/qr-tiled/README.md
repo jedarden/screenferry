@@ -43,12 +43,21 @@ All profiles use ECC level 'L' (redundancy belongs in the fountain code, not QR)
 - ✅ **Worker-based encoding**: Offloads QR encoding to worker pool per plan.md §6.3.1
 - ✅ **Spike rig updated**: Updated `spike/rig.js` to use pinned mask pattern
 
+### Completed (bf-3z5w)
+
+- ✅ **D4 pinned mask pattern**: QR encoding with pinned mask pattern for 4.6-8× speedup
+- ✅ **Worker-based encoding**: Offloads QR encoding to worker pool per plan.md §6.3.1
+- ✅ **Spike rig updated**: Updated `spike/rig.js` to use pinned mask pattern
+- ✅ **Tile layout logic**: `layout.ts` with tile grid calculation and code region management
+- ✅ **Fixed-weight ladder**: `ladder.ts` implementing D18a (R1=15%, R2=60%, R3=25%)
+- ✅ **Modulation integration**: `tiled-qr.ts` implementing the full Modulation interface
+- ✅ **Comprehensive tests**: Unit tests for layout and ladder with Phase 3 validation
+
 ### Remaining
 
-- ⚠️ `encode.ts` - Full encoder implementation
+- ⚠️ `encode.ts` - Full encoder implementation (placeholder in tiled-qr.ts)
 - ⚠️ `decode.ts` - QR decoder using zxing-wasm, reading `.bytes` (D3)
-- ⚠️ `layout.ts` - Tile grid layout and profile mixing logic (D16, D18a)
-- ⚠️ `ladder.ts` - Fixed-weight ladder configuration (R1=15%, R2=60%, R3=25%)
+- ⚠️ Worker integration - Wire up actual QR encoding/decoding in worker pools
 
 ### Architecture
 

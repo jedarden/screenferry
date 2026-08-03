@@ -24,6 +24,11 @@ class MockOPFSDirectory {
       throw new Error('File not found');
     }
 
+    // Create or get the file entry
+    if (options?.create && !this.files.has(name)) {
+      this.files.set(name, { data: new Uint8Array(0), metadata: {} as OutputArtefact });
+    }
+
     return {
       getFile: async () => ({
         arrayBuffer: async () => this.files.get(name)!.data.buffer,
@@ -47,10 +52,48 @@ class MockOPFSDirectory {
         },
         close: async () => {},
       }),
+      createSyncAccessHandle: async () => {
+        // Mock sync access handle for positional write factory
+        let fileData = this.files.get(name)!.data;
+        let position = 0;
+
+        return {
+          write: (buffer: Uint8Array, opts?: { at?: number }) => {
+            const offset = opts?.at || position;
+            if (offset + buffer.length > fileData.length) {
+              // Extend fileData if needed
+              const newData = new Uint8Array(offset + buffer.length);
+              newData.set(fileData);
+              fileData = newData;
+            }
+            fileData.set(buffer, offset);
+            position = offset + buffer.length;
+          },
+          read: (buffer: Uint8Array, opts?: { at?: number }) => {
+            const offset = opts?.at || position;
+            const bytesRead = Math.min(buffer.length, fileData.length - offset);
+            buffer.set(fileData.subarray(offset, offset + bytesRead));
+            position = offset + bytesRead;
+            return bytesRead;
+          },
+          truncate: (size: number) => {
+            fileData = fileData.subarray(0, size);
+          },
+          close: () => {
+            // Save the final data back to the files map
+            this.files.set(name, { ...this.files.get(name)!, data: fileData });
+          },
+          flush: () => {
+            // Save current data
+            this.files.set(name, { ...this.files.get(name)!, data: fileData });
+          },
+          getSize: () => fileData.length,
+        };
+      },
     };
   }
 
-  async getDirectoryHandle(name: string, options: { create?: boolean }) {
+  async getDirectoryHandle(name: string, options: { create?: boolean }): Promise<MockOPFSDirectory> {
     if (!this.subdirectories.has(name)) {
       if (!options?.create) {
         throw new Error('Directory not found');
@@ -59,7 +102,7 @@ class MockOPFSDirectory {
       this.subdirectories.set(name, newDir);
     }
     // Return the actual directory instance
-    return this.subdirectories.get(name)!;
+    return this.subdirectories.get(name)! as MockOPFSDirectory;
   }
 
   async removeEntry(name: string, options?: { recursive?: boolean }) {
@@ -69,8 +112,10 @@ class MockOPFSDirectory {
     this.files.delete(name);
   }
 
-  async *values() {
+  async *[Symbol.asyncIterator]() {
+    console.log('[DEBUG] Symbol.asyncIterator called on directory:', this.name, 'with', this.files.size, 'files');
     for (const [name, fileData] of this.files) {
+      console.log('[DEBUG] yielding file:', name);
       yield {
         kind: 'file' as const,
         name,
@@ -88,6 +133,42 @@ class MockOPFSDirectory {
     }
   }
 
+  values() {
+    console.log('[DEBUG] values() called on directory:', this.name, 'with', this.files.size, 'files');
+    // Return an async iterable object
+    const files = this.files;
+    const asyncIterator = (async function* () {
+      for (const [name, fileData] of files.entries()) {
+        console.log('[DEBUG] values() iterator yielding:', name);
+        yield {
+          kind: 'file' as const,
+          name,
+          getFile: async () => ({
+            arrayBuffer: async () => fileData.data.buffer,
+            text: async () => {
+              if (name.endsWith('.meta.json')) {
+                return JSON.stringify(fileData.metadata);
+              }
+              return JSON.stringify(fileData.metadata);
+            },
+            size: fileData.data.length,
+          }),
+        };
+      }
+      console.log('[DEBUG] values() iterator complete, yielded', files.size, 'files');
+    })();
+
+    // Ensure it has the async iterator symbol
+    if (typeof asyncIterator[Symbol.asyncIterator] === 'function') {
+      return asyncIterator;
+    }
+
+    // Fallback: wrap it in an object with the symbol
+    return {
+      [Symbol.asyncIterator]: () => asyncIterator,
+    };
+  }
+
   // Helper method to add test files directly to this directory
   addTestFile(streamId: number, age: number) {
     const filePath = `output-${streamId}.bin`;
@@ -100,6 +181,24 @@ class MockOPFSDirectory {
       mimeType: 'application/octet-stream',
       size: data.length,
       createdAt: Date.now() - age,
+      path: filePath,
+    };
+
+    this.files.set(filePath, { data, metadata });
+    this.files.set(metadataPath, { data: new TextEncoder().encode(JSON.stringify(metadata)), metadata });
+  }
+
+  // Helper method to simulate storing an output (for use by storeOutput)
+  async storeOutputFile(streamId: number, data: Uint8Array, filename: string, mimeType: string) {
+    const filePath = `output-${streamId}.bin`;
+    const metadataPath = `output-${streamId}.meta.json`;
+
+    const metadata: OutputArtefact = {
+      streamId,
+      filename,
+      mimeType,
+      size: data.length,
+      createdAt: Date.now(),
       path: filePath,
     };
 
@@ -194,8 +293,15 @@ describe('cleanupOrphanedOutputs()', () => {
     testDir.addTestFile(100, 25 * 60 * 60 * 1000); // 25 hours old
     testDir.addTestFile(200, 1 * 60 * 60 * 1000);  // 1 hour old
 
+    console.log('[DEBUG] testDir.files.size:', testDir.files.size);
+    console.log('[DEBUG] testDir files:', Array.from(testDir.files.keys()));
+
     const storage = getStorageManager();
     const activeIds = new Set<number>(); // No active sessions
+
+    // Check what listOutputs sees
+    const outputs = await storage.listOutputs();
+    console.log('[DEBUG] listOutputs found:', outputs.length, 'outputs');
 
     const cleaned = await storage.cleanupOrphanedOutputs(activeIds);
 

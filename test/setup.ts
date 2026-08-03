@@ -57,7 +57,7 @@ class MockFileSystemDirectoryHandle {
     this.entries.delete(name);
   }
 
-  get kind() {
+  get kind(): 'directory' {
     return 'directory';
   }
 
@@ -105,7 +105,7 @@ class MockFileSystemFileHandle {
     };
   }
 
-  get kind() {
+  get kind(): 'file' {
     return 'file';
   }
 
@@ -207,6 +207,13 @@ const mockStorage = {
       mockRoot = new MockFileSystemDirectoryHandle('root');
     }
     return mockRoot;
+  },
+  async estimate() {
+    // Return a mock storage estimate with generous values
+    return {
+      quota: 1000000000000, // 1 TB
+      usage: 0,
+    };
   },
 };
 

@@ -249,25 +249,38 @@ export function createDeltaCode(
 }
 
 /**
- * Parse a delta code and extract differing blocks.
+ * Parse a delta code.
  *
  * This is the primary interface for parsing delta codes.
+ * Returns the full DeltaCode object with ranges and check digit.
  *
  * @param encoded - Encoded delta code string
- * @returns Object with streamIds and differing blocks
+ * @returns Decoded delta code object
  * @throws {Error} If format is invalid or checksum fails
  */
-export function parseDeltaCode(encoded: string): {
-  oldStreamId: number;
-  newStreamId: number;
+export function parseDeltaCode(encoded: string): DeltaCode {
+  return decodeDeltaCode(encoded);
+}
+
+/**
+ * Parse a delta code and extract differing blocks.
+ *
+ * Convenience function that returns both the delta code and the
+ * individual differing block indices.
+ *
+ * @param encoded - Encoded delta code string
+ * @returns Object with delta code and differing blocks
+ * @throws {Error} If format is invalid or checksum fails
+ */
+export function parseDeltaCodeWithBlocks(encoded: string): {
+  deltaCode: DeltaCode;
   differingBlocks: number[];
 } {
   const code = decodeDeltaCode(encoded);
   const differingBlocks = rangesToBlocks(code.ranges);
 
   return {
-    oldStreamId: code.oldStreamId,
-    newStreamId: code.newStreamId,
+    deltaCode: code,
     differingBlocks,
   };
 }

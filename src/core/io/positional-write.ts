@@ -60,6 +60,16 @@ export interface PositionalWriteHandle {
   write(buffer: Uint8Array, options: WriteOptions): Promise<number>;
 
   /**
+   * Read data from a specific file offset.
+   *
+   * @param offset - File offset in bytes where read should begin
+   * @param length - Number of bytes to read
+   * @returns Promise resolving to bytes read
+   * @throws WriteError if I/O error occurs
+   */
+  read(offset: number, length: number): Promise<Uint8Array>;
+
+  /**
    * Close the handle and flush all writes.
    *
    * @returns Promise resolving when closed
@@ -86,6 +96,7 @@ export interface PositionalWriteHandle {
  */
 interface WriteBackend {
   write(buffer: Uint8Array, offset: number): Promise<number>;
+  read(offset: number, length: number): Promise<Uint8Array>;
   close(): Promise<void>;
   getSize(): Promise<number>;
 }
@@ -135,6 +146,34 @@ class OPFSWriteBackend implements WriteBackend {
         e instanceof Error
           ? { offset, bytesAttempted: buffer.length, cause: e }
           : { offset, bytesAttempted: buffer.length }
+      );
+    }
+  }
+
+  async read(offset: number, length: number): Promise<Uint8Array> {
+    if (this.closed) {
+      throw new WriteError(
+        'HANDLE_CLOSED',
+        'Cannot read from closed handle',
+        { offset, bytesAttempted: length }
+      );
+    }
+
+    if (!this.syncHandle) {
+      this.syncHandle = await this.fileHandle.createSyncAccessHandle();
+    }
+
+    try {
+      const buffer = new Uint8Array(length);
+      const bytesRead = this.syncHandle.read(buffer, { at: offset });
+      return buffer.subarray(0, bytesRead);
+    } catch (e) {
+      throw new WriteError(
+        'IO_ERROR',
+        `Read failed: ${e instanceof Error ? e.message : String(e)}`,
+        e instanceof Error
+          ? { offset, bytesAttempted: length, cause: e }
+          : { offset, bytesAttempted: length }
       );
     }
   }
@@ -201,6 +240,17 @@ class OPFSPositionalWriteHandle implements PositionalWriteHandle {
       );
     }
     return this.backend.write(buffer, options.at);
+  }
+
+  async read(offset: number, length: number): Promise<Uint8Array> {
+    if (offset < 0) {
+      throw new WriteError(
+        'INVALID_OFFSET',
+        `Offset must be non-negative, got ${offset}`,
+        { offset, bytesAttempted: length }
+      );
+    }
+    return this.backend.read(offset, length);
   }
 
   async close(): Promise<void> {

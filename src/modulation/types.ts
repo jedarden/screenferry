@@ -217,7 +217,7 @@ export interface Modulation {
    *
    * IMPORTANT: Must never throw. Return fewer packets rather than throw.
    */
-  decodeFrame(frame: VideoFrame | ImageData): DecodedFrameResult;
+  decodeFrame(frame: VideoFrame | ImageData): DecodedFrameResult | Promise<DecodedFrameResult>;
 }
 
 /**

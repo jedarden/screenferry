@@ -16,7 +16,7 @@
 
 import type { File } from '../io/types.js';
 import { computeBlockDelta, estimateDeltaSavings, isDeltaWorthwhile, type BlockDelta } from '../block/delta.js';
-import { createDeltaCode, parseDeltaCode } from '../frame/delta-code.js';
+import { createDeltaCode, parseDeltaCodeWithBlocks } from '../frame/delta-code.js';
 import { computeStreamId } from '../hash/stream-id.js';
 import { BLOCK } from '../params.js';
 
@@ -123,7 +123,7 @@ export async function validateDeltaTransfer(
 
   try {
     // Parse delta code
-    const parsed = parseDeltaCode(deltaCode);
+    const { deltaCode: parsed, differingBlocks } = parseDeltaCodeWithBlocks(deltaCode);
 
     // Verify streamIds match
     const actualOldStreamId = await computeStreamId(oldFile);
