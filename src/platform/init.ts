@@ -9,7 +9,8 @@
 
 import { runHealthCheck } from './health-check.js';
 import { runStartupCleanup } from './storage.js';
-import { validateSenderConfig, isSenderConfigValid } from './config-validation.js';
+import { validateSenderConfig, isSenderConfigValid, getSenderConfig } from './config-validation.js';
+import { ConfigurationError } from '../core/errors/error-codes.js';
 
 /**
  * App initialization result.
@@ -42,7 +43,7 @@ export async function runAppInit(): Promise<InitResult> {
 
   try {
     // ========================================
-    // VALIDATION INSERTION POINT (bf-1mj8, bf-ft40, bf-320a)
+    // VALIDATION INSERTION POINT (bf-1mj8, bf-ft40, bf-320a, bf-4bi6)
     // ========================================
     // CONFLICT CHECK VALIDATION FOR COMPRESSION+RESUME
     //
@@ -50,16 +51,10 @@ export async function runAppInit(): Promise<InitResult> {
     // Timing: BEFORE any async operations or state mutations
     // Purpose: Validate flag conflicts (compression/resume) early
     //
-    // Current implementation (bf-320a):
-    // - validateSenderConfig() function available in config-validation.ts
-    // - Validation will be integrated when sender configuration is available
-    // - For now, this is a placeholder for when sender UI is implemented
-    //
-    // Future implementation:
-    // - When sender configuration exists, validate before session creation
-    // - Call: validateSenderConfig({ compressionEnabled, resumeEnabled })
-    // - On ConfigurationError: add to errors array for UI display
-    // - Continue to health checks even if conflicts exist (non-blocking)
+    // Implementation (bf-4bi6):
+    // - Validates sender configuration before any state changes
+    // - Checks for incompatible flag combinations
+    // - Non-blocking: collects errors but continues to health checks
     //
     // Why this location is correct:
     // - Before any state changes (no files written, no sessions created)
@@ -75,19 +70,17 @@ export async function runAppInit(): Promise<InitResult> {
     // - docs/notes/bf-17s0-resume-compression-conflict.md
     // ========================================
 
-    // TODO: When sender configuration is available, validate it here:
-    // try {
-    //   validateSenderConfig({
-    //     compressionEnabled: getCompressionConfig(),
-    //     resumeEnabled: getResumeConfig()
-    //   });
-    // } catch (e) {
-    //   if (e instanceof ConfigurationError && e.code === 'E-COMPRESSION-RESUME-CONFLICT') {
-    //     errors.push('Configuration error: compression and resume cannot both be enabled');
-    //   } else {
-    //     throw e; // Re-throw other errors
-    //   }
-    // }
+    // Validate sender configuration before any state changes
+    try {
+      const senderConfig = getSenderConfig();
+      validateSenderConfig(senderConfig);
+    } catch (e) {
+      if (e instanceof ConfigurationError && e.code === 'E-COMPRESSION-RESUME-CONFLICT') {
+        errors.push(`Configuration error: ${e.message}`);
+      } else {
+        throw e; // Re-throw other errors
+      }
+    }
 
     // Run health check and cleanup in parallel
     const [healthCheckResult, cleanupResult] = await Promise.all([

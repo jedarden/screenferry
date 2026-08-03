@@ -72,3 +72,22 @@ export function isSenderConfigValid(config: SenderConfig): boolean {
     return false;
   }
 }
+
+/**
+ * Get current sender configuration.
+ *
+ * This function retrieves the sender configuration options.
+ * Currently returns default values (both flags disabled) since sender UI
+ * is not yet implemented. When sender UI is added, this should read from
+ * the actual configuration source (UI settings, URL params, etc.).
+ *
+ * @returns Current sender configuration
+ */
+export function getSenderConfig(): SenderConfig {
+  // TODO: When sender UI is implemented, read from actual configuration source
+  // For now, return defaults that won't conflict with existing functionality
+  return {
+    compressionEnabled: false,
+    resumeEnabled: false,
+  };
+}
