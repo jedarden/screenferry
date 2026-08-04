@@ -1,6 +1,7 @@
 package com.screenferry.stresstest;
 
 import android.app.Activity;
+import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.os.PowerManager;
 import android.view.View;
@@ -17,6 +18,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 public class StressTestActivity extends Activity {
 
+    // Preferences keys
+    private static final String PREFS_NAME = "StressTestPrefs";
+    private static final String KEY_INTENSITY = "intensity";
+
     // UI Components
     private TextView tvCpuStatus;
     private TextView tvGpuStatus;
@@ -24,6 +29,9 @@ public class StressTestActivity extends Activity {
     private TextView tvRunningTime;
     private SeekBar seekBarIntensity;
     private Button btnStartStop;
+    private Button btnLowIntensity;
+    private Button btnMediumIntensity;
+    private Button btnHighIntensity;
 
     // Stress test control
     private AtomicBoolean isRunning = new AtomicBoolean(false);
@@ -44,8 +52,15 @@ public class StressTestActivity extends Activity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_stress_test);
 
+        // Load saved intensity
+        int savedIntensity = loadIntensity();
+
         // Initialize UI
         initUI();
+
+        // Restore intensity setting
+        seekBarIntensity.setProgress(savedIntensity);
+        updateIntensityDisplay(savedIntensity);
 
         // Initialize handler for UI updates
         handler = new Handler(Looper.getMainLooper());
@@ -65,6 +80,9 @@ public class StressTestActivity extends Activity {
         tvRunningTime = findViewById(R.id.tvRunningTime);
         seekBarIntensity = findViewById(R.id.seekBarIntensity);
         btnStartStop = findViewById(R.id.btnStartStop);
+        btnLowIntensity = findViewById(R.id.btnLowIntensity);
+        btnMediumIntensity = findViewById(R.id.btnMediumIntensity);
+        btnHighIntensity = findViewById(R.id.btnHighIntensity);
 
         // Setup intensity seek bar
         seekBarIntensity.setMax(10);
@@ -73,6 +91,10 @@ public class StressTestActivity extends Activity {
             @Override
             public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
                 updateIntensityDisplay(progress);
+                // Save intensity when user changes it
+                if (fromUser) {
+                    saveIntensity(progress);
+                }
             }
 
             @Override
@@ -82,10 +104,19 @@ public class StressTestActivity extends Activity {
             public void onStopTrackingTouch(SeekBar seekBar) {}
         });
 
+        // Setup preset intensity buttons
+        btnLowIntensity.setOnClickListener(v -> setIntensity(3));   // Low
+        btnMediumIntensity.setOnClickListener(v -> setIntensity(5));  // Medium
+        btnHighIntensity.setOnClickListener(v -> setIntensity(8));    // High
+
         // Setup start/stop button
         btnStartStop.setOnClickListener(v -> toggleStressTest());
+    }
 
-        updateIntensityDisplay(5);
+    private void setIntensity(int intensity) {
+        seekBarIntensity.setProgress(intensity);
+        saveIntensity(intensity);
+        updateIntensityDisplay(intensity);
     }
 
     private void updateIntensityDisplay(int intensity) {
@@ -226,5 +257,25 @@ public class StressTestActivity extends Activity {
         if (wakeLock != null && wakeLock.isHeld()) {
             wakeLock.release();
         }
+    }
+
+    /**
+     * Loads the last saved intensity from SharedPreferences
+     * @return Saved intensity (1-10), defaults to 5
+     */
+    private int loadIntensity() {
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        return prefs.getInt(KEY_INTENSITY, 5); // Default to medium intensity
+    }
+
+    /**
+     * Saves the current intensity to SharedPreferences
+     * @param intensity Intensity level to save (1-10)
+     */
+    private void saveIntensity(int intensity) {
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        SharedPreferences.Editor editor = prefs.edit();
+        editor.putInt(KEY_INTENSITY, intensity);
+        editor.apply();
     }
 }
