@@ -452,7 +452,7 @@ export function deriveKMax(
 
   while (lo <= hi) {
     const mid = Math.floor((lo + hi) / 2);
-    const K = candidates[mid];
+    const K = candidates[mid]!;
     const required = requiredThroughputMBs(K, L, stage3RateBytes);
 
     if (measuredThroughputMBs >= required) {
@@ -754,37 +754,46 @@ export async function runGEBenchmarkInWorker(
 
   const worker = new Worker(workerUrl, {type: 'module'});
 
-  return new Promise((resolve, reject) => {
+  type WorkerMessage = {type: 'result'; result: GEBenchmarkResult} | {type: 'error'; error: string};
+
+  return new Promise<GEBenchmarkResult>((resolve, reject) => {
     const timeout = setTimeout(() => {
       thermalChecker.stopMonitoring();
       worker.terminate();
       reject(new Error('GE benchmark timeout (30s)'));
     }, 30000); // 30 second timeout
 
-    worker.onmessage = (e: MessageEvent) => {
+    worker.onmessage = (e: MessageEvent<WorkerMessage>) => {
       clearTimeout(timeout);
 
-      if (e.data.type === 'result') {
-        const result = e.data.result as GEBenchmarkResult;
+      const data = e.data;
+      if (data.type === 'result') {
+        const result = data.result;
 
         // Capture thermal state at end
         thermalChecker.stopMonitoring();
-        result.thermalStateStart = thermalChecker.getStateInfo();
-        result.thermalStateEnd = thermalChecker.getStateInfo();
+        const thermalStateStart = thermalChecker.getStateInfo();
+        const thermalStateEnd = thermalChecker.getStateInfo();
 
         console.log(
-          `[Benchmark] Thermal state - start: baseline=${result.thermalStateStart.baselineFps?.toFixed(1)}fps, ` +
-          `current=${result.thermalStateStart.currentFps.toFixed(1)}fps, ` +
-          `throttled=${result.thermalStateStart.isThrottled}`
+          `[Benchmark] Thermal state - start: baseline=${thermalStateStart.baselineFps?.toFixed(1)}fps, ` +
+          `current=${thermalStateStart.currentFps.toFixed(1)}fps, ` +
+          `throttled=${thermalStateStart.isThrottled}`
         );
 
-        resolve(result);
-      } else if (e.data.type === 'error') {
+        resolve({
+          ...result,
+          thermalStateStart,
+          thermalStateEnd,
+        } as GEBenchmarkResult);
+      } else if (data.type === 'error') {
         thermalChecker.stopMonitoring();
-        reject(new Error(e.data.error));
+        reject(new Error(data.error));
       } else {
+        // Type narrowing for 'never' case
+        const _exhaustive: never = data;
         thermalChecker.stopMonitoring();
-        reject(new Error(`Unexpected worker message type: ${e.data.type}`));
+        reject(new Error(`Unexpected worker message type`));
       }
     };
 
@@ -903,7 +912,7 @@ export function runGEBenchmarkSync(
         high = hi - 1;
       while (lo < high) {
         const mid = (lo + high) >> 1;
-        if (cum[mid] < r) lo = mid + 1;
+        if (cum[mid]! < r) lo = mid + 1;
         else high = mid;
       }
       return lo + 1;
@@ -918,7 +927,9 @@ export function runGEBenchmarkSync(
 
   // Warm up and take best of 3 trials
   for (let trial = -1; trial < config.trials; trial++) {
-    // Pivot store: index = pivot bit position.
+    // Pivot store: sparse arrays where index = pivot bit position (0 to K-1)
+    // Most entries remain null; only pivMask[p] and pivPay[p] are set when pivot at position p is found
+    // This sparse pattern causes TypeScript to see (null | Uint32Array)[] types, requiring careful narrowing
     const pivMask = new Array(K).fill(null);
     const pivPay = new Array(K).fill(null);
 
@@ -944,10 +955,15 @@ export function runGEBenchmarkSync(
       for (let i = 0; i < K; i++) idx[i] = i;
       for (let i = 0; i < d; i++) {
         const j = i + ((rnd() * (K - i)) | 0);
-        const tmp = idx[i];
-        idx[i] = idx[j];
+        const tmp = idx[i]!;
+        idx[i] = idx[j]!;
         idx[j] = tmp;
-        mask[idx[i] >>> 5] ^= 1 << (idx[i] & 31);
+        // TS_ERROR_bf1omfc_1: mask[idx[i]! >>> 5] - Object is possibly 'undefined'
+        // Root cause: TypeScript can't verify that idx[i]! >>> 5 is within mask's bounds [0, MASKW-1]
+        // Invariant: idx[i] ∈ [0, K-1] from Fisher-Yates, so idx[i]! >>> 5 ∈ [0, floor((K-1)/32)] ≤ MASKW-1
+        // Safest fix: Add non-null assertion after array access: mask[idx[i]! >>> 5]! ^= ...
+        // Alternative: Use explicit variable and bounds check (unnecessary for hot loop)
+        mask[idx[i]! >>> 5] ^= 1 << (idx[i]! & 31);
       }
       packets++;
 
@@ -956,10 +972,15 @@ export function runGEBenchmarkSync(
       for (;;) {
         while (w >= 0 && mask[w] === 0) w--;
         if (w < 0) break; // reduced to zero: dependent
-        const bit = 31 - Math.clz32(mask[w]);
+        const bit = 31 - Math.clz32(mask[w]!);
         const p = (w << 5) | bit;
 
-        const pm = pivMask[p];
+        // TS_ERROR_bf1omfc_2 & _3: pm[i]! and pp[i]! - Object is possibly 'undefined'
+        // Root cause: The 'as Uint32Array | null' cast interferes with TypeScript's type narrowing
+        // After 'if (pm === null)', TypeScript should narrow pm to Uint32Array, but the cast prevents this
+        // Additionally, TypeScript can't verify that pm[i] and pp[i] are within array bounds
+        // Safest fix: Remove 'as' casts, use 'pm == null' for better narrowing, remove trailing '!' assertions
+        const pm = pivMask[p] as Uint32Array | null;
         if (pm === null) {
           // new pivot
           pivMask[p] = mask.slice();
@@ -967,9 +988,9 @@ export function runGEBenchmarkSync(
           rank++;
           break;
         }
-        const pp = pivPay[p];
-        for (let i = 0; i <= w; i++) mask[i] ^= pm[i];
-        for (let i = 0; i < PAYW; i++) pay[i] ^= pp[i];
+        const pp = pivPay[p] as Uint32Array;
+        for (let i = 0; i <= w; i++) mask[i] ^= pm[i]!;
+        for (let i = 0; i < PAYW; i++) pay[i] ^= pp[i]!;
         rowOps++;
       }
     }
@@ -991,7 +1012,7 @@ export function runGEBenchmarkSync(
 
   // Derive K_max from the measured throughput
   const stage3 = config.stages.find((s) => s.name === 'Stage 3') || config.stages[config.stages.length - 1];
-  const derivedKMax = deriveKMax(measuredThroughputMBs, L, stage3.rateKBs);
+  const derivedKMax = deriveKMax(measuredThroughputMBs, L, stage3!.rateKBs);
 
   const duration = performance.now() - benchmarkStart;
 
