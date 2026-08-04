@@ -66,9 +66,28 @@ export class GEDecoder {
   /**
    * Absorb one packet. Returns true if it raised the rank.
    * A `false` return is the NORMAL case near completion, not an error.
+   *
+   * @throws {Error} If input parameters are invalid
    */
   absorb(seq: number, payload: Uint8Array): boolean {
-    if (payload.length !== this.fragLen) return false;
+    // Validate seq number
+    if (!Number.isFinite(seq) || seq < 0) {
+      throw new Error(`GEDecoder.absorb: invalid seq number (must be non-negative finite number, got ${seq})`);
+    }
+
+    // Validate payload is a Uint8Array
+    if (!(payload instanceof Uint8Array)) {
+      throw new Error(`GEDecoder.absorb: payload must be Uint8Array, got ${payload === null ? 'null' : typeof payload}`);
+    }
+
+    // Validate payload length (return false for mismatch, as per original contract)
+    if (payload.length === 0) {
+      throw new Error('GEDecoder.absorb: empty payload');
+    }
+
+    if (payload.length !== this.fragLen) {
+      return false;
+    }
     this.packetsSeen++;
 
     if (this.repetition) {
@@ -164,7 +183,7 @@ export class GEDecoder {
  *
  * @param streamId - Stream identifier (must match encoder)
  * @param blockIndex - Block index (must match encoder)
- * @param seq - Packet sequence number
+ * @param seq - Packet sequence number (must be non-negative)
  * @param payload - Encoded payload (L bytes)
  * @param sourceFragments - Known source fragments (for XOR reversal)
  * @returns Decoded byte array
@@ -195,17 +214,60 @@ export function basicDecode(
   payload: Uint8Array,
   sourceFragments: Uint8Array[]
 ): Uint8Array {
-  // Validate input
-  if (sourceFragments.length === 0) {
-    throw new Error('basicDecode: zero source fragments');
+  // Validate streamId
+  if (!Number.isFinite(streamId) || streamId < 0) {
+    throw new Error(`basicDecode: invalid streamId (must be non-negative finite number, got ${streamId})`);
+  }
+
+  // Validate blockIndex
+  if (!Number.isFinite(blockIndex) || blockIndex < 0) {
+    throw new Error(`basicDecode: invalid blockIndex (must be non-negative finite number, got ${blockIndex})`);
+  }
+
+  // Validate seq number
+  if (!Number.isFinite(seq) || seq < 0) {
+    throw new Error(`basicDecode: invalid seq number (must be non-negative finite number, got ${seq})`);
+  }
+
+  // Validate payload is a Uint8Array
+  if (!(payload instanceof Uint8Array)) {
+    throw new Error(`basicDecode: payload must be Uint8Array, got ${payload === null ? 'null' : typeof payload}`);
+  }
+
+  // Validate sourceFragments array
+  if (!Array.isArray(sourceFragments) || sourceFragments.length === 0) {
+    throw new Error(`basicDecode: sourceFragments must be non-empty array, got ${sourceFragments === null ? 'null' : 'empty array'}`);
   }
 
   const k = sourceFragments.length;
+
+  // Validate all source fragments are Uint8Arrays
+  for (let i = 0; i < k; i++) {
+    const frag = sourceFragments[i];
+    if (!(frag instanceof Uint8Array)) {
+      throw new Error(`basicDecode: sourceFragments[${i}] must be Uint8Array, got ${frag === null ? 'null' : typeof frag}`);
+    }
+  }
+
   const fragLen = sourceFragments[0]!.length;
 
+  // Validate fragment length
   if (fragLen === 0) {
     throw new Error('basicDecode: zero fragment length');
   }
+
+  // Validate all fragments have the same length
+  for (let i = 0; i < k; i++) {
+    if (sourceFragments[i]!.length !== fragLen) {
+      throw new Error(`basicDecode: inconsistent fragment lengths (expected ${fragLen}, fragment ${i} has ${sourceFragments[i]!.length})`);
+    }
+  }
+
+  // Validate payload length
+  if (payload.length === 0) {
+    throw new Error('basicDecode: empty payload');
+  }
+
   if (payload.length !== fragLen) {
     throw new Error(`basicDecode: payload length mismatch (expected ${fragLen}, got ${payload.length})`);
   }

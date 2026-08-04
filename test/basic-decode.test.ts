@@ -170,7 +170,7 @@ describe('basicDecode', () => {
     it('should throw on zero source fragments', () => {
       expect(() => {
         basicDecode(1, 0, 0, new Uint8Array(256), []);
-      }).toThrow(/zero source fragments/);
+      }).toThrow(/sourceFragments must be non-empty array/);
     });
 
     it('should throw on zero fragment length', () => {
