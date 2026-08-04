@@ -23,6 +23,54 @@ describe('CleanupLogger', () => {
       expect(logger).toBeDefined();
     });
 
+    it('emits cleanup start log with required fields', () => {
+      const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+      // Create logger - this should emit the start log
+      logger = new CleanupLogger('test-cleanup-start');
+
+      // Get all logs from the logger
+      const logs = logger.getLogs();
+
+      // Find the start log
+      const startLog = logs.find(log =>
+        log.message === 'Cleanup operation started' &&
+        log.level === LogLevel.INFO
+      );
+
+      // Verify start log exists
+      expect(startLog).toBeDefined();
+
+      // Verify log structure contains required fields
+      expect(startLog!.level).toBe(LogLevel.INFO);
+      expect(startLog!.timestamp).toBeDefined();
+      expect(startLog!.operation).toBe('test-cleanup-start');
+      expect(startLog!.message).toBe('Cleanup operation started');
+
+      // Verify timestamp is valid ISO format
+      expect(startLog!.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+
+      // Verify operation name is present in the log
+      expect(startLog!.operation).toBe('test-cleanup-start');
+
+      // Verify start time field is present
+      expect(startLog!.startTime).toBeDefined();
+      expect(startLog!.startTime).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+
+      // Verify console output was called
+      expect(logSpy).toHaveBeenCalled();
+      const callArgs = logSpy.mock.calls[0];
+      expect(callArgs[0]).toBe('[Cleanup:test-cleanup-start]');
+
+      // Verify the logged JSON can be parsed
+      const loggedJson = JSON.parse(callArgs[1] as string);
+      expect(loggedJson.message).toBe('Cleanup operation started');
+      expect(loggedJson.operation).toBe('test-cleanup-start');
+      expect(loggedJson.level).toBe(LogLevel.INFO);
+      expect(loggedJson.timestamp).toBeDefined();
+      expect(loggedJson.startTime).toBeDefined();
+    });
+
     it('logs debug messages', () => {
       logger = new CleanupLogger('test-operation');
       const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
