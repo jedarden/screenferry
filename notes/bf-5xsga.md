@@ -5,12 +5,22 @@
 ## What was attempted:
 1. Checked saved port from `~/.adb_last_port`: **5555**
 2. Attempted ADB connection to `100.88.10.113:5555`
-3. Tested network connectivity: **Device not reachable on port 5555**
+3. Tested network connectivity: **Device IP reachable, but port 5555 closed**
+4. Killed all stuck ADB processes and attempted fresh server start
+5. ADB commands timing out (unable to establish connection)
+
+## Diagnosis performed:
+- Network connectivity to device IP (100.88.10.113): **Working** (ping: 28-114ms, 0% packet loss)
+- ADB port 5555 on device: **Closed** (connection refused via nc)
+- ADB binary: Working (version 1.0.41, 35.0.1-android-tools)
+- ADB server startup: **Timing out** (likely trying to connect to unreachable port)
 
 ## Current state:
-- ADB server cleaned up (all processes killed, state files cleared)
-- Network test shows device is not responding on port 5555
-- This typically means the **phone has rebooted and the Wireless Debugging port has changed**
+- ADB server processes: **Cleaned up** (all stuck processes killed)
+- Lock files: **Cleared** (~/.android/adb.5037 removed)
+- Network connectivity: **Working** (device reachable via Tailscale)
+- Port 5555: **Closed** (device not listening)
+- Root cause: **Phone has rebooted or Wireless Debugging toggled → port changed**
 
 ## Required action:
 The user needs to:
