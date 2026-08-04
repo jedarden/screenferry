@@ -1,0 +1,16 @@
+{
+  "bead_id": "bf-98l41",
+  "agent": "claude-code-glm-4.7",
+  "provider": "zai",
+  "model": "glm-4.7",
+  "exit_code": -1,
+  "outcome": "crash",
+  "duration_ms": 183956,
+  "input_tokens": null,
+  "output_tokens": null,
+  "cost_usd": null,
+  "captured_at": "2026-08-04T23:52:46.163010613Z",
+  "trace_format": "claude_json",
+  "pruned": false,
+  "template_version": null
+}
