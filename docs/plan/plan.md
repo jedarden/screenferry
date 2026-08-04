@@ -811,6 +811,10 @@ size, so it is instant even for 4 TB.
 Deliberately **not** `crc32(payload)` — the research's original design — because the
 block layer made a full-payload pass unaffordable.
 
+**Encoding:** `streamId` is a 32-bit value internally (from CRC32). When displayed to users
+(e.g., in repair codes), it is encoded as **7-character Crockford base32** (see §7.6). This
+encoding is human-typable and avoids ambiguous characters (no I/L/O/U).
+
 ### 7.6 Repair code format (§8.2)
 
 A human types this, so it must be short, unambiguous, and self-checking.
@@ -923,7 +927,7 @@ they are goodput, not wire rate.
 The receiver knows exactly which blocks it lacks. The user reads a code off one screen and
 types it into the other:
 
-> **Receiver:** "Missing 3 blocks. Repair code: `SF1-1A2B3C4-3B-X4`"
+> **Receiver:** "Missing 3 blocks. Repair code: `SF1-3M7QKP9-3B-X4`"
 > **Sender:** [paste] → transmits only those blocks
 
 Turns a multi-hour extra pass into a sub-minute repair, needs no second camera and no
