@@ -968,6 +968,7 @@ This prevents losing all received blocks during the manifest acquisition window.
 | Platform | Practical quota |
 |---|---|
 | Chrome / Edge desktop | ~60% of free disk — multi-GB fine |
+| **Android Chrome** | **Reference receiver** per §13.2 — quota varies by device, typically 50–60% of available storage | 
 | Firefox | ~10% of disk (capped ~10 GB) |
 | **Safari / iOS** | **~1 GB** before prompting; expandable but user-gated |
 
@@ -1065,6 +1066,7 @@ now, before Phase 5 designs any UI — after that, taxonomies get retrofitted to
 | `E-K-OVERFLOW` | Sender K exceeds receiver's maximum (D26) | "Sender's chunk size is too large for this device. Use a smaller file or a more powerful receiver." | refuse, user adjusts |
 | `E-REPAIR-BOUNDS` | Repair code references blocks beyond file (§8.2) | "That repair code refers to chunks that don't exist. Check it and try again." | user re-enters |
 | `E-REPAIR-CODE` | Repair code checksum failed | "That repair code doesn't look right — check it and try again." | user re-enters |
+| `E-RESUME-MISMATCH` | Resume offered for a file the user no longer has (E18) | "That file isn't available. Start a new transfer or choose the correct file." | user selects correct file or starts new transfer |
 | `E-FILE-HASH` | Whole-file hash failed (E13) | "The file is complete but failed its final check — saved as unverified." | keep output, warn |
 | `E-WASM-LOAD` | Decoder failed to load | "The scanner failed to start. Reload the page." | user reloads |
 
@@ -1078,12 +1080,15 @@ now, before Phase 5 designs any UI — after that, taxonomies get retrofitted to
 
 | Code | Meaning | User-facing | Recovery |
 |---|---|---|---|
+| `E-ZERO-BYTE-FILE` | Zero-byte file (E1) | "That file is empty. Choose a file with content." | user selects different file |
 | `E-QUOTA-PREFLIGHT` | Not enough storage (§13.1) | "Not enough free space: this needs X, you have Y." | user frees space |
 | `E-QUOTA-EXHAUSTED` | Ran out mid-transfer (E10) | "Out of space. Saved what arrived — X of Y chunks." | partial export |
 | `E-SOURCE-CHANGED` | Source mutated (E5) | "The file changed while sending. Start again to avoid a corrupt copy." | restart required |
+| `E-INCOMPRESSIBLE-EXPANDS` | Incompressible input where deflate expands it (E4) | "That file doesn't compress well — sending it uncompressed instead." | automatic, continues with raw file |
 | `E-BACKGROUNDED` | Sender tab backgrounded (E8) | "Sending paused — keep this tab visible." | auto-resume on focus |
 | `E-CAMERA-LOST` | Permission revoked (E9) | "Camera access ended. Your progress is saved." | re-grant, resume |
 | `E-WAKELOCK-LOST` | Screen may sleep | "The screen may turn off. Adjust your sleep settings." | user acts |
+| `E-WORKER-CRASH` | Worker crash mid-block (E16) | "A worker process crashed. Retrying the last chunk." | automatic retry |
 | `E-DECOMPRESS` | Decompression failed (E15) | "Everything arrived but couldn't be unpacked. The raw data was kept." | keep artefact |
 
 ---
@@ -1140,7 +1145,7 @@ net goodput is **~70 KB/s** — well above the 20 KB/s budget.
 | Reception overhead vs K | **≤ +5%** mean, **≤ +12%** p99 (measured: +2.97% / +4.2%) | Phase 1, `sim/` |
 | **Sustained operation duration** | **≥ 20 min** sustained throughput within **30% of initial rate** on target phone (Pixel 6-class) without active cooling. This is the **minimum viable duration** before R11's thermal throttling mitigation (duty-cycle reduction) must engage. The system is not required to avoid throttling indefinitely—only to (a) sustain long enough for practical use and (b) detect and surface throttling when it occurs (E17b, D27). | Phase 3; validated by T-long-run |
 | **Warn threshold** (D23) | estimated duration **> 30 min** → explicit confirm | Phase 4 |
-| **Refuse threshold** (D23) | estimated duration **> 24 h**, or quota insufficient → refuse with an override | Phase 4 |
+| **Refuse threshold** (D23) | estimated duration **> 24 h per single transfer session**, or quota insufficient → refuse with an override | Phase 4 |
 
 ### 13.2 Benchmark denominator — the contract
 
