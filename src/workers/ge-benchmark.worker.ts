@@ -63,7 +63,7 @@ function degreeSampler(K: number, cap: number, rnd: () => number) {
       high = hi - 1;
     while (lo < high) {
       const mid = (lo + high) >> 1;
-      if (cum[mid] < r) lo = mid + 1;
+      if (cum[mid]! < r) lo = mid + 1;
       else high = mid;
     }
     return lo + 1;
@@ -92,7 +92,7 @@ function deriveKMax(measuredThroughputMBs: number, L: number, stage3RateKBs: num
 
   while (lo <= hi) {
     const mid = Math.floor((lo + hi) / 2);
-    const K = candidates[mid];
+    const K = candidates[mid]!;
     const required = requiredThroughputMBs(K, L, stage3RateBytes);
 
     if (measuredThroughputMBs >= required) {
@@ -170,18 +170,18 @@ function runBenchmark(config: ConfigMessage['config']): ResultMessage['result'] 
       for (let i = 0; i < K; i++) idx[i] = i;
       for (let i = 0; i < d; i++) {
         const j = i + ((rnd() * (K - i)) | 0);
-        const tmp = idx[i];
-        idx[i] = idx[j];
+        const tmp = idx[i]!;
+        idx[i] = idx[j]!;
         idx[j] = tmp;
-        mask[idx[i] >>> 5] ^= 1 << (idx[i] & 31);
+        mask[idx[i]! >>> 5]! ^= 1 << (idx[i]! & 31);
       }
       packets++;
 
       let w = MASKW - 1;
       for (;;) {
-        while (w >= 0 && mask[w] === 0) w--;
+        while (w >= 0 && mask[w]! === 0) w--;
         if (w < 0) break;
-        const bit = 31 - Math.clz32(mask[w]);
+        const bit = 31 - Math.clz32(mask[w]!);
         const p = (w << 5) | bit;
 
         const pm = pivMask[p];
@@ -192,8 +192,14 @@ function runBenchmark(config: ConfigMessage['config']): ResultMessage['result'] 
           break;
         }
         const pp = pivPay[p];
-        for (let i = 0; i <= w; i++) mask[i] ^= pm[i];
-        for (let i = 0; i < PAYW; i++) pay[i] ^= pp[i];
+        if (pp === null) {
+          // Should not happen if pivMask and pivPay are always set together
+          break;
+        }
+        const pmArr = pm as Uint32Array;
+        const ppArr = pp as Uint32Array;
+        for (let i = 0; i <= w; i++) mask[i]! ^= pmArr[i]!;
+        for (let i = 0; i < PAYW; i++) pay[i]! ^= ppArr[i]!;
         rowOps++;
       }
     }
