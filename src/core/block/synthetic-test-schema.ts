@@ -15,6 +15,7 @@
  */
 
 import { L, BLOCK } from '../params.js';
+import { SeededRng, SEED_ENV_VAR } from './seeded-rng.js';
 
 /**
  * Synthetic block metadata for verification.
@@ -281,12 +282,10 @@ export function generatePayload(
       break;
 
     case VALIDATION_PATTERNS.RANDOM:
-      // Simple seeded PRNG
-      let state = seed;
-      for (let i = 0; i < size; i++) {
-        state = (state * 1103515245 + 12345) & 0x7fffffff;
-        payload[i] = (state >> 16) & 0xff;
-      }
+      // Use deterministic seeded PRNG (PCG)
+      const rng = new SeededRng(seed);
+      const randomBytes = rng.nextBytes(size);
+      payload.set(randomBytes);
       break;
   }
 
@@ -427,6 +426,34 @@ export function sequenceToBuffer(sequence: SyntheticBlockSequence): Uint8Array {
   }
 
   return buffer;
+}
+
+/**
+ * Get seed from environment or use default.
+ *
+ * Checks SCREENFERRY_SEED environment variable for override.
+ * Provides consistent seed sourcing across synthetic data generation.
+ *
+ * @returns Seed value from environment or default
+ */
+export function getSeedFromEnv(): number {
+  return SeededRng.getSeedFromEnv();
+}
+
+/**
+ * Generate sequence with environment seed override.
+ *
+ * Convenience function that automatically applies SCREENFERRY_SEED
+ * if set, otherwise uses provided seed or default.
+ *
+ * @param config - Sequence configuration (seed is optional)
+ * @returns Synthetic block sequence
+ */
+export function generateSyntheticSequenceWithEnvSeed(
+  config: Omit<SequenceConfig, 'seed'>
+): SyntheticBlockSequence {
+  const envSeed = getSeedFromEnv();
+  return generateSyntheticSequence({ ...config, seed: envSeed });
 }
 
 /**
