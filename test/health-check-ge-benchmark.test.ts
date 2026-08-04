@@ -18,7 +18,7 @@ describe('GE Benchmark Runner', () => {
   describe('runGEBenchmark() simple runner', () => {
     it('runs synchronous benchmark and returns K value', async () => {
       // Test with synchronous runner since worker may not be available in test
-      const result = runGEBenchmarkSync();
+      const result = runGEBenchmarkSync(DEFAULT_CONFIG, true);
 
       expect(result.derivedKMax).toBeGreaterThan(0);
       expect(result.derivedKMax).toBeGreaterThanOrEqual(256);
@@ -32,14 +32,14 @@ describe('GE Benchmark Runner', () => {
         maxDuration: 5000, // 5 seconds
       };
 
-      const result = runGEBenchmarkSync(config);
+      const result = runGEBenchmarkSync(config, true);
 
       // Should complete within the max duration (with some tolerance)
       expect(result.duration).toBeLessThan(config.maxDuration! * 1.5);
     });
 
     it('returns structured result with all required fields', () => {
-      const result = runGEBenchmarkSync();
+      const result = runGEBenchmarkSync(DEFAULT_CONFIG, true);
 
       expect(result).toMatchObject({
         deviceSignature: expect.any(String),
@@ -59,7 +59,7 @@ describe('GE Benchmark Runner', () => {
         phoneFactor: 2,
       };
 
-      const result = runGEBenchmarkSync(customConfig);
+      const result = runGEBenchmarkSync(customConfig, true);
 
       expect(result.derivedKMax).toBeGreaterThan(0);
       // With lower phone factor (more aggressive), should get higher throughput
@@ -76,7 +76,7 @@ describe('GE Benchmark Runner', () => {
       }
 
       // First, cache a result
-      const syncResult = runGEBenchmarkSync();
+      const syncResult = runGEBenchmarkSync(DEFAULT_CONFIG, true);
 
       // Now run the full function which should use cache
       const kMax = await getKMaxWithFallback();

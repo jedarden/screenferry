@@ -5,7 +5,7 @@
  * and fallback behavior per docs/notes/ge-benchmark-spec.md.
  */
 
-import {describe, it, expect, beforeEach, afterEach} from 'vitest';
+import {describe, it, expect, beforeEach, afterEach, vi} from 'vitest';
 import {
   DEFAULT_CONFIG,
   BENCHMARK_VERSION,
@@ -20,6 +20,8 @@ import {
   clearBenchmarkCache,
   getKMaxWithFallback,
   runGEBenchmarkSync,
+  ThermalStateChecker,
+  verifyThrottledState,
   type GEBenchmarkConfig,
   type GEBenchmarkResult,
   type DeviceSignature,
@@ -392,7 +394,7 @@ describe('GE Benchmark', () => {
 
   describe('Synchronous benchmark', () => {
     it('runs benchmark with default config', () => {
-      const result = runGEBenchmarkSync();
+      const result = runGEBenchmarkSync(DEFAULT_CONFIG, true);
 
       expect(result).toMatchObject({
         deviceSignature: expect.any(String),
@@ -419,8 +421,8 @@ describe('GE Benchmark', () => {
         phoneFactor: 4,
       };
 
-      const resultNoFactor = runGEBenchmarkSync(configNoFactor);
-      const resultWithFactor = runGEBenchmarkSync(configWithFactor);
+      const resultNoFactor = runGEBenchmarkSync(configNoFactor, true);
+      const resultWithFactor = runGEBenchmarkSync(configWithFactor, true);
 
       // With phone factor, measured throughput should be lower
       expect(resultWithFactor.measuredThroughputMBs)
@@ -428,7 +430,7 @@ describe('GE Benchmark', () => {
     });
 
     it('derives reasonable K_max from measurements', () => {
-      const result = runGEBenchmarkSync();
+      const result = runGEBenchmarkSync(DEFAULT_CONFIG, true);
 
       // Even with phone factor, desktop should support at least K=512
       expect(result.derivedKMax).toBeGreaterThanOrEqual(512);
@@ -445,8 +447,8 @@ describe('GE Benchmark', () => {
         trials: 3,
       };
 
-      const resultFast = runGEBenchmarkSync(configFast);
-      const resultMultiple = runGEBenchmarkSync(configMultiple);
+      const resultFast = runGEBenchmarkSync(configFast, true);
+      const resultMultiple = runGEBenchmarkSync(configMultiple, true);
 
       // Both should complete without error
       expect(resultFast.derivedKMax).toBeGreaterThan(0);
@@ -455,12 +457,55 @@ describe('GE Benchmark', () => {
 
     it('completes within reasonable time', () => {
       const start = performance.now();
-      const result = runGEBenchmarkSync();
+      const result = runGEBenchmarkSync(DEFAULT_CONFIG, true);
       const elapsed = performance.now() - start;
 
       // Should complete within 10 seconds even on slow hardware
       expect(elapsed).toBeLessThan(10000);
       expect(result.duration).toBeLessThan(10000);
+    });
+
+    it('throws error when thermal verification required and not skipped', () => {
+      // By default, requireThrottledState is true
+      expect(() => runGEBenchmarkSync()).toThrow();
+      expect(() => runGEBenchmarkSync()).toThrow('Thermal state verification is required');
+    });
+
+    it('allows running when thermal verification disabled', () => {
+      const config: GEBenchmarkConfig = {
+        ...DEFAULT_CONFIG,
+        requireThrottledState: false,
+      };
+
+      // Should not throw when verification is disabled
+      expect(() => runGEBenchmarkSync(config)).not.toThrow();
+    });
+
+    it('captures thermal state at start and end', () => {
+      const result = runGEBenchmarkSync(DEFAULT_CONFIG, true);
+
+      // Should have thermal state info
+      expect(result).toHaveProperty('thermalStateStart');
+      expect(result).toHaveProperty('thermalStateEnd');
+
+      // Thermal state should be an object with all required properties
+      // In Node.js, baselineFps will be 60 (set by startMonitoring in Node env)
+      const hasRequiredProperties = (state: any) => {
+        return state.hasOwnProperty('baselineFps') &&
+               state.hasOwnProperty('currentFps') &&
+               state.hasOwnProperty('fpsDrop') &&
+               state.hasOwnProperty('isThrottled');
+      };
+
+      expect(hasRequiredProperties(result.thermalStateStart)).toBe(true);
+      expect(typeof result.thermalStateStart.currentFps).toBe('number');
+      expect(typeof result.thermalStateStart.fpsDrop).toBe('number');
+      expect(typeof result.thermalStateStart.isThrottled).toBe('boolean');
+
+      expect(hasRequiredProperties(result.thermalStateEnd)).toBe(true);
+      expect(typeof result.thermalStateEnd.currentFps).toBe('number');
+      expect(typeof result.thermalStateEnd.fpsDrop).toBe('number');
+      expect(typeof result.thermalStateEnd.isThrottled).toBe('boolean');
     });
   });
 
@@ -525,6 +570,135 @@ describe('GE Benchmark', () => {
 
     it('has benchmark version defined', () => {
       expect(BENCHMARK_VERSION).toBe(1);
+    });
+
+    it('includes thermal verification config by default', () => {
+      expect(DEFAULT_CONFIG.requireThrottledState).toBe(true);
+      expect(DEFAULT_CONFIG.thermalWaitTimeout).toBe(60000);
+      expect(DEFAULT_CONFIG.thermalFpsDropThreshold).toBe(0.5);
+    });
+  });
+
+  describe('Thermal State Verification', () => {
+    describe('ThermalStateChecker', () => {
+      it('creates a thermal state checker with default threshold', () => {
+        const checker = new ThermalStateChecker();
+        expect(checker).toBeDefined();
+      });
+
+      it('creates a thermal state checker with custom threshold', () => {
+        const checker = new ThermalStateChecker(0.3);
+        expect(checker).toBeDefined();
+      });
+
+      it('starts and stops monitoring', () => {
+        const checker = new ThermalStateChecker();
+
+        expect(() => checker.startMonitoring()).not.toThrow();
+        expect(() => checker.stopMonitoring()).not.toThrow();
+      });
+
+      it('returns false when no baseline is established', () => {
+        const checker = new ThermalStateChecker();
+        expect(checker.isThrottled()).toBe(false);
+      });
+
+      it('provides state info', () => {
+        const checker = new ThermalStateChecker(0.5);
+        const stateInfo = checker.getStateInfo();
+
+        expect(stateInfo).toHaveProperty('baselineFps');
+        expect(stateInfo).toHaveProperty('currentFps');
+        expect(stateInfo).toHaveProperty('fpsDrop');
+        expect(stateInfo).toHaveProperty('isThrottled');
+        expect(stateInfo.baselineFps).toBeNull();
+        expect(stateInfo.currentFps).toBe(0);
+        expect(stateInfo.fpsDrop).toBe(0);
+        expect(stateInfo.isThrottled).toBe(false);
+      });
+
+      it('updates baseline fps when monitoring starts', () => {
+        const checker = new ThermalStateChecker();
+
+        // In Node.js, baseline is set immediately in startMonitoring
+        checker.startMonitoring();
+
+        const stateInfo = checker.getStateInfo();
+        // In Node.js environment, baseline should be set (to 60fps by default)
+        // In browser, it stays null until frames are measured
+        if (typeof requestAnimationFrame === 'undefined') {
+          expect(stateInfo.baselineFps).toBe(60);
+        } else {
+          // In browser, baseline starts null and gets set after first frame
+          expect(stateInfo.baselineFps).toBeNull();
+        }
+        checker.stopMonitoring();
+      });
+    });
+
+    describe('verifyThrottledState', () => {
+      it('resolves immediately when thermal verification disabled', async () => {
+        const config: GEBenchmarkConfig = {
+          ...DEFAULT_CONFIG,
+          requireThrottledState: false,
+        };
+
+        await expect(verifyThrottledState(config)).resolves.toBeUndefined();
+      });
+
+      it('rejects when throttled state not detected within timeout', async () => {
+        // In Node.js environment, thermal state detection doesn't work as expected
+        // because requestAnimationFrame is not available. Skip this test.
+        if (typeof requestAnimationFrame === 'undefined') {
+          console.log('Skipping thermal timeout test in Node environment (no rAF)');
+          return;
+        }
+
+        // In a browser environment with requestAnimationFrame:
+        // Create a config with a very short timeout for testing
+        const config: GEBenchmarkConfig = {
+          ...DEFAULT_CONFIG,
+          thermalWaitTimeout: 100, // 100ms timeout
+        };
+
+        // Should reject because device won't throttle in 100ms
+        await expect(verifyThrottledState(config)).rejects.toThrow();
+      }, 10000);
+    });
+
+    describe('Benchmark with thermal verification', () => {
+      it('includes thermal verification in default config', () => {
+        expect(DEFAULT_CONFIG.requireThrottledState).toBe(true);
+        expect(DEFAULT_CONFIG.thermalWaitTimeout).toBe(60000);
+        expect(DEFAULT_CONFIG.thermalFpsDropThreshold).toBe(0.5);
+      });
+
+      it('allows disabling thermal verification', () => {
+        const config: GEBenchmarkConfig = {
+          ...DEFAULT_CONFIG,
+          requireThrottledState: false,
+        };
+
+        expect(config.requireThrottledState).toBe(false);
+      });
+
+      it('configures custom thermal timeout', () => {
+        const config: GEBenchmarkConfig = {
+          ...DEFAULT_CONFIG,
+          thermalWaitTimeout: 30000,
+        };
+
+        expect(config.thermalWaitTimeout).toBe(30000);
+      });
+
+      it('configures custom FPS drop threshold', () => {
+        const config: GEBenchmarkConfig = {
+          ...DEFAULT_CONFIG,
+          thermalFpsDropThreshold: 0.3,
+        };
+
+        expect(config.thermalFpsDropThreshold).toBe(0.3);
+      });
     });
   });
 });

@@ -43,6 +43,10 @@ export interface GEBenchmarkResult {
   version: number;
   /** How long the benchmark took to complete (ms) */
   duration: number;
+  /** Thermal state at benchmark start (if available) */
+  thermalStateStart?: ThermalState;
+  /** Thermal state at benchmark end (if available) */
+  thermalStateEnd?: ThermalState;
 }
 
 export interface GEValidationResult {
@@ -72,6 +76,9 @@ export const DEFAULT_CONFIG: GEBenchmarkConfig = {
   L: 256,
   trials: 3,
   maxDuration: 30000, // 30 seconds
+  requireThrottledState: true,
+  thermalWaitTimeout: 60000, // 60 seconds
+  thermalFpsDropThreshold: 0.5, // 50% FPS drop
 };
 
 /** Benchmark algorithm version - increment to invalidate cached results */
@@ -82,6 +89,270 @@ export const FALLBACK_K_MAX = 512;
 
 /** Cache TTL in milliseconds (30 days) */
 export const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+/**
+ * Thermal state information.
+ */
+export interface ThermalState {
+  /** Baseline FPS measured when not throttled */
+  baselineFps: number | null;
+  /** Current FPS */
+  currentFps: number;
+  /** FPS drop ratio (0 = no drop, 1 = 100% drop) */
+  fpsDrop: number;
+  /** Whether device is in throttled state */
+  isThrottled: boolean;
+}
+
+/**
+ * Thermal state checker.
+ *
+ * Monitors requestAnimationFrame rate to detect thermal throttling by
+ * measuring FPS drops relative to a baseline.
+ */
+export class ThermalStateChecker {
+  private baselineFps: number | null = null;
+  private currentFps: number = 0;
+  private fpsDrop: number = 0;
+  private isThrottledState: boolean = false;
+  private monitoring: boolean = false;
+  private rafId: number | null = null;
+  private frameCount: number = 0;
+  private lastFrameTime: number | null = null;
+  private fpsSamples: number[] = [];
+  private readonly fpsDropThreshold: number;
+  private readonly maxSamples: number = 60; // Sample over ~1 second at 60fps
+  private readonly sampleWindow: number = 1000; // 1 second window
+  private sampleStartTime: number | null = null;
+
+  constructor(fpsDropThreshold: number = 0.5) {
+    this.fpsDropThreshold = fpsDropThreshold;
+  }
+
+  /**
+   * Start monitoring thermal state via requestAnimationFrame.
+   */
+  startMonitoring(): void {
+    if (this.monitoring) {
+      return;
+    }
+
+    // In Node.js environment, set a baseline immediately since rAF isn't available
+    if (typeof requestAnimationFrame === 'undefined') {
+      this.monitoring = true;
+      // Set a reasonable baseline for Node.js (no thermal throttling typically)
+      this.baselineFps = 60;
+      this.currentFps = 60;
+      this.fpsDrop = 0;
+      this.isThrottledState = false;
+      console.log('[ThermalStateChecker] Running in Node.js environment - no thermal monitoring available');
+      return;
+    }
+
+    this.monitoring = true;
+    this.frameCount = 0;
+    this.lastFrameTime = performance.now();
+    this.sampleStartTime = performance.now();
+    this.fpsSamples = [];
+    this.measureFrame();
+  }
+
+  /**
+   * Stop monitoring thermal state.
+   */
+  stopMonitoring(): void {
+    if (this.rafId !== null) {
+      if (typeof cancelAnimationFrame === 'function') {
+        cancelAnimationFrame(this.rafId);
+      }
+      this.rafId = null;
+    }
+    this.monitoring = false;
+  }
+
+  /**
+   * Measure frame rate via requestAnimationFrame.
+   */
+  private measureFrame = (): void => {
+    if (!this.monitoring) {
+      return;
+    }
+
+    const now = performance.now();
+
+    if (this.lastFrameTime !== null) {
+      const frameDelta = now - this.lastFrameTime;
+      const fps = 1000 / frameDelta;
+      this.fpsSamples.push(fps);
+      this.frameCount++;
+
+      // Keep only recent samples within the window
+      if (this.sampleStartTime !== null) {
+        const windowElapsed = now - this.sampleStartTime;
+        if (windowElapsed > this.sampleWindow) {
+          // Remove samples that are outside the window
+          while (this.fpsSamples.length > 0 && windowElapsed > this.sampleWindow) {
+            this.fpsSamples.shift();
+            this.sampleStartTime = (this.sampleStartTime || 0) + (1000 / 60); // Approximate
+          }
+        }
+      }
+    }
+
+    this.lastFrameTime = now;
+
+    // Update metrics every ~500ms
+    if (this.frameCount % 30 === 0) {
+      this.updateMetrics();
+    }
+
+    // Continue monitoring
+    if (typeof requestAnimationFrame === 'function') {
+      this.rafId = requestAnimationFrame(this.measureFrame);
+    }
+  };
+
+  /**
+   * Update thermal state metrics from collected samples.
+   */
+  private updateMetrics(): void {
+    if (this.fpsSamples.length === 0) {
+      return;
+    }
+
+    // Calculate average FPS from samples
+    const avgFps = this.fpsSamples.reduce((a, b) => a + b, 0) / this.fpsSamples.length;
+    this.currentFps = avgFps;
+
+    // Establish baseline on first measurement
+    if (this.baselineFps === null) {
+      this.baselineFps = avgFps;
+      this.isThrottledState = false;
+      this.fpsDrop = 0;
+      return;
+    }
+
+    // Calculate FPS drop ratio
+    const drop = this.baselineFps - avgFps;
+    this.fpsDrop = Math.max(0, drop / this.baselineFps);
+
+    // Determine throttled state
+    this.isThrottledState = this.fpsDrop >= this.fpsDropThreshold;
+  }
+
+  /**
+   * Check if device is currently in throttled state.
+   */
+  isThrottled(): boolean {
+    return this.isThrottledState;
+  }
+
+  /**
+   * Get current thermal state information.
+   */
+  getStateInfo(): ThermalState {
+    return {
+      baselineFps: this.baselineFps,
+      currentFps: this.currentFps,
+      fpsDrop: this.fpsDrop,
+      isThrottled: this.isThrottledState,
+    };
+  }
+
+  /**
+   * Wait until device enters throttled state.
+   *
+   * Polls every 100ms to check if throttled state is detected.
+   * Rejects if timeout is reached.
+   */
+  async waitForThrottledState(timeoutMs: number = 60000): Promise<void> {
+    const startTime = performance.now();
+    const pollInterval = 100; // Check every 100ms
+
+    return new Promise((resolve, reject) => {
+      const checkInterval = setInterval(() => {
+        const elapsed = performance.now() - startTime;
+
+        if (this.isThrottled()) {
+          clearInterval(checkInterval);
+          console.log(`[Thermal] ✓ Throttled state detected after ${Math.round(elapsed)}ms`);
+          resolve();
+        } else if (elapsed >= timeoutMs) {
+          clearInterval(checkInterval);
+          const state = this.getStateInfo();
+          reject(
+            new Error(
+              `Thermal throttling verification timeout (${timeoutMs}ms). ` +
+                `Current state: baseline=${state.baselineFps?.toFixed(1)}fps, ` +
+                `current=${state.currentFps.toFixed(1)}fps, ` +
+                `drop=${(state.fpsDrop * 100).toFixed(1)}%, ` +
+                `threshold=${(this.fpsDropThreshold * 100).toFixed(1)}%`
+            )
+          );
+        }
+      }, pollInterval);
+    });
+  }
+
+  /**
+   * Reset the baseline FPS measurement.
+   *
+   * Useful if you want to re-establish baseline after conditions change.
+   */
+  resetBaseline(): void {
+    this.baselineFps = null;
+    this.fpsSamples = [];
+    this.frameCount = 0;
+  }
+}
+
+/**
+ * Verify that the device is in a throttled state before running benchmark.
+ *
+ * This function monitors thermal state and waits until throttling is detected,
+ * ensuring benchmarks run under consistent thermal conditions.
+ *
+ * @param config - Benchmark configuration
+ * @returns Promise that resolves when throttled state is confirmed
+ * @throws Error if throttled state not detected within timeout
+ */
+export async function verifyThrottledState(
+  config: GEBenchmarkConfig = DEFAULT_CONFIG
+): Promise<void> {
+  // Skip verification if disabled
+  if (config.requireThrottledState === false) {
+    console.log('[Thermal] Verification disabled by config');
+    return;
+  }
+
+  console.log('[Thermal] Starting throttled state verification...');
+
+  const checker = new ThermalStateChecker(config.thermalFpsDropThreshold);
+  const timeout = config.thermalWaitTimeout ?? DEFAULT_CONFIG.thermalWaitTimeout;
+
+  try {
+    // Start monitoring FPS
+    checker.startMonitoring();
+
+    console.log(
+      `[Thermal] Waiting for throttled state (threshold: ${(config.thermalFpsDropThreshold! * 100).toFixed(0)}% FPS drop, timeout: ${timeout}ms)...`
+    );
+
+    // Wait for throttled state
+    await checker.waitForThrottledState(timeout);
+
+    const state = checker.getStateInfo();
+    console.log(
+      `[Thermal] ✓ Verification complete - ` +
+        `baseline=${state.baselineFps?.toFixed(1)}fps, ` +
+        `current=${state.currentFps.toFixed(1)}fps, ` +
+        `drop=${(state.fpsDrop * 100).toFixed(1)}%`
+    );
+  } finally {
+    // Always stop monitoring
+    checker.stopMonitoring();
+  }
+}
 
 /** Device signature for caching */
 export interface DeviceSignature {
@@ -403,8 +674,11 @@ export async function getKMaxWithFallback(
       return cached.derivedKMax;
     }
 
-    // No cached result - run benchmark
-    console.log('No cached benchmark result, running fresh benchmark...');
+    // Verify thermal state before running benchmark
+    await verifyThrottledState(config);
+
+    // No cached result - run benchmark with thermal verification
+    console.log('No cached benchmark result, running fresh benchmark with thermal verification...');
     const result = await runGEBenchmarkInWorker(config);
     await cacheBenchmarkResult(sig, result);
 
@@ -431,7 +705,7 @@ export async function runGEBenchmark(
   try {
     const start = performance.now();
 
-    // Run the benchmark in a worker
+    // Run the benchmark in a worker (includes thermal verification)
     const result = await runGEBenchmarkInWorker(config);
 
     const duration = performance.now() - start;
@@ -443,6 +717,10 @@ export async function runGEBenchmark(
     // If worker fails, try synchronous fallback
     try {
       console.warn('Worker benchmark failed, trying synchronous fallback', e);
+
+      // Still verify thermal state even for sync fallback
+      await verifyThrottledState(config);
+
       return runGEBenchmarkSync(config);
     } catch (syncError) {
       throw new Error(
@@ -464,6 +742,13 @@ export async function runGEBenchmark(
 export async function runGEBenchmarkInWorker(
   config: GEBenchmarkConfig = DEFAULT_CONFIG
 ): Promise<GEBenchmarkResult> {
+  // Verify thermal state before running benchmark
+  await verifyThrottledState(config);
+
+  // Create thermal state checker for benchmark monitoring
+  const thermalChecker = new ThermalStateChecker(config.thermalFpsDropThreshold);
+  thermalChecker.startMonitoring();
+
   // Create worker URL from the worker file
   const workerUrl = new URL('./workers/ge-benchmark.worker.ts', import.meta.url);
 
@@ -471,6 +756,7 @@ export async function runGEBenchmarkInWorker(
 
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
+      thermalChecker.stopMonitoring();
       worker.terminate();
       reject(new Error('GE benchmark timeout (30s)'));
     }, 30000); // 30 second timeout
@@ -479,16 +765,32 @@ export async function runGEBenchmarkInWorker(
       clearTimeout(timeout);
 
       if (e.data.type === 'result') {
-        resolve(e.data.result as GEBenchmarkResult);
+        const result = e.data.result as GEBenchmarkResult;
+
+        // Capture thermal state at end
+        thermalChecker.stopMonitoring();
+        result.thermalStateStart = thermalChecker.getStateInfo();
+        result.thermalStateEnd = thermalChecker.getStateInfo();
+
+        console.log(
+          `[Benchmark] Thermal state - start: baseline=${result.thermalStateStart.baselineFps?.toFixed(1)}fps, ` +
+          `current=${result.thermalStateStart.currentFps.toFixed(1)}fps, ` +
+          `throttled=${result.thermalStateStart.isThrottled}`
+        );
+
+        resolve(result);
       } else if (e.data.type === 'error') {
+        thermalChecker.stopMonitoring();
         reject(new Error(e.data.error));
       } else {
+        thermalChecker.stopMonitoring();
         reject(new Error(`Unexpected worker message type: ${e.data.type}`));
       }
     };
 
     worker.onerror = (error) => {
       clearTimeout(timeout);
+      thermalChecker.stopMonitoring();
       worker.terminate();
       reject(new Error(`Worker error: ${error.message}`));
     };
@@ -512,6 +814,12 @@ export async function runGEBenchmarkInWorker(
     } catch {
       // Worker already terminated
     }
+    // Always stop thermal monitoring
+    try {
+      thermalChecker.stopMonitoring();
+    } catch {
+      // Thermal checker already stopped
+    }
   });
 }
 
@@ -524,15 +832,45 @@ export async function runGEBenchmarkInWorker(
  * Ported from spike/ge-bench.mjs
  *
  * @param config - Benchmark configuration
+ * @param skipThermalVerification - Skip thermal state verification (for testing only)
  * @returns Benchmark result
+ * @throws Error if thermal verification required and device not throttled
  */
 export function runGEBenchmarkSync(
-  config: GEBenchmarkConfig = DEFAULT_CONFIG
+  config: GEBenchmarkConfig = DEFAULT_CONFIG,
+  skipThermalVerification: boolean = false
 ): GEBenchmarkResult {
+  console.log(`[Benchmark Sync] Starting synchronous GE benchmark with config: targetK=${config.targetK}, L=${config.L}, trials=${config.trials}, phoneFactor=${config.phoneFactor}`);
+
+  // Verify thermal state before running benchmark (unless skipped for testing)
+  if (config.requireThrottledState !== false && !skipThermalVerification) {
+    console.log('[Benchmark Sync] ERROR: Thermal verification required but cannot be performed synchronously');
+    console.log('[Benchmark Sync] Solution: Use runGEBenchmark() or runGEBenchmarkInWorker() for proper thermal verification');
+    throw new Error(
+      'Thermal state verification is required but cannot be performed in synchronous mode. ' +
+      'Use runGEBenchmark() or runGEBenchmarkInWorker() instead, or pass skipThermalVerification=true for testing only.'
+    );
+  }
+
+  if (skipThermalVerification) {
+    console.log('[Benchmark Sync] WARNING: Thermal verification skipped - benchmark may not run in throttled state');
+  }
+
   const {targetK: K, L, cap = 64} = config;
   const MASKW = Math.ceil(K / 32);
   const PAYW = Math.ceil(L / 4);
   const ROWB = MASKW * 4 + PAYW * 4; // bytes touched per row operation
+
+  // Start thermal monitoring
+  const thermalChecker = new ThermalStateChecker(config.thermalFpsDropThreshold);
+  thermalChecker.startMonitoring();
+  const thermalStateStart = thermalChecker.getStateInfo();
+
+  console.log(
+    `[Benchmark Sync] Thermal state at start - baseline=${thermalStateStart.baselineFps?.toFixed(1)}fps, ` +
+    `current=${thermalStateStart.currentFps.toFixed(1)}fps, ` +
+    `throttled=${thermalStateStart.isThrottled}`
+  );
 
   const benchmarkStart = performance.now(); // Track total duration
 
@@ -657,6 +995,18 @@ export function runGEBenchmarkSync(
 
   const duration = performance.now() - benchmarkStart;
 
+  // Stop thermal monitoring and capture final state
+  thermalChecker.stopMonitoring();
+  const thermalStateEnd = thermalChecker.getStateInfo();
+
+  console.log(
+    `[Benchmark Sync] Thermal state at end - baseline=${thermalStateEnd.baselineFps?.toFixed(1)}fps, ` +
+    `current=${thermalStateEnd.currentFps.toFixed(1)}fps, ` +
+    `throttled=${thermalStateEnd.isThrottled}`
+  );
+
+  console.log(`[Benchmark Sync] ✓ Complete - Duration: ${duration.toFixed(0)}ms, K_max: ${derivedKMax}, Throughput: ${measuredThroughputMBs.toFixed(2)} MB/s`);
+
   return {
     deviceSignature: signatureToKey(createDeviceSignature()),
     measuredThroughputMBs,
@@ -664,5 +1014,7 @@ export function runGEBenchmarkSync(
     timestamp: Date.now(),
     version: BENCHMARK_VERSION,
     duration,
+    thermalStateStart,
+    thermalStateEnd,
   };
 }
