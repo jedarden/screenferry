@@ -56,8 +56,10 @@ export interface BaseRecvState {
    * Bitmap tracking which blocks have been written to output.
    * May lag behind `complete` during write failures or partial flush.
    * Same size/structure as `complete` bitmap.
+   *
+   * Optional for backward compatibility with code that doesn't use write tracking.
    */
-  writtenBlocks: Uint8Array;
+  writtenBlocks?: Uint8Array;
 }
 
 /**
@@ -165,7 +167,7 @@ export interface ReceivingState extends BaseRecvState {
     switchThreshold: number;   // N consecutive packets to trigger block switch (default 32)
   } | null;
   /** GE decoder state for manifest block (null if no manifest block active). */
-  manifestActive: {
+  manifestActive?: {
     pivots: Map<number, GERow>;
     rank: number;
   } | null;
@@ -602,6 +604,9 @@ export class WritePositionTrackerImpl implements WritePositionTracker {
  * Check if a block has been written to output.
  */
 export function isBlockWritten(state: BaseRecvState, blockIndex: number): boolean {
+  if (!state.writtenBlocks) {
+    return false;
+  }
   const byteIndex = Math.floor(blockIndex / 8);
   const bitIndex = blockIndex % 8;
   return (state.writtenBlocks[byteIndex]! & (1 << bitIndex)) !== 0;
@@ -611,6 +616,9 @@ export function isBlockWritten(state: BaseRecvState, blockIndex: number): boolea
  * Mark a block as written to output.
  */
 export function markBlockWritten(state: BaseRecvState, blockIndex: number): void {
+  if (!state.writtenBlocks) {
+    return;
+  }
   const byteIndex = Math.floor(blockIndex / 8);
   const bitIndex = blockIndex % 8;
   state.writtenBlocks[byteIndex]! |= (1 << bitIndex);
@@ -620,6 +628,9 @@ export function markBlockWritten(state: BaseRecvState, blockIndex: number): void
  * Get count of blocks written so far.
  */
 export function getBlocksWrittenCount(state: BaseRecvState): number {
+  if (!state.writtenBlocks) {
+    return 0;
+  }
   let count = 0;
   for (const byte of state.writtenBlocks) {
     count += popcount(byte);
@@ -644,6 +655,10 @@ export function getUnwrittenBlocks(state: BaseRecvState): number[] {
   const unwritten: number[] = [];
   const blockCount = state.meta.blockCount;
 
+  if (!state.writtenBlocks) {
+    return unwritten;
+  }
+
   for (let i = 0; i < blockCount; i++) {
     const byteIndex = Math.floor(i / 8);
     const bitIndex = i % 8;
@@ -664,6 +679,10 @@ export function getUnwrittenBlocks(state: BaseRecvState): number[] {
  */
 export function areAllBlocksWritten(state: BaseRecvState): boolean {
   const blockCount = state.meta.blockCount;
+
+  if (!state.writtenBlocks) {
+    return false;
+  }
 
   for (let i = 0; i < blockCount; i++) {
     const byteIndex = Math.floor(i / 8);
@@ -752,6 +771,9 @@ export async function writeTrackedBlock(
  * @param blockIndex - Block index to reset
  */
 export function resetBlockWriteTracking(state: BaseRecvState, blockIndex: number): void {
+  if (!state.writtenBlocks) {
+    return;
+  }
   const byteIndex = Math.floor(blockIndex / 8);
   const bitIndex = blockIndex % 8;
   state.writtenBlocks[byteIndex]! &= ~(1 << bitIndex);
@@ -792,7 +814,7 @@ export interface ResumeToken {
   streamId: number;
   meta: BeaconMeta;
   complete: Uint8Array;  // bitmap of complete blocks
-  writtenBlocks: Uint8Array;  // bitmap of written blocks
+  writtenBlocks?: Uint8Array;  // bitmap of written blocks (optional for backward compatibility)
   manifest: BlockHashManifest | null;  // block hashes for verification (may be null if not yet acquired)
   timestamp: number;
 }
@@ -916,26 +938,34 @@ export function createResumeToken(state: RecvSessionState): ResumeToken | null {
   }
 
   if (state.type === 'paused') {
-    return {
+    const token: ResumeToken = {
       streamId: state.previousState.streamId,
       meta: state.previousState.meta,
       complete: state.previousState.complete,
-      writtenBlocks: state.previousState.writtenBlocks,
       manifest: state.previousState.manifest,  // Persist manifest if available
       timestamp: Date.now(),
     };
+    // Only include writtenBlocks if it exists (exactOptionalPropertyTypes compliance)
+    if (state.previousState.writtenBlocks) {
+      token.writtenBlocks = state.previousState.writtenBlocks;
+    }
+    return token;
   }
 
   if (state.type === 'complete') {
     // Complete state always has the manifest (verified before completion)
-    return {
+    const token: ResumeToken = {
       streamId: state.streamId,
       meta: state.meta,
       complete: state.complete,
-      writtenBlocks: state.writtenBlocks,
       manifest: null,  // Complete state has verified blocks, manifest not needed for resume
       timestamp: Date.now(),
     };
+    // Only include writtenBlocks if it exists (exactOptionalPropertyTypes compliance)
+    if (state.writtenBlocks) {
+      token.writtenBlocks = state.writtenBlocks;
+    }
+    return token;
   }
 
   return null;
