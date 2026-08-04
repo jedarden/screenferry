@@ -5,7 +5,11 @@ Quick reference for thermal throttling trigger scripts.
 ## Quick Start
 
 ```bash
-# Automated workflow (recommended)
+# Simple thermal throttling trigger (recommended for most use cases)
+bash scripts/trigger-thermal-throttle.sh       # Auto-detect and sustain throttling
+bash scripts/trigger-thermal-throttle.sh 900    # Custom timeout (15 minutes)
+
+# Automated workflow (comprehensive)
 ./scripts/thermal-throttle-workflow.sh quick   # 5 minutes
 ./scripts/thermal-throttle-workflow.sh full    # 15 minutes
 
@@ -27,6 +31,14 @@ Thermal monitoring and snapshot tool
 - `monitor` - Continuous monitoring (interval duration)
 - `baseline` - Capture pre-stress state
 - `compare` - Compare current vs baseline
+
+### `trigger-thermal-throttle.sh`
+Simple thermal throttling trigger utility (recommended for most use cases)
+- Automatically triggers and sustains thermal throttling
+- Provides clear real-time feedback with throttling status
+- Can be integrated into benchmark workflows
+- Returns success when throttling is sustained for 30+ seconds
+- Usage: `bash trigger-thermal-throttle.sh [timeout_seconds]`
 
 ### `stress-android.sh`
 CPU/GPU stress test controller
