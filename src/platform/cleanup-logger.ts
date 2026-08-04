@@ -74,6 +74,7 @@ export interface CleanupMetrics {
     streamId?: number;
     filename?: string;
     error: string;
+    errorType?: string;
     timestamp: string;
   }>;
 }
@@ -189,11 +190,17 @@ export class CleanupLogger {
   /**
    * Record an error.
    */
-  recordError(streamId: number | undefined, filename: string | undefined, error: string): void {
+  recordError(
+    streamId: number | undefined,
+    filename: string | undefined,
+    error: string,
+    errorType?: string
+  ): void {
     this.metrics.errors!.push({
       streamId,
       filename,
       error,
+      errorType,
       timestamp: new Date().toISOString(),
     });
   }
@@ -271,7 +278,8 @@ export function formatCleanupMetricsSummary(metrics: CleanupMetrics): string {
   if (metrics.errors.length > 0) {
     lines.push('', 'Errors:');
     metrics.errors.forEach((err, i) => {
-      lines.push(`  ${i + 1}. ${err.filename || 'unknown'} (${err.streamId || 'unknown'}): ${err.error}`);
+      const errorType = err.errorType ? ` [${err.errorType}]` : '';
+      lines.push(`  ${i + 1}. ${err.filename || 'unknown'} (${err.streamId || 'unknown'}):${errorType} ${err.error}`);
     });
   }
 

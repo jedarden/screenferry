@@ -37,6 +37,7 @@
  */
 
 import type { OrphanedFile, StorageManager } from './storage.js';
+import { CleanupLogger, type CleanupMetrics } from './cleanup-logger.js';
 
 /**
  * Result of a single file deletion attempt.
@@ -50,6 +51,8 @@ export interface DeletionResult {
   success: boolean;
   /** Error message if deletion failed */
   error?: string;
+  /** Error type/name if deletion failed (e.g., 'NotFoundError', 'PermissionError') */
+  errorType?: string;
   /** Timestamp of deletion attempt */
   timestamp: number;
   /** Duration of deletion attempt in milliseconds */
@@ -117,10 +120,16 @@ export interface CleanupProgressCallback {
 export class AsyncCleanupWorker {
   private config: CleanupWorkerConfig;
   private storageManager: StorageManager;
+  private logger: CleanupLogger;
 
-  constructor(storageManager: StorageManager, config: Partial<CleanupWorkerConfig> = {}) {
+  constructor(
+    storageManager: StorageManager,
+    config: Partial<CleanupWorkerConfig> = {},
+    logger?: CleanupLogger
+  ) {
     this.storageManager = storageManager;
     this.config = { ...DEFAULT_CONFIG, ...config };
+    this.logger = logger || new CleanupLogger('async-cleanup-worker');
   }
 
   /**
@@ -156,23 +165,18 @@ export class AsyncCleanupWorker {
     orphans: OrphanedFile[],
     onProgress?: CleanupProgressCallback
   ): Promise<CleanupWorkerMetrics> {
-    const startTime = performance.now();
-    const total = orphans.length;
-    const startTimestamp = new Date().toISOString();
-
-    // Log operation start with structured format
-    console.log(JSON.stringify({
-      level: 'info',
-      timestamp: startTimestamp,
-      operation: 'async-cleanup-worker',
-      message: 'Starting deletion of orphaned files',
-      total,
+    this.logger.info('Starting deletion of orphaned files', {
+      total: orphans.length,
       config: {
         batchSize: this.config.batchSize,
         delayBetweenBatches: this.config.delayBetweenBatches,
         maxRetries: this.config.maxRetries,
       },
-    }, null, 0));
+    });
+
+    // Track files scanned for metrics
+    this.logger.incrementFilesScanned(orphans.length);
+    this.logger.incrementOrphansIdentified(orphans.length);
 
     const results: DeletionResult[] = [];
     let succeeded = 0;
@@ -184,17 +188,13 @@ export class AsyncCleanupWorker {
       const batchNumber = Math.floor(i / this.config.batchSize) + 1;
       const totalBatches = Math.ceil(orphans.length / this.config.batchSize);
 
-      console.log(JSON.stringify({
-        level: 'info',
-        timestamp: new Date().toISOString(),
-        operation: 'async-cleanup-worker',
-        message: 'Processing batch',
+      this.logger.debug('Processing batch', {
         batch: {
           number: batchNumber,
           total: totalBatches,
           size: batch.length,
         },
-      }, null, 0));
+      });
 
       // Process all files in current batch concurrently
       const batchResults = await Promise.allSettled(
@@ -207,8 +207,16 @@ export class AsyncCleanupWorker {
           results.push(result.value);
           if (result.value.success) {
             succeeded++;
+            this.logger.incrementDeletionsSucceeded();
           } else {
             failed++;
+            this.logger.incrementDeletionsFailed();
+            this.logger.recordError(
+              result.value.streamId,
+              result.value.filename,
+              result.value.error || 'Unknown error',
+              result.value.errorType
+            );
           }
         } else {
           // Promise was rejected (should not happen with deleteWithRetry error handling)
@@ -217,11 +225,14 @@ export class AsyncCleanupWorker {
             filename: 'unknown',
             success: false,
             error: `Promise rejected: ${result.reason}`,
+            errorType: 'PromiseRejection',
             timestamp: Date.now(),
             duration: 0,
           };
           results.push(errorResult);
           failed++;
+          this.logger.incrementDeletionsFailed();
+          this.logger.recordError(-1, 'unknown', `Promise rejected: ${result.reason}`, 'PromiseRejection');
         }
       }
 
@@ -229,7 +240,7 @@ export class AsyncCleanupWorker {
       if (onProgress) {
         onProgress({
           current: i + batch.length,
-          total,
+          total: orphans.length,
           succeeded,
           failed,
         });
@@ -241,45 +252,27 @@ export class AsyncCleanupWorker {
       }
     }
 
-    const duration = performance.now() - startTime;
     const failures = results.filter(r => !r.success);
-    const endTimestamp = new Date().toISOString();
 
-    // Log operation end with structured format
-    console.log(JSON.stringify({
-      level: 'info',
-      timestamp: endTimestamp,
-      operation: 'async-cleanup-worker',
-      message: 'Deletion operation completed',
-      metrics: {
-        total,
-        succeeded,
-        failed,
-        duration: `${duration.toFixed(0)}ms`,
-        startTime: startTimestamp,
-        endTime: endTimestamp,
-      },
-    }, null, 0));
+    // Complete logging and get metrics
+    const cleanupMetrics = this.logger.complete();
 
     if (failures.length > 0) {
-      console.warn(JSON.stringify({
-        level: 'warn',
-        timestamp: new Date().toISOString(),
-        operation: 'async-cleanup-worker',
-        message: 'Some deletions failed',
+      this.logger.warn('Some deletions failed', {
+        count: failures.length,
         failures: failures.map(f => ({
           streamId: f.streamId,
           filename: f.filename,
           error: f.error,
         })),
-      }, null, 0));
+      });
     }
 
     return {
-      total,
+      total: orphans.length,
       succeeded,
       failed,
-      duration,
+      duration: cleanupMetrics.duration,
       results,
       failures,
     };
@@ -331,11 +324,7 @@ export class AsyncCleanupWorker {
         };
 
         if (attempt > 1) {
-          console.log(JSON.stringify({
-            level: 'info',
-            timestamp: new Date().toISOString(),
-            operation: 'async-cleanup-worker',
-            message: 'File deleted on retry',
+          this.logger.info('File deleted on retry', {
             file: {
               streamId: orphan.streamId,
               filename: orphan.filename,
@@ -344,7 +333,7 @@ export class AsyncCleanupWorker {
               current: attempt,
               max: this.config.maxRetries,
             },
-          }, null, 0));
+          });
         }
 
         return result;
@@ -353,11 +342,7 @@ export class AsyncCleanupWorker {
 
         // Log retry attempt
         if (attempt < this.config.maxRetries) {
-          console.warn(JSON.stringify({
-            level: 'warn',
-            timestamp: new Date().toISOString(),
-            operation: 'async-cleanup-worker',
-            message: 'Deletion attempt failed, will retry',
+          this.logger.warn('Deletion attempt failed, will retry', {
             file: {
               streamId: orphan.streamId,
               filename: orphan.filename,
@@ -367,7 +352,8 @@ export class AsyncCleanupWorker {
               max: this.config.maxRetries,
             },
             error: lastError.message,
-          }, null, 0));
+            errorType: lastError.constructor.name || lastError.name || 'Unknown',
+          });
 
           // Exponential backoff before retry
           await this.delay(Math.pow(2, attempt) * 50);
@@ -377,27 +363,26 @@ export class AsyncCleanupWorker {
 
     // All retries exhausted
     const duration = performance.now() - startTime;
+    const errorType = lastError?.constructor.name || lastError?.name || 'Unknown';
     const result: DeletionResult = {
       streamId: orphan.streamId,
       filename: orphan.filename,
       success: false,
       error: lastError?.message || 'Unknown error',
+      errorType,
       timestamp: Date.now(),
       duration,
     };
 
-    console.error(JSON.stringify({
-      level: 'error',
-      timestamp: new Date().toISOString(),
-      operation: 'async-cleanup-worker',
-      message: 'All deletion attempts failed',
+    this.logger.error('All deletion attempts failed', {
       file: {
         streamId: orphan.streamId,
         filename: orphan.filename,
       },
       attempts: this.config.maxRetries,
       error: lastError?.message || 'Unknown error',
-    }, null, 0));
+      errorType,
+    });
 
     return result;
   }
@@ -421,15 +406,17 @@ export class AsyncCleanupWorker {
  * @param orphans - List of orphaned files to delete
  * @param config - Optional worker configuration
  * @param onProgress - Optional progress callback
+ * @param logger - Optional cleanup logger (defaults to new instance)
  * @returns Cleanup metrics
  */
 export async function runAsyncCleanup(
   storageManager: StorageManager,
   orphans: OrphanedFile[],
   config?: Partial<CleanupWorkerConfig>,
-  onProgress?: CleanupProgressCallback
+  onProgress?: CleanupProgressCallback,
+  logger?: CleanupLogger
 ): Promise<CleanupWorkerMetrics> {
-  const worker = new AsyncCleanupWorker(storageManager, config);
+  const worker = new AsyncCleanupWorker(storageManager, config, logger);
   return worker.processDeletions(orphans, onProgress);
 }
 
@@ -451,7 +438,8 @@ export function formatCleanupMetrics(metrics: CleanupWorkerMetrics): string {
   if (metrics.failures.length > 0) {
     lines.push(`\nFailed deletions:`);
     for (const failure of metrics.failures) {
-      lines.push(`  - ${failure.filename} (${failure.streamId}): ${failure.error}`);
+      const errorType = failure.errorType ? ` [${failure.errorType}]` : '';
+      lines.push(`  - ${failure.filename} (${failure.streamId}):${errorType} ${failure.error}`);
     }
   }
 
