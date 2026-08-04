@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="ic_launcher_background">#FF6200</color>
+    <color name="stress_test_primary">#FF6200</color>
+    <color name="stress_test_primary_dark">#E55100</color>
+    <color name="stress_test_accent">#FFD600</color>
+    <color name="stress_test_background">#121212</color>
+    <color name="stress_test_surface">#1E1E1E</color>
+    <color name="stress_test_text_primary">#FFFFFF</color>
+    <color name="stress_test_text_secondary">#B0B0B0</color>
+</resources>

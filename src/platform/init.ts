@@ -16,8 +16,10 @@ import { runStartupCleanup } from './storage.js';
 export interface InitResult {
   /** Health check passed */
   healthCheckPassed: boolean;
-  /** Number of orphaned outputs cleaned up */
-  orphanedOutputsCleaned: number;
+  /** Number of orphaned outputs found for cleanup (cleanup runs in background) */
+  orphansFound: number;
+  /** Whether background cleanup was started */
+  cleanupStarted: boolean;
   /** Any initialization errors */
   errors: string[];
 }
@@ -25,14 +27,25 @@ export interface InitResult {
 /**
  * Run app initialization.
  *
- * Performs startup tasks in parallel:
- * - Health check (OPFS, storage, camera, etc.)
- * - Cleanup of orphaned receiver outputs
+ * Performs startup tasks:
+ * - Health check (OPFS, storage, camera, etc.) - runs synchronously
+ * - Cleanup of orphaned receiver outputs - runs in background (fire-and-forget)
  *
- * This function is non-blocking and can run in the background
- * while the UI loads. Results are logged for verification.
+ * The cleanup uses the AsyncCleanupWorker which:
+ * - Scans for orphaned files (fast operation, ~100ms for 1000 files)
+ * - Starts deletion in background with batch processing and retries
+ * - Does NOT block UI initialization
+ * - Continues running after this function returns
  *
- * @returns Initialization result with health check status and cleanup count
+ * This ensures the app starts quickly while cleanup happens transparently
+ * in the background. Cleanup progress is logged to console for debugging.
+ *
+ * Integration point: This is the main entry point for startup cleanup.
+ * To modify cleanup behavior, see runStartupCleanup() in storage.ts.
+ *
+ * Reference: bead bf-5w1x (startup integration), bead bf-408r (async worker)
+ *
+ * @returns Initialization result with health check status and cleanup info
  */
 export async function runAppInit(): Promise<InitResult> {
   const errors: string[] = [];
@@ -40,29 +53,30 @@ export async function runAppInit(): Promise<InitResult> {
   console.log('[Init] Starting app initialization...');
 
   try {
-    // Run health check and cleanup in parallel
-    const [healthCheckResult, cleanupResult] = await Promise.all([
-      runHealthCheck({ skipSlow: true }).catch(e => {
-        console.error('[Init] Health check failed:', e);
-        errors.push(`Health check: ${e instanceof Error ? e.message : String(e)}`);
-        return null;
-      }),
-      runStartupCleanup(new Set()),
-    ]);
+    // Run health check first (synchronous, needed for app to work)
+    const healthCheckResult = await runHealthCheck({ skipSlow: true }).catch(e => {
+      console.error('[Init] Health check failed:', e);
+      errors.push(`Health check: ${e instanceof Error ? e.message : String(e)}`);
+      return null;
+    });
 
     const healthCheckPassed = healthCheckResult !== null;
-    const orphanedOutputsCleaned = cleanupResult.cleaned;
 
-    // Check if cleanup had any errors
+    // Start cleanup in background (fire-and-forget, non-blocking)
+    // This scans for orphans and starts the async worker, then returns immediately
+    const cleanupResult = await runStartupCleanup(new Set(), true);
+
+    // Check if cleanup scan had any errors (not deletion errors, those are handled by worker)
     if (cleanupResult.error) {
-      console.error('[Init] Startup cleanup failed:', cleanupResult.error);
-      errors.push(`Startup cleanup: ${cleanupResult.error}`);
+      console.error('[Init] Startup cleanup scan failed:', cleanupResult.error);
+      errors.push(`Startup cleanup scan: ${cleanupResult.error}`);
     }
 
     const duration = performance.now() - start;
     console.log(`[Init] Initialization complete in ${duration.toFixed(0)}ms`);
     console.log(`[Init] Health check: ${healthCheckPassed ? 'PASSED' : 'FAILED'}`);
-    console.log(`[Init] Orphaned outputs cleaned: ${orphanedOutputsCleaned}`);
+    console.log(`[Init] Orphaned files found: ${cleanupResult.orphansFound}`);
+    console.log(`[Init] Background cleanup ${cleanupResult.cleanupStarted ? 'started' : 'not needed'} (runs in fire-and-forget mode)`);
 
     if (errors.length > 0) {
       console.warn('[Init] Initialization errors:', errors);
@@ -70,14 +84,16 @@ export async function runAppInit(): Promise<InitResult> {
 
     return {
       healthCheckPassed,
-      orphanedOutputsCleaned,
+      orphansFound: cleanupResult.orphansFound,
+      cleanupStarted: cleanupResult.cleanupStarted,
       errors,
     };
   } catch (e) {
     console.error('[Init] Initialization failed:', e);
     return {
       healthCheckPassed: false,
-      orphanedOutputsCleaned: 0,
+      orphansFound: 0,
+      cleanupStarted: false,
       errors: [e instanceof Error ? e.message : String(e)],
     };
   }
@@ -98,8 +114,12 @@ export function formatInitStatus(result: InitResult): string {
     parts.push('✗ System check failed');
   }
 
-  if (result.orphanedOutputsCleaned > 0) {
-    parts.push(`✓ Cleaned up ${result.orphanedOutputsCleaned} orphaned file(s)`);
+  if (result.orphansFound > 0) {
+    if (result.cleanupStarted) {
+      parts.push(`✓ Cleaning up ${result.orphansFound} orphaned file(s) in background`);
+    } else {
+      parts.push(`⚠ Found ${result.orphansFound} orphaned file(s) but cleanup not started`);
+    }
   }
 
   if (result.errors.length > 0) {

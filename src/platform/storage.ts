@@ -12,6 +12,8 @@
  */
 
 import {createPositionalWriteHandleFactory} from '../core/io/positional-write.js';
+import { runAsyncCleanup, type CleanupWorkerMetrics } from './async-cleanup-worker.js';
+import { CleanupLogger, formatCleanupMetricsSummary, type CleanupMetrics } from './cleanup-logger.js';
 
 /**
  * Storage quota estimate from navigator.storage.estimate()
@@ -529,13 +531,22 @@ class OPFSStorageManager implements StorageManager {
   }
 
   async cleanupOrphanedOutputs(activeStreamIds: Set<number>): Promise<number> {
-    console.log('[Storage] Starting orphaned output cleanup...');
+    const logger = new CleanupLogger('cleanup-orphaned-outputs');
+    logger.info('Starting orphaned output cleanup', {
+      activeStreamIds: Array.from(activeStreamIds),
+      maxOrphanAge: this.config.maxOrphanAge,
+    });
 
     const outputs = await this.listOutputs();
     const now = Date.now();
-    let cleanupCount = 0;
+
+    logger.info('Files to process', {
+      totalFiles: outputs.length,
+    });
 
     for (const output of outputs) {
+      logger.incrementFilesScanned();
+
       // An output is orphaned if:
       // 1. It's not in the active stream IDs set, AND
       // 2. It's older than the max orphan age
@@ -544,26 +555,55 @@ class OPFSStorageManager implements StorageManager {
       const isOld = (now - output.createdAt) > this.config.maxOrphanAge;
 
       if (isInactive && isOld) {
-        console.log(`[Storage] Cleaning up orphaned output: streamId=${output.streamId}, age=${Math.round((now - output.createdAt) / 1000 / 60)} minutes`);
+        logger.incrementOrphansIdentified();
+        logger.debug('Orphaned output identified', {
+          streamId: output.streamId,
+          filename: output.filename,
+          age: Math.round((now - output.createdAt) / 1000 / 60),
+        });
 
         try {
-          await this.deleteOutput(output.streamId);
-          cleanupCount++;
+          await this.deleteOutput(output.streamId, output.filename);
+          logger.incrementDeletionsSucceeded();
+          logger.debug('Deletion succeeded', {
+            streamId: output.streamId,
+            filename: output.filename,
+          });
         } catch (e) {
-          console.error(`[Storage] Failed to cleanup orphaned output: streamId=${output.streamId}`, e);
+          const errorMessage = e instanceof Error ? e.message : String(e);
+          logger.incrementDeletionsFailed();
+          logger.error('Deletion failed', {
+            streamId: output.streamId,
+            filename: output.filename,
+            error: errorMessage,
+          });
+          logger.recordError(output.streamId, output.filename, errorMessage);
         }
       }
     }
 
-    console.log(`[Storage] Cleanup complete: removed ${cleanupCount} orphaned output(s)`);
-    return cleanupCount;
+    const metrics = logger.complete();
+    logger.info('Cleanup completed', {
+      filesScanned: metrics.filesScanned,
+      orphansIdentified: metrics.orphansIdentified,
+      deletionsSucceeded: metrics.deletionsSucceeded,
+      deletionsFailed: metrics.deletionsFailed,
+      duration: `${metrics.duration.toFixed(2)}ms`,
+    });
+
+    return metrics.deletionsSucceeded;
   }
 
   async scanOrphanedFiles(activeStreamIds: Set<number>): Promise<OrphanedFile[]> {
-    console.log('[Storage] Starting orphaned file scan...');
+    const logger = new CleanupLogger('scan-orphaned-files');
+    logger.info('Starting orphaned file scan', {
+      activeStreamIds: Array.from(activeStreamIds),
+      maxOrphanAge: this.config.maxOrphanAge,
+    });
 
     const orphans: OrphanedFile[] = [];
     const now = Date.now();
+    let filesScanned = 0;
 
     try {
       const outputDir = await this.getOutputDirectory();
@@ -571,6 +611,9 @@ class OPFSStorageManager implements StorageManager {
       // Iterate through directory entries
       for await (const entry of outputDir.values()) {
         if (entry.kind === 'file' && entry.name.endsWith('.meta.json')) {
+          filesScanned++;
+          logger.incrementFilesScanned();
+
           try {
             const file = await entry.getFile();
             const text = await file.text();
@@ -598,19 +641,46 @@ class OPFSStorageManager implements StorageManager {
                 isInactive,
                 isOld,
               });
+
+              logger.incrementOrphansIdentified();
+              logger.debug('Orphan file identified', {
+                streamId: metadata.streamId,
+                filename: metadata.filename,
+                age: Math.round(age / 1000 / 60),
+                reason: reasons.join(' and '),
+              });
             }
           } catch (e) {
             // Handle corrupted metadata gracefully
-            console.error(`[Storage] Failed to parse metadata file: ${entry.name}`, e);
+            const errorMessage = e instanceof Error ? e.message : String(e);
+            logger.error('Failed to parse metadata file', {
+              filename: entry.name,
+              error: errorMessage,
+            });
+            logger.recordError(undefined, entry.name, errorMessage);
             // Continue scanning other files
           }
         }
       }
 
-      console.log(`[Storage] Scan complete: found ${orphans.length} orphaned file(s)`);
+      const metrics = logger.complete();
+      logger.info('Scan completed', {
+        filesScanned,
+        orphansFound: orphans.length,
+        duration: `${metrics.duration.toFixed(2)}ms`,
+      });
+
       return orphans;
     } catch (e) {
-      console.error('[Storage] Failed to scan for orphaned files', e);
+      const errorMessage = e instanceof Error ? e.message : String(e);
+      logger.error('Scan failed', {
+        error: errorMessage,
+        filesScanned,
+        orphansFound: orphans.length,
+      });
+      logger.recordError(undefined, 'scan-operation', errorMessage);
+      logger.complete();
+
       // Return empty array on error rather than throwing
       return [];
     }
@@ -672,19 +742,156 @@ export function configureStorageManager(config: Partial<StorageManagerConfig>): 
  * @param activeStreamIds - Set of currently active stream IDs (empty on startup)
  * @returns Cleanup result with count of files removed
  */
-export async function runStartupCleanup(activeStreamIds: Set<number> = new Set()): Promise<{
-  cleaned: number;
+/**
+ * Startup cleanup result with fire-and-forget support.
+ */
+export interface StartupCleanupResult {
+  /** Number of orphaned files found for cleanup */
+  orphansFound: number;
+  /** Whether cleanup is running in background */
+  cleanupStarted: boolean;
+  /** Error if scan failed (not if deletion failed) */
   error?: string;
-}> {
+  /** Cleanup metrics (populated when not in fire-and-forget mode) */
+  metrics?: CleanupWorkerMetrics;
+  /** Structured cleanup metrics (always populated) */
+  cleanupMetrics?: CleanupMetrics;
+}
+
+/**
+ * Run startup cleanup with AsyncCleanupWorker.
+ *
+ * This function implements the fire-and-forget pattern for non-blocking
+ * UI initialization. It scans for orphaned files and starts the async
+ * cleanup worker in the background.
+ *
+ * By default (fireAndForget=true), this function:
+ * 1. Scans for orphaned files (fast, ~100ms for 1000 files)
+ * 2. Starts the async cleanup worker in background
+ * 3. Returns immediately without waiting for deletion to complete
+ * 4. Cleanup continues with batch processing, retries, and detailed logging
+ *
+ * This ensures UI initialization is not blocked by file deletion operations.
+ *
+ * Reference: bead bf-5w1x (startup integration), bead bf-408r (async worker)
+ *
+ * @param activeStreamIds - Set of active stream IDs to protect from cleanup
+ * @param fireAndForget - If true, start cleanup in background and return immediately (default: true)
+ * @returns Cleanup result with orphans found and status
+ */
+export async function runStartupCleanup(
+  activeStreamIds: Set<number> = new Set(),
+  fireAndForget: boolean = true
+): Promise<StartupCleanupResult> {
+  const logger = new CleanupLogger('startup-cleanup');
+  logger.info('Starting startup cleanup', {
+    activeStreamIds: Array.from(activeStreamIds),
+    fireAndForget,
+  });
+
   try {
     const storage = getStorageManager();
-    const cleaned = await storage.cleanupOrphanedOutputs(activeStreamIds);
-    return { cleaned };
+
+    // Step 1: Scan for orphaned files (fast operation)
+    logger.info('Scanning for orphaned files');
+    const scanStartTime = performance.now();
+    const orphans = await storage.scanOrphanedFiles(activeStreamIds);
+    const scanDuration = performance.now() - scanStartTime;
+
+    logger.info('Scan completed', {
+      orphansFound: orphans.length,
+      scanDuration: `${scanDuration.toFixed(2)}ms`,
+    });
+
+    if (orphans.length === 0) {
+      const metrics = logger.complete();
+      logger.info('No orphans found, cleanup complete');
+      return {
+        orphansFound: 0,
+        cleanupStarted: false,
+        cleanupMetrics: metrics,
+      };
+    }
+
+    // Step 2: Start async cleanup worker
+    if (fireAndForget) {
+      // Fire-and-forget: start cleanup in background, don't await
+      logger.info('Starting async cleanup worker in background (fire-and-forget mode)');
+
+      // Start cleanup but don't await - let it run in background
+      runAsyncCleanup(storage, orphans)
+        .then(workerMetrics => {
+          const bgLogger = new CleanupLogger('startup-cleanup-background');
+          bgLogger.info('Background cleanup complete', {
+            succeeded: workerMetrics.succeeded,
+            failed: workerMetrics.failed,
+            total: workerMetrics.total,
+            duration: `${workerMetrics.duration.toFixed(0)}ms`,
+          });
+
+          if (workerMetrics.failures.length > 0) {
+            bgLogger.warn('Background cleanup failures', {
+              failures: workerMetrics.failures.map(f => ({
+                streamId: f.streamId,
+                filename: f.filename,
+                error: f.error,
+              })),
+            });
+          }
+
+          bgLogger.complete();
+        })
+        .catch(error => {
+          console.error('[Storage] Background cleanup worker failed:', error);
+        });
+
+      const metrics = logger.complete();
+      return {
+        orphansFound: orphans.length,
+        cleanupStarted: true,
+        cleanupMetrics: metrics,
+      };
+    } else {
+      // Synchronous mode: await cleanup completion (for testing)
+      logger.info('Running async cleanup worker in synchronous mode');
+      const workerMetrics = await runAsyncCleanup(storage, orphans);
+
+      // Add worker metrics to logger
+      logger.incrementDeletionsSucceeded(workerMetrics.succeeded);
+      logger.incrementDeletionsFailed(workerMetrics.failed);
+
+      for (const failure of workerMetrics.failures) {
+        logger.recordError(failure.streamId, failure.filename, failure.error || 'Unknown error');
+      }
+
+      const metrics = logger.complete();
+      logger.info('Synchronous cleanup complete', {
+        succeeded: workerMetrics.succeeded,
+        failed: workerMetrics.failed,
+        total: workerMetrics.total,
+        duration: `${workerMetrics.duration.toFixed(0)}ms`,
+      });
+
+      return {
+        orphansFound: orphans.length,
+        cleanupStarted: true,
+        metrics: workerMetrics,
+        cleanupMetrics: metrics,
+      };
+    }
   } catch (e) {
-    console.error('[Storage] Startup cleanup failed:', e);
+    const errorMessage = e instanceof Error ? e.message : String(e);
+    logger.error('Startup cleanup scan failed', {
+      error: errorMessage,
+    });
+    logger.recordError(undefined, 'startup-cleanup', errorMessage);
+    const metrics = logger.complete();
+
     return {
-      cleaned: 0,
-      error: e instanceof Error ? e.message : String(e),
+      orphansFound: 0,
+      cleanupStarted: false,
+      error: errorMessage,
+      cleanupMetrics: metrics,
     };
   }
 }

@@ -6,6 +6,7 @@ import android.view.WindowManager;
 import javax.microedition.khronos.egl.EGLConfig;
 import javax.microedition.khronos.opengles.GL10;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.Random;
 
 /**
@@ -253,7 +254,7 @@ class StressTestRenderer implements GLSurfaceView.Renderer {
     }
 
     /**
-     * Draws a colored quad
+     * Draws a colored quad using vertex arrays (OpenGL ES compatible)
      */
     private void drawQuad(GL10 gl, int index) {
         gl.glColor4f(random.nextFloat(), random.nextFloat(), random.nextFloat(), 1.0f);
@@ -265,13 +266,24 @@ class StressTestRenderer implements GLSurfaceView.Renderer {
         gl.glRotatef(frameCount + (index * 10), 0, 0, 1);
         gl.glScalef(0.8f, 0.8f, 1.0f);
 
-        // Draw quad
-        gl.glBegin(GL10.GL_TRIANGLE_STRIP);
-        gl.glVertex2f(-0.5f, -0.5f);
-        gl.glVertex2f(0.5f, -0.5f);
-        gl.glVertex2f(-0.5f, 0.5f);
-        gl.glVertex2f(0.5f, 0.5f);
-        gl.glEnd();
+        // Draw quad using vertex arrays (OpenGL ES 1.0 compatible)
+        float[] vertices = {
+            -0.5f, -0.5f,
+             0.5f, -0.5f,
+            -0.5f,  0.5f,
+             0.5f,  0.5f
+        };
+
+        java.nio.FloatBuffer vertexBuffer = java.nio.ByteBuffer.allocateDirect(vertices.length * 4)
+            .order(java.nio.ByteOrder.nativeOrder())
+            .asFloatBuffer();
+        vertexBuffer.put(vertices);
+        vertexBuffer.position(0);
+
+        gl.glEnableClientState(GL10.GL_VERTEX_ARRAY);
+        gl.glVertexPointer(2, GL10.GL_FLOAT, 0, vertexBuffer);
+        gl.glDrawArrays(GL10.GL_TRIANGLE_STRIP, 0, 4);
+        gl.glDisableClientState(GL10.GL_VERTEX_ARRAY);
 
         gl.glPopMatrix();
     }
