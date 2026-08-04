@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="16dp"
+    android:background="#F5F5F5">
+
+    <!-- Title -->
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="CPU/GPU Stress Test"
+        android:textSize="24sp"
+        android:textStyle="bold"
+        android:gravity="center"
+        android:paddingBottom="16dp" />
+
+    <!-- Intensity Control -->
+    <TextView
+        android:id="@+id/tvIntensityLabel"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Stress Intensity"
+        android:textSize="18sp"
+        android:textStyle="bold"
+        android:paddingTop="8dp"
+        android:paddingBottom="4dp" />
+
+    <SeekBar
+        android:id="@+id/seekBarIntensity"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingTop="8dp"
+        android:paddingBottom="8dp" />
+
+    <TextView
+        android:id="@+id/tvIntensityLevel"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Intensity: 5/10 (Medium)"
+        android:textSize="16sp"
+        android:gravity="center"
+        android:paddingBottom="16dp" />
+
+    <!-- Status Display -->
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Status"
+        android:textSize="18sp"
+        android:textStyle="bold"
+        android:paddingTop="8dp"
+        android:paddingBottom="4dp" />
+
+    <TextView
+        android:id="@+id/tvCpuStatus"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="CPU Stress: Stopped"
+        android:textSize="14sp"
+        android:padding="8dp"
+        android:background="#FFFFFF"
+        android:layout_marginBottom="4dp" />
+
+    <TextView
+        android:id="@+id/tvGpuStatus"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="GPU Stress: Stopped"
+        android:textSize="14sp"
+        android:padding="8dp"
+        android:background="#FFFFFF"
+        android:layout_marginBottom="4dp" />
+
+    <TextView
+        android:id="@+id/tvRunningTime"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Running: 00:00"
+        android:textSize="14sp"
+        android:padding="8dp"
+        android:background="#FFFFFF"
+        android:layout_marginBottom="16dp" />
+
+    <!-- Start/Stop Button -->
+    <Button
+        android:id="@+id/btnStartStop"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Start Stress Test"
+        android:textSize="18sp"
+        android:padding="16dp"
+        android:background="#4CAF50"
+        android:textColor="#FFFFFF" />
+
+    <!-- Info Text -->
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="\nInstructions:\n1. Adjust intensity level (1-10)\n2. Press 'Start Stress Test'\n3. Device will heat up - this is normal\n4. Monitor CPU/GPU activity\n5. Press 'Stop' when finished\n\n⚠️ Warning: Prolonged use may cause device to become very warm. Stop immediately if device becomes uncomfortable to handle."
+        android:textSize="12sp"
+        android:padding="16dp"
+        android:background="#FFF3CD"
+        android:layout_marginTop="16dp" />
+
+</LinearLayout>

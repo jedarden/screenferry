@@ -984,7 +984,7 @@ stop and reconsider the design, not retry.
 | **A2** | Handheld, realistic | As A1 but handheld, receiver held **portrait** (the default, unassisted grip — §6.3.2) | Send 1 MB | Byte-identical; ≥ 10 KB/s | Does not complete in 5 min |
 | **A3** | Phone → phone | Two phones, 15 cm, handheld | Send 100 KB | Byte-identical; completes in ≤ 5 min | Does not complete — triggers §18 R4 |
 | **A4** | Lossy channel | A1 setup; camera deliberately occluded **5%** of the time in 2-second bursts (e.g., 2 seconds every 40 seconds) | Send 1 MB | Byte-identical; ≤ 1.3× the A1 frame count; completes in ≤ 90 s | Byte-incorrect OR > 2.0× A1 frame count OR does not complete in 3 min |
-| **A5** | Large file, memory flat | Desktop Chromium, synthetic 4 GB stream, headless block layer | Full encode→decode at the block layer | Byte-identical; peak heap ≤ 1 MB (I6a); no growth trend across 21,800 blocks | Any monotonic memory growth |
+| **A5** | Large file, memory flat | Desktop Chromium, synthetic 4 GB stream, headless block layer | Full encode→decode at the block layer | Byte-identical; peak heap ≤ 1 MB (I6a); no growth trend across 21,845 blocks | Any monotonic memory growth |
 | **A6** | Resume | A1 setup, 10 MB file | Reload the receiver tab at ~50% | Offers resume; completes; byte-identical | Restarts from zero, or completes with wrong bytes |
 | **A7** | Repair | A1 setup, 10 MB file, 5 blocks deliberately dropped | Enter the repair code on the sender | Only the missing blocks retransmit; completes in < 60 s | Full pass required |
 | **A8** | Offline | Both devices in airplane mode, app previously loaded | Full A1 transfer | Completes normally | Any network request attempted (asserted by CI, §14.4) |
@@ -1170,7 +1170,7 @@ to handheld numbers.
 | **T-stub-camera** | `getUserMedia` stubbed with `canvas.captureStream(0)` + `requestFrame()`. No flags, frame-exact, deterministic | Every commit |
 | **T-degradation** | Synthetic blur / rotation / keystone / glare / rolling-shutter tearing applied to rendered frames. **Assert decode *rates*, not booleans** | Nightly |
 | **T-real-capture** | Frames → Y4M → Chromium fake camera. Proven in research (byte-exact, including late-join at 700 ms) | Nightly |
-| **T-scale** | Synthetic 4 GB stream at the block layer; assert flat memory across 21,800 blocks | Nightly |
+| **T-scale** | Synthetic 4 GB stream at the block layer; assert flat memory across 21,845 blocks | Nightly |
 | **T-long-run** | **20–30 minute sustained run** on real devices to validate thermal behavior (R11), duty-cycle economics (D27), and sustained throughput. Tracks fps decline, decode rate, and effective goodput over time. **This is the ONLY tier that can measure R11 and D27** — the 60 s floor in §13.2 structurally excludes thermal phenomena. | Weekly (or per thermal-related change) |
 | **T-physical-rig** | Two real devices, fixed mounting, the §13.2 denominator. **This is the acceptance gate for §13.1 throughput** — nothing else can measure it | Per release |
 | **T-manual-iOS** | Full pass on a real iPhone. **Not CI-testable at any price** — WebKit cannot fake a camera, the Simulator has none | Per release |
@@ -1427,48 +1427,6 @@ dependents and is referenced by one line. D27 was never checked against §8.1. �
 hash left "optional" standing in two places. **Rule: any new section MUST enumerate all sections
 that depend on it and update each dependent section to reference the new material.** Owner:
 whoever writes the new section.
-
-### 17.1 Phase 0.5 — why a spike, and why here
-
-The plan's parameters are currently modelled or borrowed from research on other
-people's hardware. The spike does not decide **whether** to build the codec — the
-fountain code, block layer and framing are needed whatever the channel does. It
-decides **what numbers to build it with**, and those numbers are encoded in the
-framing layer that Phase 1 writes:
-
-| Parameter | Basis today | Sets |
-|---|---|---|
-| Tiling gain (~10×) | measured on *simulated* camera paths | D1, the throughput thesis |
-| Erasure 20–30% | **assumption** (D18c states this) | dwell = 1.6 K (§8.1) |
-| 4 px/module cliff | other devices | D2, §3.1.1's rungs, `bf-1g0` |
-| Delivered fps | a Pixel 6, not ours | D9, D14 |
-| 200 MB/s JS XOR | ~~unmeasured guess~~ **measured: 3,260 MB/s desktop (S1)** | D19's K = 768 |
-
-It is cheap *precisely because* it skips everything this plan carefully designs: no
-fountain code, no blocks, no compression, no resume, no OPFS, no UI. Sequential
-numbered packets and a counter suffice — the subject is the channel, not the protocol.
-
-**S1 is already done** (`spike/ge-bench.mjs`, no camera or install needed). A full
-GE decode of one block at K = 768 takes **8 ms** at **3,260 MB/s** on the dev
-machine — the 200 MB/s budget was ~16× pessimistic, leaving **7.1× margin at
-Stage 3** even after a harsh ÷4 phone factor. **R1 is provisionally closed**, pending
-a re-run in a browser on the target phone; the ÷4 factor is itself a guess.
-
-S2–S4 (rung sweep, distance sweep, handheld and phone→phone) need the optical rig and
-two devices. Kill criteria are fixed in advance in `spike/README.md`, each mapping to
-an existing §18 risk — if a criterion trips, the named risk's fallback applies rather
-than an improvised one.
-
-**Do not let spike code become product code.** Separate directory, separate
-`package.json`, deleted once the results land.
-
-**Parallel track** (independent of the codec, may run alongside Phases 1–3): PWA shell,
-service worker, file in/out per platform, pairing splash (`bf-4tb`), version footer
-(`bf-13h`), photosensitivity work (`bf-6d3`). **Sync point:** must merge before Phase 5.
-
-**Scope estimate.** Fountain + GE ≈ 300 lines (corroborated by research). Block layer,
-framing, session ≈ 800. Modulation Stage 1 ≈ 600. Receiver pipeline ≈ 700. App shell, UI,
-coaching ≈ 1500 — **Phase 5 is the largest single phase**, which the phase ordering hides.
 
 ---
 

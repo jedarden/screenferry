@@ -56,7 +56,9 @@ describe('Silent invalid state prevention (bf-2w1a)', () => {
           streamId: meta.streamId,
           meta,
           complete: new Uint8Array([0b1111100000111110]), // Mixed completion state
+          writtenBlocks: new Uint8Array([0b1111100000111110]),
           active: null,
+          manifestActive: null,
           out: null,
           manifest: null,
           stats: {
@@ -76,6 +78,7 @@ describe('Silent invalid state prevention (bf-2w1a)', () => {
         streamId: meta.streamId,
         meta,
         complete: new Uint8Array([0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]),
+        writtenBlocks: new Uint8Array([0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]),
         outputPath: '/output/test.mp4',
         outputSize: meta.originalSize,
         verified: true,
