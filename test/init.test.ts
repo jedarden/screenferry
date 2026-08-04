@@ -2,6 +2,7 @@
  * Unit tests for app initialization.
  *
  * Tests startup initialization including health checks and cleanup (bf-ho40).
+ * Tests fire-and-forget async cleanup integration (bf-5w1x).
  */
 
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
@@ -20,9 +21,9 @@ vi.mock('../src/platform/health-check.js', () => ({
   })),
 }));
 
-// Mock storage cleanup
+// Mock storage cleanup with fire-and-forget behavior
 vi.mock('../src/platform/storage.js', () => ({
-  runStartupCleanup: vi.fn(async () => ({ cleaned: 0, error: undefined })),
+  runStartupCleanup: vi.fn(async () => ({ orphansFound: 0, cleanupStarted: false, error: undefined })),
 }));
 
 describe('runAppInit()', () => {
@@ -34,24 +35,25 @@ describe('runAppInit()', () => {
     vi.restoreAllMocks();
   });
 
-  it('runs health check and cleanup in parallel', async () => {
+  it('runs health check and starts cleanup in background', async () => {
     const { runHealthCheck } = await import('../src/platform/health-check.js');
     const { runStartupCleanup } = await import('../src/platform/storage.js');
 
     const result = await runAppInit();
 
     expect(runHealthCheck).toHaveBeenCalledWith({ skipSlow: true });
-    expect(runStartupCleanup).toHaveBeenCalledWith(new Set());
+    expect(runStartupCleanup).toHaveBeenCalledWith(new Set(), true);
     expect(result.healthCheckPassed).toBe(true);
   });
 
-  it('returns cleanup count from storage', async () => {
+  it('returns orphans found from storage scan', async () => {
     const { runStartupCleanup } = await import('../src/platform/storage.js');
-    vi.mocked(runStartupCleanup).mockResolvedValue({ cleaned: 3, error: undefined });
+    vi.mocked(runStartupCleanup).mockResolvedValue({ orphansFound: 3, cleanupStarted: true, error: undefined });
 
     const result = await runAppInit();
 
-    expect(result.orphanedOutputsCleaned).toBe(3);
+    expect(result.orphansFound).toBe(3);
+    expect(result.cleanupStarted).toBe(true);
   });
 
   it('handles health check failure gracefully', async () => {
@@ -64,13 +66,13 @@ describe('runAppInit()', () => {
     expect(result.errors).toContain('Health check: Camera not available');
   });
 
-  it('handles cleanup failure gracefully', async () => {
+  it('handles cleanup scan failure gracefully', async () => {
     const { runStartupCleanup } = await import('../src/platform/storage.js');
-    vi.mocked(runStartupCleanup).mockResolvedValue({ cleaned: 0, error: 'Storage error' });
+    vi.mocked(runStartupCleanup).mockResolvedValue({ orphansFound: 0, cleanupStarted: false, error: 'Storage error' });
 
     const result = await runAppInit();
 
-    expect(result.errors).toContain('Startup cleanup: Storage error');
+    expect(result.errors).toContain('Startup cleanup scan: Storage error');
   });
 
   it('collects multiple errors', async () => {
@@ -78,20 +80,20 @@ describe('runAppInit()', () => {
     const { runStartupCleanup } = await import('../src/platform/storage.js');
 
     vi.mocked(runHealthCheck).mockRejectedValue(new Error('Health check failed'));
-    vi.mocked(runStartupCleanup).mockResolvedValue({ cleaned: 0, error: 'Cleanup failed' });
+    vi.mocked(runStartupCleanup).mockResolvedValue({ orphansFound: 0, cleanupStarted: false, error: 'Cleanup failed' });
 
     const result = await runAppInit();
 
     expect(result.errors).toHaveLength(2);
     expect(result.errors).toContain('Health check: Health check failed');
-    expect(result.errors).toContain('Startup cleanup: Cleanup failed');
+    expect(result.errors).toContain('Startup cleanup scan: Cleanup failed');
   });
 
   it('returns successful result when all checks pass', async () => {
     const result = await runAppInit();
 
     expect(result.healthCheckPassed).toBe(true);
-    expect(result.orphanedOutputsCleaned).toBe(0);
+    expect(result.orphansFound).toBe(0);
     expect(result.errors).toHaveLength(0);
   });
 
@@ -102,11 +104,11 @@ describe('runAppInit()', () => {
     const result = await runAppInit();
 
     expect(result.healthCheckPassed).toBe(false);
-    expect(result.orphanedOutputsCleaned).toBe(0);
+    expect(result.orphansFound).toBe(0);
     expect(result.errors.length).toBeGreaterThan(0);
   });
 
-  it('logs initialization results', async () => {
+  it('logs initialization results including fire-and-forget cleanup', async () => {
     const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
     await runAppInit();
@@ -114,6 +116,7 @@ describe('runAppInit()', () => {
     expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('[Init] Starting app initialization'));
     expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('[Init] Initialization complete'));
     expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('[Init] Health check: PASSED'));
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('[Init] Background cleanup'));
 
     consoleSpy.mockRestore();
   });
@@ -123,21 +126,23 @@ describe('formatInitStatus()', () => {
   it('formats successful initialization', () => {
     const result = {
       healthCheckPassed: true,
-      orphanedOutputsCleaned: 2,
+      orphansFound: 2,
+      cleanupStarted: true,
       errors: [],
     };
 
     const status = formatInitStatus(result);
 
     expect(status).toContain('✓ System check passed');
-    expect(status).toContain('✓ Cleaned up 2 orphaned file(s)');
+    expect(status).toContain('✓ Cleaning up 2 orphaned file(s) in background');
     expect(status).not.toContain('⚠');
   });
 
   it('formats failed health check', () => {
     const result = {
       healthCheckPassed: false,
-      orphanedOutputsCleaned: 0,
+      orphansFound: 0,
+      cleanupStarted: false,
       errors: [],
     };
 
@@ -149,7 +154,8 @@ describe('formatInitStatus()', () => {
   it('formats with errors', () => {
     const result = {
       healthCheckPassed: true,
-      orphanedOutputsCleaned: 0,
+      orphansFound: 0,
+      cleanupStarted: false,
       errors: ['Error 1', 'Error 2'],
     };
 
@@ -161,26 +167,28 @@ describe('formatInitStatus()', () => {
   it('formats zero cleanup', () => {
     const result = {
       healthCheckPassed: true,
-      orphanedOutputsCleaned: 0,
+      orphansFound: 0,
+      cleanupStarted: false,
       errors: [],
     };
 
     const status = formatInitStatus(result);
 
-    expect(status).not.toContain('Cleaned up');
+    expect(status).not.toContain('Cleaning up');
   });
 
   it('combines all status elements', () => {
     const result = {
       healthCheckPassed: false,
-      orphanedOutputsCleaned: 5,
+      orphansFound: 5,
+      cleanupStarted: true,
       errors: ['Camera error', 'Storage error'],
     };
 
     const status = formatInitStatus(result);
 
     expect(status).toContain('✗ System check failed');
-    expect(status).toContain('✓ Cleaned up 5 orphaned file(s)');
+    expect(status).toContain('✓ Cleaning up 5 orphaned file(s) in background');
     expect(status).toContain('⚠ 2 error(s)');
   });
 });
@@ -189,7 +197,8 @@ describe('initSuccessful()', () => {
   it('returns true when health check passes and no errors', () => {
     const result = {
       healthCheckPassed: true,
-      orphanedOutputsCleaned: 0,
+      orphansFound: 0,
+      cleanupStarted: false,
       errors: [],
     };
 
@@ -199,7 +208,8 @@ describe('initSuccessful()', () => {
   it('returns false when health check fails', () => {
     const result = {
       healthCheckPassed: false,
-      orphanedOutputsCleaned: 0,
+      orphansFound: 0,
+      cleanupStarted: false,
       errors: [],
     };
 
@@ -209,7 +219,8 @@ describe('initSuccessful()', () => {
   it('returns false when there are errors', () => {
     const result = {
       healthCheckPassed: true,
-      orphanedOutputsCleaned: 0,
+      orphansFound: 0,
+      cleanupStarted: false,
       errors: ['Some error'],
     };
 
@@ -219,7 +230,8 @@ describe('initSuccessful()', () => {
   it('returns false when both health check fails and there are errors', () => {
     const result = {
       healthCheckPassed: false,
-      orphanedOutputsCleaned: 0,
+      orphansFound: 0,
+      cleanupStarted: false,
       errors: ['Error 1'],
     };
 
@@ -229,7 +241,8 @@ describe('initSuccessful()', () => {
   it('returns true even with orphaned files cleaned', () => {
     const result = {
       healthCheckPassed: true,
-      orphanedOutputsCleaned: 5,
+      orphansFound: 5,
+      cleanupStarted: true,
       errors: [],
     };
 
