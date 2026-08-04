@@ -1,6 +1,23 @@
 /**
  * Structured logging utility for cleanup operations.
  *
+ * ## T4 Privacy Compliance Context (plan.md §12 T4b, E11)
+ *
+ * **This logger supports T4b/E11 cleanup operations with audit trails.**
+ * While not directly implementing deletion requirements, this logger provides
+ * the structured logging needed to verify that cleanup operations complete
+ * successfully for privacy compliance.
+ *
+ * **Why logging is critical for T4 compliance:**
+ * The flagship use case involves transferring SSH keys, PSBTs, and TOTP seeds —
+ * high-value secrets where deletion MUST be verifiable. This logger provides
+ * detailed metrics and error tracking to confirm cleanup succeeded.
+ *
+ * **T4b requirement (plan.md §12):**
+ * > Wipe receiver outputs on completion, on cancel, and on startup-reap (E11).
+ *
+ * **Reference:** docs/notes/bf-1yk1-t4b-deletion-lifecycle.md
+ *
  * Provides consistent, filterable logging with:
  * - JSON-structured logs for machine parsing
  * - Timing information for performance tracking
@@ -73,14 +90,21 @@ export class CleanupLogger {
   constructor(operationName: string) {
     this.operationName = operationName;
     this.startTime = Date.now();
+    const startTime = new Date().toISOString();
     this.metrics = {
-      startTime: new Date().toISOString(),
+      startTime,
       filesScanned: 0,
       orphansIdentified: 0,
       deletionsSucceeded: 0,
       deletionsFailed: 0,
       errors: [],
     };
+
+    // Log operation start with timestamp
+    this.log(LogLevel.INFO, 'Cleanup operation started', {
+      startTime,
+      operation: operationName,
+    });
   }
 
   /**

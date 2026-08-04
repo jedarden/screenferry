@@ -1,6 +1,32 @@
 /**
  * Async cleanup deletion worker for orphaned files.
  *
+ * ## T4 Privacy Compliance (Critical - plan.md §12 T4b, E11)
+ *
+ * **This module implements the background deletion portion of T4b compliance.**
+ * The worker handles the actual deletion of orphaned files identified by
+ * startup cleanup (E11) and after-export cleanup (T4b).
+ *
+ * **Why background deletion is critical:**
+ * The flagship use case involves transferring SSH keys, PSBTs, and TOTP seeds —
+ * high-value secrets that MUST be deleted reliably even if individual deletions
+ * fail temporarily. This worker provides retry logic and batch processing
+ * to ensure cleanup completes without blocking the UI.
+ *
+ * **E11 requirement (plan.md §12):**
+ * > On startup, reap abandoned staging files with no active session.
+ *
+ * **T4b requirement (plan.md §12):**
+ * > Wipe receiver outputs on completion, on cancel, and on startup-reap (E11).
+ *
+ * **Implementation:**
+ * - Batch processing to avoid blocking UI
+ * - Retry logic for transient deletion failures
+ * - Error handling for each file (continues even if some fail)
+ * - Progress logging for debugging
+ *
+ * **Reference:** docs/notes/bf-1yk1-t4b-deletion-lifecycle.md
+ *
  * Processes file deletions asynchronously with:
  * - Batch processing to avoid blocking
  * - Error handling for each file
@@ -100,6 +126,28 @@ export class AsyncCleanupWorker {
   /**
    * Process orphaned file deletions asynchronously.
    *
+   * ## T4 Privacy Compliance (Critical - plan.md §12 T4b, E11)
+   *
+   * **This method executes the background deletion for T4b/E11 cleanup.**
+   * It processes the list of orphaned files identified by startup cleanup (E11)
+   * or after export completion (T4b), ensuring reliable deletion without UI blocking.
+   *
+   * **Why background processing is critical:**
+   * The flagship use case involves transferring SSH keys, PSBTs, and TOTP seeds —
+   * high-value secrets that MUST be deleted reliably. Batch processing prevents
+   * UI freezing while retry logic ensures deletion succeeds even with transient errors.
+   *
+   * **T4b requirement (plan.md §12):**
+   * > Wipe receiver outputs on completion, on cancel, and on startup-reap (E11).
+   *
+   * **Implementation:**
+   * - Processes files in configurable batches (default: 5 at a time)
+   * - Retry logic for each file (default: 2 attempts with exponential backoff)
+   * - Continues on individual failures (logs but doesn't abort)
+   * - Progress callbacks for UI feedback
+   *
+   * **Reference:** docs/notes/bf-1yk1-t4b-deletion-lifecycle.md
+   *
    * @param orphans - List of orphaned files to delete
    * @param onProgress - Optional progress callback
    * @returns Cleanup metrics with success/failure counts
@@ -110,9 +158,21 @@ export class AsyncCleanupWorker {
   ): Promise<CleanupWorkerMetrics> {
     const startTime = performance.now();
     const total = orphans.length;
+    const startTimestamp = new Date().toISOString();
 
-    console.log(`[AsyncCleanupWorker] Starting deletion of ${total} orphaned file(s)`);
-    console.log(`[AsyncCleanupWorker] Config: batch size=${this.config.batchSize}, delay=${this.config.delayBetweenBatches}ms, retries=${this.config.maxRetries}`);
+    // Log operation start with structured format
+    console.log(JSON.stringify({
+      level: 'info',
+      timestamp: startTimestamp,
+      operation: 'async-cleanup-worker',
+      message: 'Starting deletion of orphaned files',
+      total,
+      config: {
+        batchSize: this.config.batchSize,
+        delayBetweenBatches: this.config.delayBetweenBatches,
+        maxRetries: this.config.maxRetries,
+      },
+    }, null, 0));
 
     const results: DeletionResult[] = [];
     let succeeded = 0;
@@ -124,7 +184,17 @@ export class AsyncCleanupWorker {
       const batchNumber = Math.floor(i / this.config.batchSize) + 1;
       const totalBatches = Math.ceil(orphans.length / this.config.batchSize);
 
-      console.log(`[AsyncCleanupWorker] Processing batch ${batchNumber}/${totalBatches} (${batch.length} files)`);
+      console.log(JSON.stringify({
+        level: 'info',
+        timestamp: new Date().toISOString(),
+        operation: 'async-cleanup-worker',
+        message: 'Processing batch',
+        batch: {
+          number: batchNumber,
+          total: totalBatches,
+          size: batch.length,
+        },
+      }, null, 0));
 
       // Process all files in current batch concurrently
       const batchResults = await Promise.allSettled(
@@ -173,11 +243,36 @@ export class AsyncCleanupWorker {
 
     const duration = performance.now() - startTime;
     const failures = results.filter(r => !r.success);
+    const endTimestamp = new Date().toISOString();
 
-    console.log(`[AsyncCleanupWorker] Deletion complete: ${succeeded} succeeded, ${failed} failed, ${duration.toFixed(0)}ms`);
+    // Log operation end with structured format
+    console.log(JSON.stringify({
+      level: 'info',
+      timestamp: endTimestamp,
+      operation: 'async-cleanup-worker',
+      message: 'Deletion operation completed',
+      metrics: {
+        total,
+        succeeded,
+        failed,
+        duration: `${duration.toFixed(0)}ms`,
+        startTime: startTimestamp,
+        endTime: endTimestamp,
+      },
+    }, null, 0));
 
     if (failures.length > 0) {
-      console.warn('[AsyncCleanupWorker] Failed deletions:', failures.map(f => `${f.filename} (${f.streamId}): ${f.error}`));
+      console.warn(JSON.stringify({
+        level: 'warn',
+        timestamp: new Date().toISOString(),
+        operation: 'async-cleanup-worker',
+        message: 'Some deletions failed',
+        failures: failures.map(f => ({
+          streamId: f.streamId,
+          filename: f.filename,
+          error: f.error,
+        })),
+      }, null, 0));
     }
 
     return {
@@ -192,6 +287,28 @@ export class AsyncCleanupWorker {
 
   /**
    * Delete a single file with retry logic.
+   *
+   * ## T4 Privacy Compliance (Critical - plan.md §12 T4b, E11)
+   *
+   * **This method implements reliable deletion for T4b/E11 compliance.**
+   * It retries deletion attempts to handle transient failures (file locks, browser quirks)
+   * that could otherwise leave plaintext secrets exposed in OPFS.
+   *
+   * **Why retry logic is critical:**
+   * The flagship use case involves transferring SSH keys, PSBTs, and TOTP seeds —
+   * high-value secrets where deletion MUST succeed even with transient errors.
+   * Browser OPFS can have temporary locks or timing issues; retries prevent
+   * premature failure that would leave secrets exposed.
+   *
+   * **T4b requirement (plan.md §12):**
+   * > Wipe receiver outputs on completion, on cancel, and on startup-reap (E11).
+   *
+   * **Implementation:**
+   * - Multiple retry attempts (default: 2) with exponential backoff
+   * - Detailed logging for each attempt (success/failure)
+   * - Returns detailed result even on final failure
+   *
+   * **Reference:** docs/notes/bf-1yk1-t4b-deletion-lifecycle.md
    *
    * @param orphan - Orphaned file metadata
    * @returns Deletion result
@@ -214,7 +331,20 @@ export class AsyncCleanupWorker {
         };
 
         if (attempt > 1) {
-          console.log(`[AsyncCleanupWorker] Deleted ${orphan.filename} (stream ${orphan.streamId}) on attempt ${attempt}/${this.config.maxRetries}`);
+          console.log(JSON.stringify({
+            level: 'info',
+            timestamp: new Date().toISOString(),
+            operation: 'async-cleanup-worker',
+            message: 'File deleted on retry',
+            file: {
+              streamId: orphan.streamId,
+              filename: orphan.filename,
+            },
+            attempt: {
+              current: attempt,
+              max: this.config.maxRetries,
+            },
+          }, null, 0));
         }
 
         return result;
@@ -223,7 +353,21 @@ export class AsyncCleanupWorker {
 
         // Log retry attempt
         if (attempt < this.config.maxRetries) {
-          console.warn(`[AsyncCleanupWorker] Deletion attempt ${attempt}/${this.config.maxRetries} failed for ${orphan.filename} (${orphan.streamId}): ${lastError.message}`);
+          console.warn(JSON.stringify({
+            level: 'warn',
+            timestamp: new Date().toISOString(),
+            operation: 'async-cleanup-worker',
+            message: 'Deletion attempt failed, will retry',
+            file: {
+              streamId: orphan.streamId,
+              filename: orphan.filename,
+            },
+            attempt: {
+              current: attempt,
+              max: this.config.maxRetries,
+            },
+            error: lastError.message,
+          }, null, 0));
 
           // Exponential backoff before retry
           await this.delay(Math.pow(2, attempt) * 50);

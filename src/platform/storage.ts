@@ -1,6 +1,31 @@
 /**
  * Storage manager for receiver output files.
  *
+ * ## T4 Privacy Compliance (Critical - plan.md §12 T4b, E11)
+ *
+ * **This module implements the T4b "startup-reap" deletion requirement.**
+ * T4b mandates that receiver output files (decoded plaintext) be deleted
+ * to prevent indefinite exposure of high-value secrets.
+ *
+ * **Why cleanup is non-negotiable:**
+ * The flagship use case involves transferring SSH keys, PSBTs, and TOTP seeds —
+ * high-value secrets that MUST NOT persist indefinitely in browser OPFS storage.
+ * Browser crashes, navigation errors, or abandoned transfers can leave plaintext
+ * outputs in OPFS. This startup reap prevents indefinite exposure.
+ *
+ * **E11 requirement (plan.md §12):**
+ * > On startup, reap abandoned staging files with no active session.
+ *
+ * **T4b requirement (plan.md §12):**
+ * > Wipe receiver outputs on completion, on cancel, and on startup-reap (E11).
+ *
+ * **Implementation:**
+ * - deleteOutput(): Synchronous deletion of individual files
+ * - cleanupOrphanedOutputs(): Startup reap of orphaned files
+ * - AsyncCleanupWorker: Background deletion with retries
+ *
+ * **Reference:** docs/notes/bf-1yk1-t4b-deletion-lifecycle.md
+ *
  * Manages OPFS storage for decoded files, including:
  * - Storing outputs by streamId
  * - Listing all outputs
@@ -461,6 +486,29 @@ export class OPFSStorageManager implements StorageManager {
     }
   }
 
+  /**
+   * Delete a receiver output file from OPFS.
+   *
+   * ## T4 Privacy Compliance (Critical - plan.md §12 T4b)
+   *
+   * **This method implements the T4b "after export" deletion requirement.**
+   * T4b mandates that receiver output files (decoded plaintext) be deleted
+   * immediately after the user successfully exports the file.
+   *
+   * **Why immediate deletion is critical:**
+   * The flagship use case involves transferring SSH keys, PSBTs, and TOTP seeds —
+   * high-value secrets that MUST NOT persist in browser OPFS storage after export.
+   * This method is called by export.ts after successful share/save/download.
+   *
+   * **T4b requirement (plan.md §12):**
+   * > Wipe receiver outputs on completion, on cancel, and on startup-reap (E11).
+   *
+   * **Reference:** docs/notes/bf-1yk1-t4b-deletion-lifecycle.md
+   *
+   * @param streamId - Stream ID of the file to delete
+   * @param filename - Optional filename for logging (helps identify which file failed)
+   * @throws Error if deletion fails (except when file not found, which is logged as warning)
+   */
   async deleteOutput(streamId: number, filename?: string): Promise<void> {
     const startTime = performance.now();
 
@@ -530,6 +578,37 @@ export class OPFSStorageManager implements StorageManager {
     }
   }
 
+  /**
+   * Cleanup orphaned receiver output files from OPFS.
+   *
+   * ## T4 Privacy Compliance (Critical - plan.md §12 T4b, E11)
+   *
+   * **This method implements the E11/T4b "startup-reap" deletion requirement.**
+   * E11 mandates that abandoned staging files be reaped on startup when there
+   * is no active session. T4b requires wiping receiver outputs on startup-reap.
+   *
+   * **Why startup cleanup is non-negotiable:**
+   * The flagship use case involves transferring SSH keys, PSBTs, and TOTP seeds —
+   * high-value secrets that MUST NOT persist indefinitely from previous sessions.
+   * Browser crashes, navigation errors, or abandoned transfers can leave plaintext
+   * outputs in OPFS. This startup reap prevents indefinite exposure.
+   *
+   * **E11 requirement (plan.md §12):**
+   * > On startup, reap abandoned staging files with no active session.
+   *
+   * **T4b requirement (plan.md §12):**
+   * > Wipe receiver outputs on completion, on cancel, and on startup-reap (E11).
+   *
+   * **Implementation:**
+   * - Scans all outputs and identifies orphans (no active session AND old enough)
+   * - Uses AsyncCleanupWorker for background deletion with retries
+   * - Returns count of orphans found (deletion continues in background)
+   *
+   * **Reference:** docs/notes/bf-1yk1-t4b-deletion-lifecycle.md
+   *
+   * @param activeStreamIds - Set of currently active stream IDs (orphans are those not in this set)
+   * @returns Number of orphans identified (actual deletion continues in background)
+   */
   async cleanupOrphanedOutputs(activeStreamIds: Set<number>): Promise<number> {
     const logger = new CleanupLogger('cleanup-orphaned-outputs');
     logger.info('Starting orphaned output cleanup', {
