@@ -2,9 +2,9 @@ package com.screenferry.stresstest;
 
 import android.content.Context;
 import android.opengl.GLSurfaceView;
+import android.view.WindowManager;
 import javax.microedition.khronos.egl.EGLConfig;
 import javax.microedition.khronos.opengles.GL10;
-import javax.microedition.khronos.opengles.GL10Ext;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.Random;
 
@@ -22,6 +22,7 @@ public class GPUStressWorker implements Runnable {
 
     private GLSurfaceView glSurfaceView;
     private StressTestRenderer renderer;
+    private WindowManager windowManager;
 
     public GPUStressWorker(Context context, int intensity) {
         this.context = context;
@@ -32,40 +33,38 @@ public class GPUStressWorker implements Runnable {
     public void run() {
         running.set(true);
 
-        while (running.get()) {
-            try {
-                performGPUIntensiveTask();
-            } catch (Exception e) {
-                // Thread interrupted or other error
-                break;
-            }
-        }
-    }
-
-    /**
-     * Performs GPU-intensive computational tasks
-     */
-    private void performGPUIntensiveTask() {
-        // Simulate GPU vertex transformation operations
-        int vertexCount = 1000 + (intensity * 500);
-        float[] vertices = generateVertices(vertexCount);
-        float[] transformedVertices = transformVertices(vertices);
-
-        // Simulate pixel shading operations
-        int pixelCount = 1000 + (intensity * 2000);
-        int[] colors = simulatePixelShading(pixelCount);
-
-        // Simulate texture operations
-        int textureSize = 64 + (intensity * 32);
-        int[] textureData = simulateTextureOperations(textureSize);
-
-        framesRendered.incrementAndGet();
-
-        // Small sleep to prevent complete system freeze
+        // Create GLSurfaceView for actual GPU rendering
         try {
-            Thread.sleep(Math.max(5, 20 - intensity));
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
+            glSurfaceView = new GLSurfaceView(context);
+            renderer = new StressTestRenderer(intensity);
+            glSurfaceView.setRenderer(renderer);
+            glSurfaceView.setRenderMode(GLSurfaceView.RENDERMODE_CONTINUOUSLY);
+
+            // Create and add the view to the window
+            windowManager = (WindowManager) context.getSystemService(Context.WINDOW_SERVICE);
+            WindowManager.LayoutParams params = new WindowManager.LayoutParams(
+                1, 1, // Minimal size - we just want GPU load, not visibility
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE |
+                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE |
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                android.graphics.PixelFormat.TRANSLUCENT
+            );
+
+            windowManager.addView(glSurfaceView, params);
+
+            // Wait until stopped
+            while (running.get()) {
+                try {
+                    Thread.sleep(100);
+                } catch (InterruptedException e) {
+                    break;
+                }
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        } finally {
+            cleanup();
         }
     }
 
@@ -166,16 +165,37 @@ public class GPUStressWorker implements Runnable {
     }
 
     /**
+     * Cleanup resources
+     */
+    private void cleanup() {
+        if (windowManager != null && glSurfaceView != null) {
+            try {
+                windowManager.removeView(glSurfaceView);
+            } catch (Exception e) {
+                // View already removed
+            }
+        }
+
+        if (glSurfaceView != null) {
+            glSurfaceView.onPause();
+        }
+    }
+
+    /**
      * Stops the worker
      */
     public void stop() {
         running.set(false);
+        cleanup();
     }
 
     /**
      * Gets the number of frames rendered
      */
     public long getFramesRendered() {
+        if (renderer != null) {
+            return renderer.getFrameCount();
+        }
         return framesRendered.get();
     }
 
@@ -195,6 +215,10 @@ class StressTestRenderer implements GLSurfaceView.Renderer {
 
     public StressTestRenderer(int intensity) {
         this.intensity = intensity;
+    }
+
+    public long getFrameCount() {
+        return frameCount;
     }
 
     @Override
