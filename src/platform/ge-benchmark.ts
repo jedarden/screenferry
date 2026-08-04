@@ -22,6 +22,12 @@ export interface GEBenchmarkConfig {
   cap?: number;
   /** Maximum duration for benchmark in ms. Defaults to 30000 (30s). */
   maxDuration?: number;
+  /** Require thermal throttled state before running benchmark. Defaults to true. */
+  requireThrottledState?: boolean;
+  /** Maximum time to wait for throttled state (ms). Defaults to 60000 (60s). */
+  thermalWaitTimeout?: number;
+  /** FPS drop threshold for thermal throttling detection. Defaults to 0.5 (50%). */
+  thermalFpsDropThreshold?: number;
 }
 
 export interface GEBenchmarkResult {

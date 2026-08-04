@@ -288,6 +288,27 @@ export function parseBeacon(
 
   // ------------------------------------------------------------------ STEP 3: T1/META bounds checks (now safe because CRC validated)
 
+  // Path 2: Network beacon reception validation - check compression/resume conflict
+  // Malicious senders might try to set Compressed without ResumeDisabled, which would
+  // cause silent corruption if the receiver attempted resume after a sender restart.
+  // This validation protects against such attacks by rejecting beacons with invalid flag combinations.
+  const compressionEnabled = (flags & BeaconFlags.Compressed) !== 0;
+  const resumeDisabled = (flags & BeaconFlags.ResumeDisabled) !== 0;
+
+  if (compressionEnabled && !resumeDisabled) {
+    throw new BeaconValidationError(
+      'E-COMPRESSION-RESUME-CONFLICT',
+      `E-COMPRESSION-RESUME-CONFLICT: Received beacon has Compressed flag set without ResumeDisabled. ` +
+      `This is an invalid flag combination because CompressionStream offers no determinism guarantee ` +
+      `across browser restarts, making resume unsafe (see bf-17s0, bf-2w1a).`,
+      {
+        flags,
+        compressionEnabled,
+        resumeDisabled,
+      }
+    );
+  }
+
   // T1: originalSize bounds check
   if (originalSize > BEACON_LIMITS.MAX_FILE_SIZE) {
     throw new BeaconValidationError(
