@@ -963,7 +963,7 @@ export function runGEBenchmarkSync(
         // Invariant: idx[i] ∈ [0, K-1] from Fisher-Yates, so idx[i]! >>> 5 ∈ [0, floor((K-1)/32)] ≤ MASKW-1
         // Safest fix: Add non-null assertion after array access: mask[idx[i]! >>> 5]! ^= ...
         // Alternative: Use explicit variable and bounds check (unnecessary for hot loop)
-        mask[idx[i]! >>> 5] ^= 1 << (idx[i]! & 31);
+        mask[idx[i]! >>> 5]! ^= 1 << (idx[i]! & 31);
       }
       packets++;
 
