@@ -816,10 +816,11 @@ block layer made a full-payload pass unaffordable.
 A human types this, so it must be short, unambiguous, and self-checking.
 
 ```
-SF1-<streamId32>-<ranges32>-<check>
+SF1-<streamId32>-<ranges>-<check>
 ```
 
 - **Alphabet:** Crockford base32 (no I/L/O/U — removes the common misreadings).
+- **`streamId32`:** 32-bit streamId encoded as 7-character Crockford base32 (padded with leading zeros if needed). A 32-bit value requires up to 7 base32 digits (2^32 < 32^7).
 - **`ranges`:** run-length encoded missing-block set. Contiguous runs are the common case
   because misses cluster (the user looked away).
 - **`check`:** 2 characters, CRC-8 over the decoded body. A mistyped code MUST be
@@ -922,7 +923,7 @@ they are goodput, not wire rate.
 The receiver knows exactly which blocks it lacks. The user reads a code off one screen and
 types it into the other:
 
-> **Receiver:** "Missing 3 blocks. Repair code: `SF1-K7F2M9-3B-X4`"
+> **Receiver:** "Missing 3 blocks. Repair code: `SF1-1A2B3C4-3B-X4`"
 > **Sender:** [paste] → transmits only those blocks
 
 Turns a multi-hour extra pass into a sub-minute repair, needs no second camera and no
