@@ -464,6 +464,213 @@ describe('CleanupLogger', () => {
     });
   });
 
+  describe('error logging verification', () => {
+    it('verifies error log is emitted when cleanup fails', () => {
+      logger = new CleanupLogger('error-cleanup-test');
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      // Trigger cleanup errors
+      logger.error('Deletion failed for stream', {
+        streamId: 123,
+        filename: 'test-file.dat',
+        error: 'Permission denied',
+        errorType: 'PermissionError',
+      });
+
+      logger.incrementDeletionsFailed();
+      logger.recordError(123, 'test-file.dat', 'Permission denied', 'PermissionError');
+
+      const logs = logger.getLogs();
+      const errorLogs = logs.filter(log => log.level === LogLevel.ERROR);
+
+      // Verify error logs were emitted
+      expect(errorLogs.length).toBeGreaterThanOrEqual(1);
+      expect(errorSpy).toHaveBeenCalled();
+
+      // Verify error log structure
+      const errorLog = errorLogs[0];
+      expect(errorLog.level).toBe(LogLevel.ERROR);
+      expect(errorLog.streamId).toBe(123);
+      expect(errorLog.error).toBe('Permission denied');
+      expect(errorLog.errorType).toBe('PermissionError');
+      expect(errorLog.timestamp).toBeDefined();
+      expect(errorLog.operation).toBe('error-cleanup-test');
+    });
+
+    it('verifies error log structure contains required fields', () => {
+      logger = new CleanupLogger('error-structure-test');
+
+      // Record multiple different error types
+      logger.recordError(100, 'file1.dat', 'Permission denied', 'PermissionError');
+      logger.recordError(200, 'file2.bin', 'File not found', 'NotFoundError');
+      logger.recordError(300, 'file3.tmp', 'Network timeout', 'NetworkError');
+
+      const metrics = logger.complete();
+
+      // Verify error count
+      expect(metrics.errors).toHaveLength(3);
+
+      // Verify each error has required structure
+      metrics.errors.forEach((error, index) => {
+        // Verify required fields exist
+        expect(error.error).toBeDefined();
+        expect(error.timestamp).toBeDefined();
+        expect(error.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+
+        // Verify specific error details
+        if (index === 0) {
+          expect(error.streamId).toBe(100);
+          expect(error.filename).toBe('file1.dat');
+          expect(error.error).toBe('Permission denied');
+          expect(error.errorType).toBe('PermissionError');
+        } else if (index === 1) {
+          expect(error.streamId).toBe(200);
+          expect(error.filename).toBe('file2.bin');
+          expect(error.error).toBe('File not found');
+          expect(error.errorType).toBe('NotFoundError');
+        } else if (index === 2) {
+          expect(error.streamId).toBe(300);
+          expect(error.filename).toBe('file3.tmp');
+          expect(error.error).toBe('Network timeout');
+          expect(error.errorType).toBe('NetworkError');
+        }
+      });
+    });
+
+    it('verifies error count and error type in completion log', () => {
+      logger = new CleanupLogger('completion-error-test');
+      const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+      // Simulate cleanup with errors
+      logger.incrementDeletionsFailed(2);
+      logger.recordError(111, 'failed-file-1.dat', 'Permission denied', 'PermissionError');
+      logger.recordError(222, 'failed-file-2.bin', 'File not found', 'NotFoundError');
+
+      const metrics = logger.complete();
+
+      // Verify error count in metrics (via errors array length)
+      expect(metrics.errors).toHaveLength(2);
+      expect(metrics.deletionsFailed).toBe(2);
+
+      // Verify completion log was created
+      const logs = logger.getLogs();
+      const completionLog = logs.find(log => log.message === 'Cleanup operation completed');
+
+      expect(completionLog).toBeDefined();
+      expect(completionLog!.errorCount).toBe(2);
+      expect(completionLog!.deletionsFailed).toBe(2);
+
+      // Verify console output includes error count
+      expect(logSpy).toHaveBeenCalled();
+      const completionCallArgs = logSpy.mock.calls.find(call =>
+        call[0] === '[Cleanup:completion-error-test]' &&
+        call[1] && call[1].includes('Cleanup operation completed')
+      );
+      expect(completionCallArgs).toBeDefined();
+
+      // Parse and verify the logged JSON
+      const loggedJson = JSON.parse(completionCallArgs![1] as string);
+      expect(loggedJson.errorCount).toBe(2);
+      expect(loggedJson.deletionsFailed).toBe(2);
+    });
+
+    it('verifies error logging with mixed success and failure', () => {
+      logger = new CleanupLogger('mixed-cleanup-test');
+
+      // Simulate mixed results
+      logger.incrementDeletionsSucceeded(5);
+      logger.incrementDeletionsFailed(3);
+
+      logger.recordError(10, 'file-1.dat', 'Permission denied', 'PermissionError');
+      logger.recordError(20, 'file-2.dat', 'File not found', 'NotFoundError');
+      logger.recordError(30, 'file-3.dat', 'Network timeout', 'NetworkError');
+
+      const metrics = logger.complete();
+
+      // Verify error count matches failure count
+      expect(metrics.deletionsFailed).toBe(3);
+      expect(metrics.errors).toHaveLength(3);
+
+      // Verify all error types are present
+      const errorTypes = metrics.errors.map(e => e.errorType);
+      expect(errorTypes).toContain('PermissionError');
+      expect(errorTypes).toContain('NotFoundError');
+      expect(errorTypes).toContain('NetworkError');
+
+      // Verify completion log contains both success and failure metrics
+      const logs = logger.getLogs();
+      const completionLog = logs.find(log => log.message === 'Cleanup operation completed');
+
+      expect(completionLog).toBeDefined();
+      expect(completionLog!.deletionsSucceeded).toBe(5);
+      expect(completionLog!.deletionsFailed).toBe(3);
+      expect(completionLog!.errorCount).toBe(3);
+    });
+
+    it('verifies error log timestamps are valid ISO format', () => {
+      logger = new CleanupLogger('timestamp-test');
+
+      logger.recordError(1, 'file.dat', 'Test error', 'TestError');
+
+      const metrics = logger.complete();
+
+      expect(metrics.errors).toHaveLength(1);
+      const errorTimestamp = metrics.errors[0].timestamp;
+
+      // Verify ISO 8601 format with milliseconds
+      expect(errorTimestamp).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+
+      // Verify timestamp is recent (within last minute)
+      const errorTime = new Date(errorTimestamp).getTime();
+      const now = Date.now();
+      expect(errorTime).toBeGreaterThanOrEqual(now - 60000);
+      expect(errorTime).toBeLessThanOrEqual(now);
+    });
+
+    it('verifies error logging without error type field', () => {
+      logger = new CleanupLogger('no-error-type-test');
+
+      // Record error without error type
+      logger.recordError(999, 'file.dat', 'Generic error');
+
+      const metrics = logger.complete();
+
+      expect(metrics.errors).toHaveLength(1);
+      expect(metrics.errors[0].error).toBe('Generic error');
+      expect(metrics.errors[0].errorType).toBeUndefined();
+      expect(metrics.errors[0].streamId).toBe(999);
+      expect(metrics.errors[0].filename).toBe('file.dat');
+      expect(metrics.errors[0].timestamp).toBeDefined();
+    });
+
+    it('verifies error count in metrics summary', () => {
+      logger = new CleanupLogger('summary-test');
+
+      logger.incrementFilesScanned(50);
+      logger.incrementOrphansIdentified(10);
+      logger.incrementDeletionsSucceeded(7);
+      logger.incrementDeletionsFailed(3);
+
+      logger.recordError(1, 'file1.dat', 'Error 1', 'ErrorType1');
+      logger.recordError(2, 'file2.dat', 'Error 2', 'ErrorType2');
+      logger.recordError(3, 'file3.dat', 'Error 3', 'ErrorType3');
+
+      const metrics = logger.complete();
+      const formatted = formatCleanupMetricsSummary(metrics);
+
+      // Verify error count is reflected in summary
+      expect(metrics.deletionsFailed).toBe(3);
+      expect(metrics.errors).toHaveLength(3);
+
+      // Verify summary contains error information
+      expect(formatted).toContain('Deletions failed: 3');
+      expect(formatted).toContain('Errors:');
+      expect(formatted).toContain('file1.dat (1): [ErrorType1] Error 1');
+      expect(formatted).toContain('file2.dat (2): [ErrorType2] Error 2');
+      expect(formatted).toContain('file3.dat (3): [ErrorType3] Error 3');
+    });
+  });
+
   describe('realistic cleanup scenario', () => {
     it('tracks realistic cleanup operation', async () => {
       logger = new CleanupLogger('realistic-cleanup');
