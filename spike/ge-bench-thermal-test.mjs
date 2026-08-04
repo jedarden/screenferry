@@ -30,37 +30,6 @@ let benchmarkResults = [];
 let stressStartTime = null;
 let isStressed = false;
 
-function readTemperatures() {
-  const temps = {};
-  for (const zone of THERMAL_ZONES) {
-    try {
-      const tempRaw = fs.readFileSync(`${zone.path}/temp`, 'utf8');
-      temps[zone.name] = parseInt(tempRaw) / 1000;
-    } catch (e) {
-      temps[zone.name] = null;
-    }
-  }
-  return temps;
-}
-
-function detectThrottling(data, currentThroughput) {
-  if (data.length < 5) return { throttled: false, reason: 'insufficient' };
-
-  const baseline = data.slice(0, 5);
-  const avgBaseline = baseline.reduce((sum, d) => sum + d.throughput, 0) / baseline.length;
-  const degradation = ((avgBaseline - currentThroughput) / avgBaseline) * 100;
-
-  if (degradation > 30) {
-    return { throttled: true, degradation: degradation.toFixed(1), reason: 'deg30' };
-  } else if (degradation > 20) {
-    return { throttled: false, degradation: degradation.toFixed(1), reason: 'deg20' };
-  } else if (degradation > 10) {
-    return { throttled: false, degradation: degradation.toFixed(1), reason: 'deg10' };
-  }
-
-  return { throttled: false, degradation: degradation.toFixed(1), reason: 'stable' };
-}
-
 async function stressCPU() {
   const crypto = (await import('crypto')).default;
   const workers = [];

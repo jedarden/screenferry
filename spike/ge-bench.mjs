@@ -9,8 +9,10 @@
  * Needs NO camera, NO dependencies, NO build step. Runs in Node or a browser.
  * This is the cheapest possible check of a decision the whole block layer rests on.
  *
- *   node spike/ge-bench.mjs              # default sweep
- *   node spike/ge-bench.mjs 768 256      # one (K, L)
+ *   node spike/ge-bench.mjs                     # default sweep
+ *   node spike/ge-bench.mjs 768 256             # one (K, L)
+ *   node spike/ge-bench.mjs 768 256 --check-thermal        # verify throttled state
+ *   node spike/ge-bench.mjs 768 256 --require-throttled   # fail if not throttled
  *
  * In a browser: import it and call run(K, L) — same code path, and the browser
  * number is the one that matters. Node and Chrome share V8, but a phone is the
@@ -130,7 +132,35 @@ const STAGES = [["Stage 1", 30], ["Stage 2", 60], ["Stage 3", 106]];
 const BUDGET = 200;                  // MB/s — the plan's assumed phone-JS figure
 const PHONE_FACTOR = 4;              // desktop → mid-range phone, conservative
 
-function report(K, L) {
+/**
+ * Run benchmark report with optional thermal state verification
+ * @param {number} K - Block size parameter
+ * @param {number} L - Payload size parameter
+ * @param {Object} options - Options for thermal checking
+ * @param {boolean} options.checkThermal - Check thermal state before running
+ * @param {boolean} options.requireThrottled - Require throttled state (fail if not throttled)
+ */
+async function report(K, L, options = {}) {
+  const { checkThermal = false, requireThrottled = false } = options;
+
+  // Thermal state verification if requested
+  if (checkThermal || requireThrottled) {
+    try {
+      const thermal = await import('./thermal-detection.mjs');
+      const checkFn = requireThrottled ? thermal.requireThrottledState : thermal.checkThrottledState;
+      await checkFn(
+        () => run(K, L, { seed: 0xC0FFEE }),
+        { expectThrottled: requireThrottled }
+      );
+
+      // If we required throttled state and passed, continue with benchmarks
+      // If we just checked thermal state, always continue
+    } catch (error) {
+      console.error(`\n${error.message}`);
+      process.exit(1);
+    }
+  }
+
   // warm V8, then take the best of 3 (we want the achievable ceiling, not GC noise)
   run(K, L);
   let best = null;
@@ -156,14 +186,38 @@ function report(K, L) {
 }
 
 if (typeof process !== 'undefined' && process.argv[1]?.endsWith('ge-bench.mjs')) {
-  const [, , kArg, lArg] = process.argv;
+  const args = process.argv.slice(2);
+
+  // Parse arguments
+  let kArg, lArg, checkThermal = false, requireThrottled = false;
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === '--check-thermal') {
+      checkThermal = true;
+    } else if (arg === '--require-throttled') {
+      requireThrottled = true;
+    } else if (!kArg) {
+      kArg = arg;
+    } else if (!lArg) {
+      lArg = arg;
+    }
+  }
+
   console.log('S1 — GE decoder throughput benchmark');
   console.log('Validates the 200 MB/s phone-JS budget behind D19 (plan.md §18 R1).');
   console.log(`Node ${process.version}`);
+
+  if (checkThermal || requireThrottled) {
+    console.log(`\n🔥 Thermal detection: ${requireThrottled ? 'REQUIRED' : 'CHECKED'}`);
+  }
+
   if (kArg) {
-    report(+kArg, +(lArg ?? 256));
+    await report(+kArg, +(lArg ?? 256), { checkThermal, requireThrottled });
   } else {
-    for (const K of [512, 768, 1024, 1152]) report(K, 256);
+    for (const K of [512, 768, 1024, 1152]) {
+      await report(K, 256, { checkThermal, requireThrottled });
+    }
     console.log('\nKill criteria (plan.md §17 Phase 0.5):');
     console.log('  est. phone < required at Stage 3 → drop K, or re-open D5 vs wirehair (R1)');
     console.log(`  Packet on the wire = ${HEADER} + L bytes.`);
