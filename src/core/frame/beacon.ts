@@ -616,9 +616,9 @@ export function encodeBeacon(meta: BeaconMeta): Uint8Array {
   if (compressionEnabled && !resumeDisabled) {
     throw new BeaconValidationError(
       'E-COMPRESSION-RESUME-CONFLICT',
-      `Compression cannot be enabled without disabling resume. ` +
+      `E-COMPRESSION-RESUME-CONFLICT: Compression cannot be enabled without disabling resume. ` +
       `When BeaconFlags.Compressed is set, BeaconFlags.ResumeDisabled must also be set. ` +
-      `This is required because CompressionStream offers no determinism guarantee across ` +
+      `This incompatibility is required because CompressionStream offers no determinism guarantee across ` +
       `browser restarts, making resume unsafe (see bf-17s0, bf-2w1a).`,
       {
         flags: meta.flags,
