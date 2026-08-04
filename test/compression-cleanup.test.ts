@@ -12,15 +12,189 @@
  */
 
 import {describe, it, expect, beforeEach, afterEach, vi} from 'vitest';
-import {OPFSStorageManager, resetStorageManager, runStartupCleanup, type OrphanedFile} from '../src/platform/storage.js';
+import {OPFSStorageManager, resetStorageManager, runStartupCleanup, configureStorageManager, getStorageManager, type OrphanedFile, type OutputArtefact} from '../src/platform/storage.js';
 import {AsyncCleanupWorker, type CleanupWorkerMetrics} from '../src/platform/async-cleanup-worker.js';
 import {BeaconFlags, isResumeDisabled} from '../src/core/frame/beacon.js';
 
+// Mock OPFS Directory (simplified version for these tests)
+class MockOPFSDirectory {
+  files = new Map<string, { data: Uint8Array; metadata: OutputArtefact }>();
+  name: string;
+  kind: 'directory' = 'directory';
+
+  constructor(name: string = 'root') {
+    this.name = name;
+  }
+
+  async getFileHandle(name: string, options: { create?: boolean }) {
+    if (!options?.create && !this.files.has(name)) {
+      throw new Error('File not found');
+    }
+
+    if (options?.create && !this.files.has(name)) {
+      this.files.set(name, { data: new Uint8Array(0), metadata: {} as OutputArtefact });
+    }
+
+    return {
+      getFile: async () => ({
+        arrayBuffer: async () => this.files.get(name)!.data.buffer,
+        text: async () => {
+          if (name.endsWith('.meta.json')) {
+            return JSON.stringify(this.files.get(name)!.metadata);
+          }
+          return JSON.stringify(this.files.get(name)!.metadata);
+        },
+        size: this.files.get(name)!.data.length,
+      }),
+      createWritable: async () => ({
+        write: async (data: Uint8Array | string) => {
+          const existing = this.files.get(name) || { data: new Uint8Array(0), metadata: {} as OutputArtefact };
+          if (typeof data === 'string') {
+            const uint8Array = new TextEncoder().encode(data);
+            this.files.set(name, { ...existing, data: uint8Array });
+          } else {
+            this.files.set(name, { ...existing, data });
+          }
+        },
+        close: async () => {},
+      }),
+      createSyncAccessHandle: async () => {
+        let fileData = this.files.get(name)!.data;
+        let position = 0;
+
+        return {
+          write: (buffer: Uint8Array, opts?: { at?: number }) => {
+            const offset = opts?.at || position;
+            if (offset + buffer.length > fileData.length) {
+              const newData = new Uint8Array(offset + buffer.length);
+              newData.set(fileData);
+              fileData = newData;
+            }
+            fileData.set(buffer, offset);
+            position = offset + buffer.length;
+          },
+          read: (buffer: Uint8Array, opts?: { at?: number }) => {
+            const offset = opts?.at || position;
+            const bytesRead = Math.min(buffer.length, fileData.length - offset);
+            buffer.set(fileData.subarray(offset, offset + bytesRead));
+            position = offset + bytesRead;
+            return bytesRead;
+          },
+          truncate: (size: number) => {
+            fileData = fileData.subarray(0, size);
+          },
+          close: () => {
+            this.files.set(name, { ...this.files.get(name)!, data: fileData });
+          },
+          flush: () => {
+            this.files.set(name, { ...this.files.get(name)!, data: fileData });
+          },
+          getSize: () => fileData.length,
+        };
+      },
+    };
+  }
+
+  async getDirectoryHandle(name: string, options: { create?: boolean }): Promise<MockOPFSDirectory> {
+    if (!options?.create) {
+      throw new Error('Directory not found');
+    }
+    return new MockOPFSDirectory(name);
+  }
+
+  async removeEntry(name: string, options?: { recursive?: boolean }) {
+    if (!this.files.has(name)) {
+      throw new Error('File not found');
+    }
+    this.files.delete(name);
+  }
+
+  values() {
+    const files = this.files;
+    const asyncIterator = (async function* () {
+      for (const [name, fileData] of files.entries()) {
+        yield {
+          kind: 'file' as const,
+          name,
+          getFile: async () => ({
+            arrayBuffer: async () => fileData.data.buffer,
+            text: async () => {
+              if (name.endsWith('.meta.json')) {
+                return JSON.stringify(fileData.metadata);
+              }
+              return JSON.stringify(fileData.metadata);
+            },
+            size: fileData.data.length,
+          }),
+        };
+      }
+    })();
+
+    return {
+      [Symbol.asyncIterator]: () => asyncIterator,
+    };
+  }
+
+  addTestFile(streamId: number, age: number) {
+    const filePath = `output-${streamId}.bin`;
+    const metadataPath = `output-${streamId}.meta.json`;
+
+    const data = new Uint8Array([1, 2, 3, 4]);
+    const metadata: OutputArtefact = {
+      streamId,
+      filename: `test-${streamId}.dat`,
+      mimeType: 'application/octet-stream',
+      size: data.length,
+      createdAt: Date.now() - age,
+      path: filePath,
+    };
+
+    this.files.set(filePath, { data, metadata });
+    this.files.set(metadataPath, { data: new TextEncoder().encode(JSON.stringify(metadata)), metadata });
+  }
+
+  countFiles(): number {
+    return Math.floor(this.files.size / 2);
+  }
+}
+
+// Global mock OPFS instance
+const mockOPFS = new MockOPFSDirectory();
+
+// Mock navigator.storage.getDirectory
+const mockNavigator = {
+  storage: {
+    getDirectory: vi.fn(async () => mockOPFS),
+    estimate: vi.fn(async () => ({ quota: 10_000_000_000, usage: 1_000_000_000 })),
+  },
+};
+
+vi.stubGlobal('navigator', mockNavigator);
+
 describe('Compression-only mode cleanup verification (bf-5t8g)', () => {
+  let mockStorage: OPFSStorageManager;
+  let testDir: MockOPFSDirectory;
+
   beforeEach(async () => {
     // Reset storage manager before each test
     resetStorageManager();
     vi.clearAllMocks();
+
+    // Clear mock OPFS
+    mockOPFS.files.clear();
+
+    // Create output directory
+    testDir = await mockOPFS.getDirectoryHandle('screenferry-outputs', { create: true }) as MockOPFSDirectory;
+
+    // Configure the global storage manager with test settings
+    // This ensures runStartupCleanup uses the same configuration
+    configureStorageManager({
+      outputDirectory: 'screenferry-outputs',
+      maxOrphanAge: 24 * 60 * 60 * 1000,
+    });
+
+    // Get the configured global storage manager
+    mockStorage = getStorageManager() as OPFSStorageManager;
   });
 
   afterEach(() => {
@@ -78,7 +252,13 @@ describe('Compression-only mode cleanup verification (bf-5t8g)', () => {
       }));
 
       // Assert: Verify T4 compliance criteria
-      verifyT4Compliance(orphans);
+      orphans.forEach(orphan => {
+        expect(orphan.isInactive).toBe(true);
+        expect(orphan.isOld).toBe(true);
+        // Files are identified for cleanup based on age and activity, not compression mode
+        expect(orphan.reason).toContain('not in active stream IDs');
+        expect(orphan.reason).toContain('exceeds maximum age');
+      });
 
       // All files should be eligible for cleanup
       expect(orphans.length).toBe(5);
@@ -297,7 +477,7 @@ describe('Compression-only mode cleanup verification (bf-5t8g)', () => {
 
     it('should verify cleanup criteria independent of compression mode', async () => {
       // Cleanup criteria should be the same regardless of compression
-      const stagingFiles = createCompressedStagingFiles(3, 20 * 60 * 60 * 1000); // 20 hours old
+      const stagingFiles = createCompressedStagingFiles(3, 30 * 60 * 60 * 1000); // 30 hours old (older than threshold)
 
       const storageManager = new OPFSStorageManager({
         outputDirectory: 'screenferry-outputs',
@@ -437,16 +617,11 @@ describe('Compression-only mode cleanup verification (bf-5t8g)', () => {
   describe('Scenario 5: Integration with startup cleanup', () => {
     it('should integrate with runStartupCleanup for compression-only mode', async () => {
       // Test integration with the main startup cleanup entry point
-      const storageManager = new OPFSStorageManager({
-        outputDirectory: 'screenferry-outputs',
-        maxOrphanAge: 24 * 60 * 60 * 1000,
-      });
-
-      // Mock scan to return compressed staging files
-      const mockOrphans = createCompressedStagingFiles(4, 26 * 60 * 60 * 1000);
-
-      vi.spyOn(storageManager, 'scanOrphanedFiles').mockResolvedValue(mockOrphans);
-      vi.spyOn(storageManager, 'deleteOutput').mockResolvedValue();
+      // Need to use the mock storage that's set up in beforeEach
+      vi.spyOn(mockStorage, 'scanOrphanedFiles').mockResolvedValue(
+        createCompressedStagingFiles(4, 26 * 60 * 60 * 1000)
+      );
+      vi.spyOn(mockStorage, 'deleteOutput').mockResolvedValue();
 
       // Act: Run startup cleanup (synchronous mode for testing)
       const result = await runStartupCleanup(new Set(), false); // fireAndForget = false
@@ -461,15 +636,10 @@ describe('Compression-only mode cleanup verification (bf-5t8g)', () => {
 
     it('should handle fire-and-forget mode correctly', async () => {
       // Test that cleanup works in fire-and-forget mode (normal operation)
-      const storageManager = new OPFSStorageManager({
-        outputDirectory: 'screenferry-outputs',
-        maxOrphanAge: 24 * 60 * 60 * 1000,
-      });
-
-      const mockOrphans = createCompressedStagingFiles(3, 25 * 60 * 60 * 1000);
-
-      vi.spyOn(storageManager, 'scanOrphanedFiles').mockResolvedValue(mockOrphans);
-      vi.spyOn(storageManager, 'deleteOutput').mockResolvedValue();
+      vi.spyOn(mockStorage, 'scanOrphanedFiles').mockResolvedValue(
+        createCompressedStagingFiles(3, 25 * 60 * 60 * 1000)
+      );
+      vi.spyOn(mockStorage, 'deleteOutput').mockResolvedValue();
 
       // Act: Run startup cleanup in fire-and-forget mode
       const result = await runStartupCleanup(new Set(), true); // fireAndForget = true

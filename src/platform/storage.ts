@@ -326,7 +326,7 @@ function formatBytes(bytes: number): string {
 /**
  * OPFS-based storage manager implementation.
  */
-class OPFSStorageManager implements StorageManager {
+export class OPFSStorageManager implements StorageManager {
   private config: StorageManagerConfig;
   private opfsRoot: FileSystemDirectoryHandle | null = null;
 
