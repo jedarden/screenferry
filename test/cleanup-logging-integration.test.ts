@@ -73,19 +73,21 @@ describe('Cleanup Logging Integration', () => {
       });
 
       const logs = logger.getLogs();
-      const logEntry = logs[0];
+      // Find the explicit log entry, not the automatic start log
+      const logEntry = logs.find(log => log.message === 'Operation started');
+      expect(logEntry).toBeDefined();
 
       // Verify required fields
-      expect(logEntry.level).toBe(LogLevel.INFO);
-      expect(logEntry.timestamp).toBeDefined();
-      expect(logEntry.operation).toBe('structured-test');
-      expect(logEntry.message).toBe('Operation started');
+      expect(logEntry!.level).toBe(LogLevel.INFO);
+      expect(logEntry!.timestamp).toBeDefined();
+      expect(logEntry!.operation).toBe('structured-test');
+      expect(logEntry!.message).toBe('Operation started');
 
       // Verify custom data is preserved
-      expect(logEntry.cleanupType).toBe('orphan-removal');
-      expect(logEntry.directory).toBe('/test/path');
-      expect(logEntry.maxAge).toBe(86400000);
-      expect(logEntry.activeStreamIds).toEqual([100, 200, 300]);
+      expect(logEntry!.cleanupType).toBe('orphan-removal');
+      expect(logEntry!.directory).toBe('/test/path');
+      expect(logEntry!.maxAge).toBe(86400000);
+      expect(logEntry!.activeStreamIds).toEqual([100, 200, 300]);
 
       // Verify console output includes JSON
       expect(logSpy).toHaveBeenCalled();
@@ -166,16 +168,16 @@ describe('Cleanup Logging Integration', () => {
       logger.info('Info message 2');
       logger.error('Error message 2');
 
-      // Verify all logs are captured
+      // Verify all logs are captured (including automatic start log)
       const allLogs = logger.getLogs();
-      expect(allLogs.length).toBe(6);
+      expect(allLogs.length).toBe(7); // start log + 6 explicit logs
 
       // Verify filtering by level
       const debugLogs = logger.getLogsByLevel(LogLevel.DEBUG);
       expect(debugLogs.length).toBe(1);
 
       const infoLogs = logger.getLogsByLevel(LogLevel.INFO);
-      expect(infoLogs.length).toBe(2);
+      expect(infoLogs.length).toBe(3); // start log + 2 explicit logs
 
       const warnLogs = logger.getLogsByLevel(LogLevel.WARN);
       expect(warnLogs.length).toBe(1);

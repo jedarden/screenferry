@@ -597,10 +597,10 @@ describe('Resume-only mode cleanup verification (bf-3kmp)', () => {
 
       // Assert: Verify cleanup logging occurred
       expect(logSpy).toHaveBeenCalledWith(
-        expect.stringContaining('[AsyncCleanupWorker] Starting deletion')
+        expect.stringContaining('Starting deletion of orphaned files')
       );
       expect(logSpy).toHaveBeenCalledWith(
-        expect.stringContaining('[AsyncCleanupWorker] Deletion complete')
+        expect.stringContaining('Deletion operation completed')
       );
 
       // Verify metrics include duration and timing

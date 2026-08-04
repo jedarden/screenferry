@@ -386,7 +386,18 @@ export class AsyncCleanupWorker {
       duration,
     };
 
-    console.error(`[AsyncCleanupWorker] Failed to delete ${orphan.filename} (${orphan.streamId}) after ${this.config.maxRetries} attempts: ${lastError?.message}`);
+    console.error(JSON.stringify({
+      level: 'error',
+      timestamp: new Date().toISOString(),
+      operation: 'async-cleanup-worker',
+      message: 'All deletion attempts failed',
+      file: {
+        streamId: orphan.streamId,
+        filename: orphan.filename,
+      },
+      attempts: this.config.maxRetries,
+      error: lastError?.message || 'Unknown error',
+    }, null, 0));
 
     return result;
   }

@@ -610,6 +610,13 @@ export function encodeBeacon(meta: BeaconMeta): Uint8Array {
   // bf-4bi6: Validate compression/resume conflict before any state changes
   // This check prevents the unsafe combination where compression is enabled
   // but resume is not disabled, which would cause silent corruption on sender restart.
+  //
+  // ## T4 Privacy Compliance Preservation (plan.md §12 T4b, E11)
+  // This conflict check PROTECTS T4 cleanup by preventing unsafe states before they exist.
+  // The check throws BEFORE any files are created, so cleanup is never needed for conflict cases.
+  // Normal flows (compression-only with ResumeDisabled, or resume-only) still trigger cleanup
+  // via export.ts (post-export deletion) and init.ts (startup reap of orphans).
+  // See: test/bf-1i2b-conflict-prevents-cleanup.test.ts for safety verification.
   const compressionEnabled = (meta.flags & BeaconFlags.Compressed) !== 0;
   const resumeDisabled = (meta.flags & BeaconFlags.ResumeDisabled) !== 0;
 
