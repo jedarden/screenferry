@@ -607,6 +607,27 @@ export function encodeBeacon(meta: BeaconMeta): Uint8Array {
     );
   }
 
+  // bf-4bi6: Validate compression/resume conflict before any state changes
+  // This check prevents the unsafe combination where compression is enabled
+  // but resume is not disabled, which would cause silent corruption on sender restart.
+  const compressionEnabled = (meta.flags & BeaconFlags.Compressed) !== 0;
+  const resumeDisabled = (meta.flags & BeaconFlags.ResumeDisabled) !== 0;
+
+  if (compressionEnabled && !resumeDisabled) {
+    throw new BeaconValidationError(
+      'E-COMPRESSION-RESUME-CONFLICT',
+      `Compression cannot be enabled without disabling resume. ` +
+      `When BeaconFlags.Compressed is set, BeaconFlags.ResumeDisabled must also be set. ` +
+      `This is required because CompressionStream offers no determinism guarantee across ` +
+      `browser restarts, making resume unsafe (see bf-17s0, bf-2w1a).`,
+      {
+        flags: meta.flags,
+        compressionEnabled,
+        resumeDisabled,
+      }
+    );
+  }
+
   // Calculate total size
   const filenameBytes = new TextEncoder().encode(meta.filename);
   const mimeTypeBytes = new TextEncoder().encode(meta.mimeType);
