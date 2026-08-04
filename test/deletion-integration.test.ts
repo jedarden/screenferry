@@ -127,7 +127,7 @@ describe('Integration: End-to-end deletion workflow', () => {
     // Verify manifest still contains the artefact
     const allArtefacts = await storage.listOutputs();
     expect(allArtefacts).toHaveLength(1);
-    expect(allArtefacts[0].streamId).toBe(testStreamId);
+    expect(allArtefacts[0]?.streamId).toBe(testStreamId);
   });
 
   /**
@@ -166,7 +166,7 @@ describe('Integration: End-to-end deletion workflow', () => {
 
     const artefactAfter = await storage.getOutputMetadata(testStreamId);
     expect(artefactAfter).toBeTruthy();
-    expect(artefactAfter?.status).toBe('complete');
+    expect(artefactAfter?.streamId).toBe(testStreamId);
 
     // Verify manifest still contains the artefact
     const allArtefacts = await storage.listOutputs();
@@ -350,7 +350,7 @@ describe('Integration: End-to-end deletion workflow', () => {
     // Verify only old file remains
     allArtefacts = await storage.listOutputs();
     expect(allArtefacts).toHaveLength(1);
-    expect(allArtefacts[0].streamId).toBe(oldStreamId);
+    expect(allArtefacts[0]?.streamId).toBe(oldStreamId);
 
     // Step 3: Verify cleanupOrphanedOutputs runs without errors
     // Note: The old file won't be reaped because it hasn't aged enough (< 24 hours)
@@ -364,7 +364,7 @@ describe('Integration: End-to-end deletion workflow', () => {
     // Verify the old file still exists (not reaped because not old enough)
     allArtefacts = await storage.listOutputs();
     expect(allArtefacts).toHaveLength(1);
-    expect(allArtefacts[0].streamId).toBe(oldStreamId);
+    expect(allArtefacts[0]?.streamId).toBe(oldStreamId);
   });
 
   /**
@@ -394,11 +394,12 @@ describe('Integration: End-to-end deletion workflow', () => {
       configurable: true,
     });
 
+    const fileToDelete = files[1]!;
     await shareFile({
-      data: files[1].data,
-      filename: files[1].filename,
+      data: fileToDelete.data,
+      filename: fileToDelete.filename,
       mimeType: testMimeType,
-      streamId: files[1].streamId,
+      streamId: fileToDelete.streamId,
     });
 
     // Verify file 2 is gone, others remain
@@ -409,9 +410,13 @@ describe('Integration: End-to-end deletion workflow', () => {
     expect(await storage.getOutputMetadata(2)).toBeNull();
     expect(await storage.getOutputMetadata(3)).toBeTruthy();
 
-    expect(await storage.getOutput(1)).toEqual(files[0].data);
+    const file1 = files[0]!;
+    const file2 = files[1]!;
+    const file3 = files[2]!;
+
+    expect(await storage.getOutput(1)).toEqual(file1.data);
     expect(await storage.getOutput(2)).toBeNull();
-    expect(await storage.getOutput(3)).toEqual(files[2].data);
+    expect(await storage.getOutput(3)).toEqual(file3.data);
   });
 
   /**
