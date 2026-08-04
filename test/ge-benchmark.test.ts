@@ -497,15 +497,22 @@ describe('GE Benchmark', () => {
                state.hasOwnProperty('isThrottled');
       };
 
-      expect(hasRequiredProperties(result.thermalStateStart)).toBe(true);
-      expect(typeof result.thermalStateStart.currentFps).toBe('number');
-      expect(typeof result.thermalStateStart.fpsDrop).toBe('number');
-      expect(typeof result.thermalStateStart.isThrottled).toBe('boolean');
+      expect(result.thermalStateStart).toBeDefined();
+      expect(result.thermalStateEnd).toBeDefined();
 
-      expect(hasRequiredProperties(result.thermalStateEnd)).toBe(true);
-      expect(typeof result.thermalStateEnd.currentFps).toBe('number');
-      expect(typeof result.thermalStateEnd.fpsDrop).toBe('number');
-      expect(typeof result.thermalStateEnd.isThrottled).toBe('boolean');
+      if (result.thermalStateStart) {
+        expect(hasRequiredProperties(result.thermalStateStart)).toBe(true);
+        expect(typeof result.thermalStateStart.currentFps).toBe('number');
+        expect(typeof result.thermalStateStart.fpsDrop).toBe('number');
+        expect(typeof result.thermalStateStart.isThrottled).toBe('boolean');
+      }
+
+      if (result.thermalStateEnd) {
+        expect(hasRequiredProperties(result.thermalStateEnd)).toBe(true);
+        expect(typeof result.thermalStateEnd.currentFps).toBe('number');
+        expect(typeof result.thermalStateEnd.fpsDrop).toBe('number');
+        expect(typeof result.thermalStateEnd.isThrottled).toBe('boolean');
+      }
     });
   });
 
