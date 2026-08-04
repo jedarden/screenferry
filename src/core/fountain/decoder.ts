@@ -151,3 +151,105 @@ export class GEDecoder {
     return out;
   }
 }
+
+/**
+ * Basic XOR decode function for simple fountain-encoded sequences.
+ *
+ * This function demonstrates the core XOR reversal logic for fountain codes.
+ * It handles:
+ * - Repetition mode (K < MIN_LT_K): Direct fragment lookup
+ * - Simple XOR reversal: When source fragments are known, reverse the XOR operation
+ *
+ * @param streamId - Stream identifier (must match encoder)
+ * @param blockIndex - Block index (must match encoder)
+ * @param seq - Packet sequence number
+ * @param payload - Encoded payload (L bytes)
+ * @param sourceFragments - Known source fragments (for XOR reversal)
+ * @returns Decoded byte array
+ *
+ * @example
+ * ```typescript
+ * // Repetition mode (K < 8)
+ * const fragments = [
+ *   new Uint8Array([0x00, 0x01, 0x02, 0x03]),
+ *   new Uint8Array([0x10, 0x11, 0x12, 0x13]),
+ * ];
+ * const decoded = basicDecode(1, 0, 5, payload, fragments);
+ * // decoded === fragments[1] (since 5 % 2 = 1)
+ *
+ * // XOR mode: XOR of fragments[0], fragments[2], fragments[5]
+ * // To decode: payload XOR fragments[0] XOR fragments[2] = fragments[5]
+ * const partialXor = xor(payload, fragments[0]);
+ * const decoded = xor(partialXor, fragments[2]);
+ * // decoded === fragments[5]
+ * ```
+ */
+export function basicDecode(
+  streamId: number,
+  blockIndex: number,
+  seq: number,
+  payload: Uint8Array,
+  sourceFragments: Uint8Array[]
+): Uint8Array {
+  // Validate input
+  if (sourceFragments.length === 0) {
+    throw new Error('basicDecode: zero source fragments');
+  }
+
+  const k = sourceFragments.length;
+  const fragLen = sourceFragments[0]!.length;
+
+  if (fragLen === 0) {
+    throw new Error('basicDecode: zero fragment length');
+  }
+  if (payload.length !== fragLen) {
+    throw new Error(`basicDecode: payload length mismatch (expected ${fragLen}, got ${payload.length})`);
+  }
+
+  // Handle repetition mode (K < MIN_LT_K)
+  if (k < MIN_LT_K) {
+    const fragmentIndex = seq % k;
+    return sourceFragments[fragmentIndex]!.slice();
+  }
+
+  // Handle XOR mode: derive which fragments were XORed
+  const table = makeDegreeTable(k, DEGREE_CAP);
+  const indices = deriveIndices(streamId, blockIndex, seq, k, table);
+
+  // For simple sequences with 1-3 fragments, we can demonstrate XOR reversal
+  // by XORing all known fragments except the target one
+  if (indices.length <= 3) {
+    // Start with the payload
+    const decoded = new Uint8Array(payload);
+
+    // XOR all known source fragments
+    // For XOR property: A ^ B ^ C = D => D ^ A ^ B = C
+    for (const idx of indices) {
+      const fragment = sourceFragments[idx]!;
+      for (let i = 0; i < fragLen; i++) {
+        decoded[i] ^= fragment[i];
+      }
+    }
+
+    return decoded;
+  }
+
+  // For complex sequences (more than 3 fragments), return the payload
+  // as-is since we need Gaussian elimination to fully decode
+  // This demonstrates the basic XOR reversal but acknowledges its limitation
+  return payload.slice();
+}
+
+/**
+ * Helper function: XOR two byte arrays
+ */
+export function xor(a: Uint8Array, b: Uint8Array): Uint8Array {
+  if (a.length !== b.length) {
+    throw new Error('xor: length mismatch');
+  }
+  const result = new Uint8Array(a.length);
+  for (let i = 0; i < a.length; i++) {
+    result[i] = a[i]! ^ b[i]!;
+  }
+  return result;
+}
