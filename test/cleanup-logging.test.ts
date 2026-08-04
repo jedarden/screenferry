@@ -137,14 +137,48 @@ describe('CleanupLogger', () => {
         streamId: 123,
         filename: 'test-file.dat',
         error: 'Permission denied',
+        errorType: undefined,
         timestamp: expect.any(String),
       });
       expect(metrics.errors[1]).toEqual({
         streamId: 456,
         filename: 'another-file.bin',
         error: 'File not found',
+        errorType: undefined,
         timestamp: expect.any(String),
       });
+    });
+
+    it('records errors with error type', () => {
+      logger = new CleanupLogger('test-operation');
+
+      logger.recordError(123, 'test-file.dat', 'Permission denied', 'PermissionError');
+      logger.recordError(456, 'another-file.bin', 'File not found', 'NotFoundError');
+      logger.recordError(789, 'third-file.bin', 'Network timeout', 'NetworkError');
+
+      const metrics = logger.complete();
+      expect(metrics.errors).toHaveLength(3);
+      expect(metrics.errors[0]).toMatchObject({
+        streamId: 123,
+        filename: 'test-file.dat',
+        error: 'Permission denied',
+        errorType: 'PermissionError',
+      });
+      expect(metrics.errors[0].timestamp).toBeDefined();
+      expect(metrics.errors[1]).toMatchObject({
+        streamId: 456,
+        filename: 'another-file.bin',
+        error: 'File not found',
+        errorType: 'NotFoundError',
+      });
+      expect(metrics.errors[1].timestamp).toBeDefined();
+      expect(metrics.errors[2]).toMatchObject({
+        streamId: 789,
+        filename: 'third-file.bin',
+        error: 'Network timeout',
+        errorType: 'NetworkError',
+      });
+      expect(metrics.errors[2].timestamp).toBeDefined();
     });
 
     it('records errors with undefined values', () => {
@@ -158,6 +192,7 @@ describe('CleanupLogger', () => {
         streamId: undefined,
         filename: undefined,
         error: 'Unknown error',
+        errorType: undefined,
         timestamp: expect.any(String),
       });
     });
@@ -302,8 +337,8 @@ describe('CleanupLogger', () => {
         deletionsSucceeded: 8,
         deletionsFailed: 2,
         errors: [
-          { streamId: 1, filename: 'file1.dat', error: 'Error 1', timestamp: '2024-01-01T10:00:01.000Z' },
-          { streamId: 2, filename: 'file2.dat', error: 'Error 2', timestamp: '2024-01-01T10:00:02.000Z' },
+          { streamId: 1, filename: 'file1.dat', error: 'Error 1', errorType: 'PermissionError', timestamp: '2024-01-01T10:00:01.000Z' },
+          { streamId: 2, filename: 'file2.dat', error: 'Error 2', errorType: 'NotFoundError', timestamp: '2024-01-01T10:00:02.000Z' },
         ],
       };
 
@@ -316,8 +351,8 @@ describe('CleanupLogger', () => {
       expect(formatted).toContain('Deletions failed: 2');
       expect(formatted).toContain('5000.00ms');
       expect(formatted).toContain('Errors:');
-      expect(formatted).toContain('file1.dat (1): Error 1');
-      expect(formatted).toContain('file2.dat (2): Error 2');
+      expect(formatted).toContain('file1.dat (1): [PermissionError] Error 1');
+      expect(formatted).toContain('file2.dat (2): [NotFoundError] Error 2');
     });
 
     it('handles metrics with no errors', () => {
@@ -336,6 +371,28 @@ describe('CleanupLogger', () => {
 
       expect(formatted).toContain('Deletions failed: 0');
       expect(formatted).not.toContain('Errors:');
+    });
+
+    it('handles errors without error type', () => {
+      const metrics = {
+        startTime: '2024-01-01T10:00:00.000Z',
+        endTime: '2024-01-01T10:00:03.000Z',
+        duration: 3000,
+        filesScanned: 75,
+        orphansIdentified: 7,
+        deletionsSucceeded: 5,
+        deletionsFailed: 2,
+        errors: [
+          { streamId: 1, filename: 'file1.dat', error: 'Error 1', timestamp: '2024-01-01T10:00:01.000Z' },
+          { streamId: 2, filename: 'file2.dat', error: 'Error 2', timestamp: '2024-01-01T10:00:02.000Z' },
+        ],
+      };
+
+      const formatted = formatCleanupMetricsSummary(metrics);
+
+      expect(formatted).toContain('Errors:');
+      expect(formatted).toContain('file1.dat (1): Error 1');
+      expect(formatted).toContain('file2.dat (2): Error 2');
     });
 
     it('handles zero metrics', () => {
@@ -377,13 +434,22 @@ describe('CleanupLogger', () => {
         if (i < 8) {
           logger.incrementDeletionsSucceeded();
           logger.debug('Deletion succeeded', { streamId: 100 + i });
-        } else {
+        } else if (i === 8) {
           logger.incrementDeletionsFailed();
           logger.error('Deletion failed', {
             streamId: 100 + i,
             error: 'Permission denied',
+            errorType: 'PermissionError',
           });
-          logger.recordError(100 + i, `file-${i}.dat`, 'Permission denied');
+          logger.recordError(100 + i, `file-${i}.dat`, 'Permission denied', 'PermissionError');
+        } else {
+          logger.incrementDeletionsFailed();
+          logger.error('Deletion failed', {
+            streamId: 100 + i,
+            error: 'File not found',
+            errorType: 'NotFoundError',
+          });
+          logger.recordError(100 + i, `file-${i}.dat`, 'File not found', 'NotFoundError');
         }
       }
 
@@ -395,6 +461,8 @@ describe('CleanupLogger', () => {
       expect(metrics.deletionsSucceeded).toBe(8);
       expect(metrics.deletionsFailed).toBe(2);
       expect(metrics.errors).toHaveLength(2);
+      expect(metrics.errors[0].errorType).toBe('PermissionError');
+      expect(metrics.errors[1].errorType).toBe('NotFoundError');
       expect(metrics.duration).toBeGreaterThanOrEqual(0);
 
       // Verify logs were created
