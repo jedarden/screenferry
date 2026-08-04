@@ -230,20 +230,6 @@ Verified negative: setting Android's `user_rotation` to landscape does **not** d
 capture stayed 1080×1920 and camera px/module stayed 2.25. The sensor mapping follows
 the device body, not the UI orientation. This needs a physical rotation (or a mount).
 
-## QR is denser per pixel than libcimbar
-
-Worth recording because it contradicts the framing the plan inherited:
-
-| Scheme | Bits per screen px² |
-|---|---|
-| libcimbar, 6 bits/cell over 9×9 px | 0.0741 |
-| **QR v16-L at 3 px/module** | **0.0794** |
-| QR v16-L at 2 px/module | 0.1786 |
-
-**libcimbar's 106 KB/s is not a density win — it is a frame-rate win.** It sustains
-~11 decoded frames/s where we manage 2–4. That reorders the plan's Stage 2/Stage 3
-argument: the custom codec's value is decode *speed* per bit, not bits per pixel.
-
 ## What 1 Mbps needs
 
 125 KB/s, from the measured constraints. Requires camera px/module ≥ 4 *and* enough
