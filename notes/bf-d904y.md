@@ -16,10 +16,10 @@ Verify ADB connection to Pixel 6 device at Tailscale IP 100.88.10.113
 
 The Pixel 6 device (100.88.10.113) is currently **offline** in the Tailscale mesh.
 
-### Status from Tailscale
+### Status from Tailscale (as of 2026-08-04 ~18:15 UTC)
 - Device: pixel-6
 - IP: 100.88.10.113
-- Status: **offline**, last seen 5 hours ago
+- Status: **offline**, last seen 16 hours ago
 - Connection: relay "nyc"
 
 ### Detailed Verification Attempts (2026-08-04 13:47-13:52)
@@ -42,6 +42,16 @@ The Pixel 6 device (100.88.10.113) is currently **offline** in the Tailscale mes
    - Server unable to initialize without reachable device
 
 5. **Process cleanup required**:
+   - Found stuck processes: `adb-check`, `adb devices`, `adb connect 100.88.10.113:5555`
+   - Killed all ADB processes to clean up hung state
+   - Last known port from `~/.adb_last_port`: 5555
+
+### Re-verification Attempt (2026-08-04 ~18:15 UTC)
+
+Confirmed the device remains offline:
+- Tailscale status: **offline**, last seen 16 hours ago (was 5 hours at earlier check)
+- No changes in device availability
+- All ADB commands continue to fail with timeouts
    - Found stuck processes: `adb-check`, `adb devices`, `adb connect 100.88.10.113:5555`
    - Killed all ADB processes to clean up hung state
    - Last known port from `~/.adb_last_port`: 5555
