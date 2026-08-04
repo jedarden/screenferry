@@ -927,7 +927,7 @@ they are goodput, not wire rate.
 The receiver knows exactly which blocks it lacks. The user reads a code off one screen and
 types it into the other:
 
-> **Receiver:** "Missing 3 blocks. Repair code: `SF1-3M7QKP9-3B-X4`"
+> **Receiver:** "Missing 3 blocks. Repair code: `SF1-3M7QKP9-B-D-X4`"
 > **Sender:** [paste] → transmits only those blocks
 
 Turns a multi-hour extra pass into a sub-minute repair, needs no second camera and no
