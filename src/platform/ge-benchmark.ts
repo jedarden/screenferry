@@ -980,7 +980,7 @@ export function runGEBenchmarkSync(
         // After 'if (pm === null)', TypeScript should narrow pm to Uint32Array, but the cast prevents this
         // Additionally, TypeScript can't verify that pm[i] and pp[i] are within array bounds
         // Safest fix: Remove 'as' casts, use 'pm == null' for better narrowing, remove trailing '!' assertions
-        const pm = pivMask[p];
+        const pm: Uint32Array = pivMask[p]!;
         if (pm === null) {
           // new pivot
           pivMask[p] = mask.slice();
@@ -988,9 +988,9 @@ export function runGEBenchmarkSync(
           rank++;
           break;
         }
-        const pp = pivPay[p];
-        for (let i = 0; i <= w; i++) mask[i] ^= pm[i]!;
-        for (let i = 0; i < PAYW; i++) pay[i] ^= pp[i]!;
+        const pp: Uint32Array = pivPay[p]!;
+        for (let i = 0; i <= w; i++) mask[i]! ^= pm[i]!;
+        for (let i = 0; i < PAYW; i++) pay[i]! ^= pp[i]!;
         rowOps++;
       }
     }
