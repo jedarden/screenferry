@@ -812,7 +812,7 @@ Deliberately **not** `crc32(payload)` — the research's original design — bec
 block layer made a full-payload pass unaffordable.
 
 **Encoding:** `streamId` is a 32-bit value internally (from CRC32). When displayed to users
-(e.g., in repair codes), it is encoded as **7-character Crockford base32** (see §7.6). This
+(e.g., in repair codes), it is encoded as **Crockford base32 (7-character)** (see §7.6). This
 encoding is human-typable and avoids ambiguous characters (no I/L/O/U).
 
 ### 7.6 Repair code format (§8.2)
@@ -824,7 +824,7 @@ SF1-<streamId32>-<ranges>-<check>
 ```
 
 - **Alphabet:** Crockford base32 (no I/L/O/U — removes the common misreadings).
-- **`streamId32`:** 32-bit streamId encoded as 7-character Crockford base32 (padded with leading zeros if needed). A 32-bit value requires up to 7 base32 digits (2^32 < 32^7).
+- **`streamId32`:** 32-bit streamId encoded as Crockford base32 (7-character, padded with leading zeros if needed). A 32-bit value requires up to 7 base32 digits (2^32 < 32^7).
 - **`ranges`:** run-length encoded missing-block set. Contiguous runs are the common case
   because misses cluster (the user looked away).
 - **`check`:** 2 characters, CRC-8 over the decoded body. A mistyped code MUST be
