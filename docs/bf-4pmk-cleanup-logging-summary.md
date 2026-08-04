@@ -16,7 +16,7 @@ All acceptance criteria have been met:
 - ✅ **Log count of files scanned, identified as orphans, deleted successfully, failed** - All counts are tracked and reported
 - ✅ **Log any errors encountered** - Errors are logged with detailed context (streamId, filename, error message, timestamp)
 - ✅ **Metrics are queryable/verifiable** - Logs can be filtered by level, time range, and inspected programmatically
-- ✅ **Add test verifying logging output** - 32 tests passing (23 unit + 9 integration)
+- ✅ **Add test verifying logging output** - 94 tests passing across 5 test files (comprehensive unit and integration tests)
 
 ## Implementation Components
 
@@ -147,9 +147,9 @@ const allLogs = logger.getLogs();
 
 ### 6. Test Coverage
 
-**32 tests passing:**
+**94 tests passing across 5 test files:**
 
-**Unit tests** (`cleanup-logging.test.ts` - 23 tests):
+**Unit tests** (`cleanup-logging.test.ts` - 33 tests):
 - Basic logging (debug, info, warn, error)
 - Metrics tracking (files, orphans, deletions)
 - Completion metrics and timing
@@ -157,6 +157,17 @@ const allLogs = logger.getLogs();
 - Structured log format validation
 - Human-readable metrics formatting
 - Realistic cleanup scenarios
+- Error logging verification
+
+**Metrics verification** (`bf-2h19p-metrics-log-verification.test.ts` - 10 tests):
+- Metrics log emission with all required fields
+- Metrics object structure completeness
+- Queryability by count fields, error type, stream ID
+- Formatted output verification
+
+**Helpers tests** (`cleanup-logging-helpers.test.ts` - 20 tests):
+- Formatting helper functions
+- Edge cases and error conditions
 
 **Integration tests** (`cleanup-logging-integration.test.ts` - 9 tests):
 - Queryable and verifiable metrics
@@ -166,6 +177,11 @@ const allLogs = logger.getLogs();
 - Edge cases (no errors, all failures)
 - Large-scale cleanup operations (10,000 files)
 - Rapid cleanup operations
+
+**Cleanup logging verification** (`bf-3hrqq-cleanup-logging-verification.test.ts` - 22 tests):
+- End-to-end cleanup logging verification
+- Real-world cleanup scenarios
+- Error handling and logging
 
 ## Usage Examples
 
