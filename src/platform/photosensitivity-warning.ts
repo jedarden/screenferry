@@ -298,6 +298,17 @@ export class PhotosensitivityWarning {
    * Clean up dialog elements
    */
   private cleanup(): void {
+    const startTime = new Date().toISOString();
+
+    // Log cleanup operation start with timestamp
+    console.log(JSON.stringify({
+      level: 'info',
+      timestamp: startTime,
+      operation: 'photosensitivity-warning-cleanup',
+      message: 'Cleanup operation started',
+      component: 'PhotosensitivityWarning',
+    }, null, 0));
+
     this.resolved = true;
     document.removeEventListener('keydown', this.handleEscape);
 
@@ -306,6 +317,19 @@ export class PhotosensitivityWarning {
     }
     this.overlay = null;
     this.dialog = null;
+
+    const endTime = new Date().toISOString();
+
+    // Log cleanup operation end with timestamp
+    console.log(JSON.stringify({
+      level: 'info',
+      timestamp: endTime,
+      operation: 'photosensitivity-warning-cleanup',
+      message: 'Cleanup operation completed',
+      component: 'PhotosensitivityWarning',
+      startTime,
+      endTime,
+    }, null, 0));
   }
 }
 
