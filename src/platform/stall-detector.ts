@@ -372,7 +372,7 @@ export class StallDetector {
   private computeFrameHash(decodedTiles: TileDiagnostics[]): string {
     // Hash based on tile indices and positions (if available)
     const parts = decodedTiles.map(t => {
-      const posInfo = t.position
+      const posInfo = t.position && t.position.length > 0
         ? `${t.position[0].x.toFixed(0)},${t.position[0].y.toFixed(0)}`
         : 'no-pos';
       return `${t.tileIndex}-${posInfo}`;
@@ -581,9 +581,9 @@ export class StallDetector {
 
     // Classify stall
     let category: StallCategory | undefined;
-    let confidence: Confidence;
-    let explanation: string;
-    let suggestion: string;
+    let confidence: Confidence = 'low';
+    let explanation: string = '';
+    let suggestion: string = '';
 
     // PRIORITY 1: Canary tile signals (definitive optical vs payload separation)
     if (this.config.enableCanaryDetection && this.canaryTotalAttempts >= 5) {
@@ -706,21 +706,29 @@ export class StallDetector {
       suggestion = 'Try improving lighting, reducing distance, or adjusting camera angle to avoid glare';
     }
 
+    const details: StallDiagnosis['details'] = {
+      timeSinceLastPacket,
+      timeSinceLastDetection,
+      tornFrameRate: recent.tornFrameRate,
+      captureFps: stats.captureFps,
+      decodeFps: stats.decodeFps,
+      packetsPerSec: stats.packetsPerSec,
+    };
+
+    // Only add optional properties if we have values
+    if (recent.avgPxPerModule > 0) {
+      details.pxPerModule = recent.avgPxPerModule;
+    }
+    if (recent.avgSharpness > 0) {
+      details.sharpness = recent.avgSharpness;
+    }
+
     return {
       category,
       confidence,
       explanation,
       suggestion,
-      details: {
-        timeSinceLastPacket,
-        timeSinceLastDetection,
-        pxPerModule: recent.avgPxPerModule || undefined,
-        sharpness: recent.avgSharpness || undefined,
-        tornFrameRate: recent.tornFrameRate,
-        captureFps: stats.captureFps,
-        decodeFps: stats.decodeFps,
-        packetsPerSec: stats.packetsPerSec,
-      },
+      details,
     };
   }
 

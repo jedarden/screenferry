@@ -121,9 +121,9 @@ export class BlockDecodePipeline {
       storageConfig: config.storageConfig ?? {},
       streamId: config.streamId,
       fileSize: config.fileSize,
-      onPacketReceived: config.onPacketReceived,
-      onPacketEvicted: config.onPacketEvicted,
-      onBlockDecoded: config.onBlockDecoded,
+      ...(config.onPacketReceived !== undefined && { onPacketReceived: config.onPacketReceived }),
+      ...(config.onPacketEvicted !== undefined && { onPacketEvicted: config.onPacketEvicted }),
+      ...(config.onBlockDecoded !== undefined && { onBlockDecoded: config.onBlockDecoded }),
     };
 
     // Create storage
@@ -264,8 +264,12 @@ export class BlockDecodePipeline {
     // Recover fragments
     const fragments = decoder.recover();
 
+    // Calculate block size for this block
+    const blockPos = blockRange(this.blockGeom, blockIndex);
+    const blockByteLen = blockPos.end - blockPos.start;
+
     // Reassemble block from fragments
-    const blockData = fromFragments(fragments);
+    const blockData = fromFragments(fragments, blockByteLen);
 
     // Cache decoded block
     this.decodedBlocks.set(blockIndex, blockData);
@@ -311,7 +315,9 @@ export class BlockDecodePipeline {
 
     // Recover and reassemble
     const fragments = decoder.recover();
-    const blockData = fromFragments(fragments);
+    const blockPos = blockRange(this.blockGeom, blockIndex);
+    const blockByteLen = blockPos.end - blockPos.start;
+    const blockData = fromFragments(fragments, blockByteLen);
 
     // Cache result
     this.decodedBlocks.set(blockIndex, blockData);
@@ -476,7 +482,9 @@ export class BlockDecodePipeline {
  * Parse composite key into components.
  */
 function parsePacketKey(key: string): { blockIndex: number; seq: number } {
-  const [blockIndex, seq] = key.split(':').map(Number);
+  const parts = key.split(':').map(Number);
+  const blockIndex = parts[0] ?? 0;
+  const seq = parts[1] ?? 0;
   return { blockIndex, seq };
 }
 

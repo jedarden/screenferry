@@ -128,7 +128,9 @@ function makePacketKey(blockIndex: number, seq: number): string {
  * Parse composite key into components.
  */
 function parsePacketKey(key: string): { blockIndex: number; seq: number } {
-  const [blockIndex, seq] = key.split(':').map(Number);
+  const parts = key.split(':').map(Number);
+  const blockIndex = parts[0] ?? 0;
+  const seq = parts[1] ?? 0;
   return { blockIndex, seq };
 }
 

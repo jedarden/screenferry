@@ -222,15 +222,15 @@ export function generateSyntheticSequence(
     const blockId = startBlockId + i;
     const payload = generatePayload(blockSize, config.pattern, seed + i);
 
-    const metadata: SyntheticBlockMetadata | undefined = config.includeMetadata
-      ? {
-          createdAt: Date.now(),
-          patternType: config.pattern,
-          expectedChecksum: calculateChecksum(payload),
-        }
-      : undefined;
-
-    blocks.push({ blockId, payload, metadata });
+    const block: SyntheticBlock = { blockId, payload };
+    if (config.includeMetadata) {
+      block.metadata = {
+        createdAt: Date.now(),
+        patternType: config.pattern,
+        expectedChecksum: calculateChecksum(payload),
+      };
+    }
+    blocks.push(block);
     totalSize += payload.length;
   }
 
@@ -276,8 +276,9 @@ export function generatePayload(
 
     case VALIDATION_PATTERNS.PATTERNED:
       // Repeating 4-byte pattern: 0xDE 0xAD 0xBE 0xEF
+      const pattern = [0xde, 0xad, 0xbe, 0xef] as const;
       for (let i = 0; i < size; i++) {
-        payload[i] = [0xde, 0xad, 0xbe, 0xef][i % 4];
+        payload[i] = pattern[i % 4];
       }
       break;
 
@@ -301,7 +302,10 @@ export function generatePayload(
 export function calculateChecksum(payload: Uint8Array): number {
   let checksum = 0;
   for (let i = 0; i < payload.length; i++) {
-    checksum = (checksum + payload[i]) & 0xffffffff;
+    const byte = payload[i];
+    if (byte !== undefined) {
+      checksum = (checksum + byte) & 0xffffffff;
+    }
   }
   return checksum;
 }

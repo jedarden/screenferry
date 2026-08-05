@@ -267,10 +267,12 @@ export function validateSequenceConstraints(sequence: SyntheticBlockSequence): S
   if (sequence.blocks.length > 0) {
     const sortedIds = [...sequence.blocks].map(b => b.blockId).sort((a, b) => a - b);
     for (let i = 1; i < sortedIds.length; i++) {
-      if (sortedIds[i] !== sortedIds[i - 1] + 1) {
+      const current = sortedIds[i];
+      const previous = sortedIds[i - 1];
+      if (current !== undefined && previous !== undefined && current !== previous + 1) {
         sequentialIds = false;
         violations.push(
-          `Block IDs not sequential: gap between ${sortedIds[i - 1]} and ${sortedIds[i]}`
+          `Block IDs not sequential: gap between ${previous} and ${current}`
         );
         break;
       }
