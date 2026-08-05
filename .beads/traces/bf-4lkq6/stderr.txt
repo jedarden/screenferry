@@ -1,0 +1,2 @@
+claude-print: child produced no stream-json output within deadline (process may be hung during session initialization)
+claude-print: sending SIGTERM to child pid 1650861
