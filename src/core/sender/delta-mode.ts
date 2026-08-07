@@ -126,9 +126,9 @@ export async function enterDeltaMode(
   // Reset to initial state
   context.state = DeltaModeState.CODE_ENTERED;
   context.newFile = newFile;
-  context.error = undefined;
-  context.securityValidation = undefined;
-  context.userConfirmed = undefined;
+  delete context.error;
+  delete context.securityValidation;
+  delete context.userConfirmed;
 
   try {
     // Parse delta code
@@ -345,13 +345,13 @@ export function getDeltaModeStatus(context: DeltaModeContext): {
  */
 export function resetDeltaMode(context: DeltaModeContext): void {
   context.state = DeltaModeState.IDLE;
-  context.deltaCode = undefined;
-  context.oldFile = undefined;
-  context.newFile = undefined;
-  context.blockDelta = undefined;
-  context.securityValidation = undefined;
-  context.userConfirmed = undefined;
-  context.error = undefined;
+  delete context.deltaCode;
+  delete context.oldFile;
+  delete context.newFile;
+  delete context.blockDelta;
+  delete context.securityValidation;
+  delete context.userConfirmed;
+  delete context.error;
 }
 
 /**
