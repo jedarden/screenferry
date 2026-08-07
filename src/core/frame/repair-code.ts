@@ -220,19 +220,20 @@ function mergeRanges(ranges: BlockRange[]): BlockRange[] {
   }
 
   const merged: BlockRange[] = [];
-  let current = {...ranges[0]};
+  const first = ranges[0]!;
+  let current: BlockRange = { start: first.start, end: first.end };
 
   for (let i = 1; i < ranges.length; i++) {
     const next = ranges[i]!;
 
     // Check if adjacent or overlapping
-    if (next.start <= current.end + 1) {
+    if (next.start <= current.end! + 1) {
       // Merge: extend current range if needed
-      current.end = Math.max(current.end, next.end);
+      current.end = Math.max(current.end!, next.end);
     } else {
       // No overlap: push current and start new
       merged.push(current);
-      current = {...next};
+      current = { start: next.start, end: next.end };
     }
   }
 
@@ -378,7 +379,10 @@ export function decodeRepairCode(code: string): ParsedRepairCode {
     );
   }
 
-  const [prefix, streamIdStr, rangesStr, checkStr] = parts;
+  const prefix = parts[0]!;
+  const streamIdStr = parts[1]!;
+  const rangesStr = parts[2]!;
+  const checkStr = parts[3]!;
 
   if (prefix !== 'SF1') {
     throw new RepairCodeError(

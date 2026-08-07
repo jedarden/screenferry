@@ -107,13 +107,13 @@ describe('bf-5mcz: Orphan file scanner', () => {
       const orphans = await shortLivedStorage.scanOrphanedFiles(activeStreamIds);
 
       expect(orphans.length).toBe(1);
-      expect(orphans[0].streamId).toBe(1);
-      expect(orphans[0].filename).toBe('old-file.bin');
-      expect(orphans[0].age).toBeGreaterThan(1);
-      expect(orphans[0].isInactive).toBe(true);
-      expect(orphans[0].isOld).toBe(true);
-      expect(orphans[0].reason).toContain('not in active stream IDs');
-      expect(orphans[0].reason).toContain('exceeds maximum age');
+      expect(orphans[0]!.streamId).toBe(1);
+      expect(orphans[0]!.filename).toBe('old-file.bin');
+      expect(orphans[0]!.age).toBeGreaterThan(1);
+      expect(orphans[0]!.isInactive).toBe(true);
+      expect(orphans[0]!.isOld).toBe(true);
+      expect(orphans[0]!.reason).toContain('not in active stream IDs');
+      expect(orphans[0]!.reason).toContain('exceeds maximum age');
     });
 
     it('should include multiple orphans in result', async () => {
@@ -175,7 +175,7 @@ describe('bf-5mcz: Orphan file scanner', () => {
       const orphans = await storageManager.scanOrphanedFiles(activeStreamIds);
 
       if (orphans.length > 0) {
-        const orphan = orphans[0];
+        const orphan = orphans[0]!;
         expect(orphan.streamId).toBeDefined();
         expect(orphan.filename).toBeDefined();
         expect(orphan.mimeType).toBeDefined();
@@ -203,7 +203,7 @@ describe('bf-5mcz: Orphan file scanner', () => {
       const afterScan = Date.now();
 
       if (orphans.length > 0) {
-        const orphan = orphans[0];
+        const orphan = orphans[0]!;
         const expectedMinAge = beforeScan - orphan.createdAt;
         const expectedMaxAge = afterScan - orphan.createdAt;
 
@@ -224,7 +224,7 @@ describe('bf-5mcz: Orphan file scanner', () => {
       const orphans = await storageManager.scanOrphanedFiles(activeStreamIds);
 
       if (orphans.length > 0) {
-        const orphan = orphans[0];
+        const orphan = orphans[0]!;
         expect(orphan.isInactive).toBe(true);
 
         // isOld depends on the file age

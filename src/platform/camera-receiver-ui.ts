@@ -58,7 +58,7 @@ export class CameraReceiverUI {
   private canvas: HTMLCanvasElement;
   private statsPanel: HTMLElement;
   private stallWarningPanel: HTMLElement;
-  private fileListUI: FileListUI;
+  private fileListUI!: FileListUI;
   private fileListToggleButton: HTMLButtonElement;
   private deleteLatestButton: HTMLButtonElement;
 
@@ -74,6 +74,12 @@ export class CameraReceiverUI {
 
   constructor(config: CameraReceiverUIConfig) {
     this.container = config.container;
+    this.video = document.createElement('video');
+    this.canvas = document.createElement('canvas');
+    this.statsPanel = document.createElement('div');
+    this.stallWarningPanel = document.createElement('div');
+    this.fileListToggleButton = document.createElement('button');
+    this.deleteLatestButton = document.createElement('button');
 
     // Create UI structure
     this.createUI();
@@ -214,11 +220,12 @@ export class CameraReceiverUI {
       await this.pipeline.start();
 
       // Request wake lock to prevent screen sleep (F2: environment-wake-lock)
-      try {
-        await this.pipeline.requestWakeLock();
-      } catch (error) {
-        console.warn('[Camera Receiver UI] Failed to request wake lock:', error);
-      }
+      // Note: wake lock methods not yet implemented on CameraPipeline
+      // try {
+      //   await this.pipeline.requestWakeLock();
+      // } catch (error) {
+      //   console.warn('[Camera Receiver UI] Failed to request wake lock:', error);
+      // }
 
       // Attach video stream to video element for preview
       const stream = await this.getCameraStream();
@@ -430,6 +437,11 @@ export class CameraReceiverUI {
 
       const latestFile = files[0];
 
+      if (!latestFile) {
+        showToast('No files to delete', 'info');
+        return;
+      }
+
       // Show confirmation dialog
       const confirmed = await this.showDeleteConfirmation(latestFile);
       if (!confirmed) {
@@ -485,7 +497,9 @@ export class CameraReceiverUI {
       // Update button text based on state
       if (hasFiles) {
         const latestFile = files.sort((a, b) => b.createdAt - a.createdAt)[0];
-        this.deleteLatestButton.title = `Delete "${latestFile.filename}" (Alt+D)`;
+        if (latestFile) {
+          this.deleteLatestButton.title = `Delete "${latestFile.filename}" (Alt+D)`;
+        }
       } else {
         this.deleteLatestButton.title = 'No files to delete';
       }
@@ -692,11 +706,12 @@ export class CameraReceiverUI {
     this.reticle.stop();
 
     // Release wake lock
-    try {
-      await this.pipeline.releaseWakeLock();
-    } catch (error) {
-      console.warn('[Camera Receiver UI] Failed to release wake lock:', error);
-    }
+    // Note: wake lock methods not yet implemented on CameraPipeline
+    // try {
+    //   await this.pipeline.releaseWakeLock();
+    // } catch (error) {
+    //   console.warn('[Camera Receiver UI] Failed to release wake lock:', error);
+    // }
 
     // Stop the pipeline
     await this.pipeline.stop();

@@ -109,8 +109,8 @@ export class BlockEncodePipeline {
       storageConfig: config.storageConfig ?? {},
       dwellPackets: config.dwellPackets ?? Math.ceil(K * 1.6),
       streamId: config.streamId,
-      onBlockEncoded: config.onBlockEncoded,
-      onBlockEvicted: config.onBlockEvicted,
+      ...(config.onBlockEncoded !== undefined && { onBlockEncoded: config.onBlockEncoded }),
+      ...(config.onBlockEvicted !== undefined && { onBlockEvicted: config.onBlockEvicted }),
     };
 
     // Create scheduler

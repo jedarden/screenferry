@@ -13,9 +13,9 @@
  * Reference: plan.md §6.4, §13.1, §16.3
  */
 
-import { createDecodePool, type QRDecodePool } from '../workers/qr-decode-pool.js';
+import { createDecodePool, type QRDecodePool, type DecodePoolConfig } from '../workers/qr-decode-pool.js';
 import type { DecodedFrameResult, QRPosition } from '../modulation/types.js';
-import { getConstraints, toMediaTrackConstraints, type CaptureResolution } from './capture-resolution.js';
+import { getConstraints, toMediaTrackConstraints, CaptureResolution } from './capture-resolution.js';
 import type { SubmitResult } from '../workers/qr-decode-pool.js';
 import type { ROI } from '../workers/qr-decode.worker.js';
 import { StallDetector, type StallDiagnosis, type StallDetectorConfig } from './stall-detector.js';
@@ -138,7 +138,7 @@ export class CameraPipeline {
 
   constructor(config: CameraPipelineConfig = {}) {
     this.config = {
-      resolution: config.resolution || '1080p',
+      resolution: config.resolution ?? CaptureResolution.RES_1080P,
       frameRate: config.frameRate || 30,
       targetDisplayFps: config.targetDisplayFps || 15,
       decodePool: config.decodePool || {},
@@ -175,10 +175,11 @@ export class CameraPipeline {
         audio: false,
       });
 
-      this.videoTrack = this.stream.getVideoTracks()[0];
-      if (!this.videoTrack) {
+      const videoTrack = this.stream.getVideoTracks()[0];
+      if (videoTrack === undefined) {
         throw new Error('No video track in media stream');
       }
+      this.videoTrack = videoTrack;
 
       console.log('[Camera Pipeline] Camera acquired:', {
         settings: this.videoTrack.getSettings(),
@@ -186,10 +187,13 @@ export class CameraPipeline {
       });
 
       // Create decode pool
-      this.decodePool = createDecodePool({
-        workerCount: this.config.decodePool.workerCount,
+      const poolConfig: DecodePoolConfig = {
         maxInFlight: this.config.decodePool.maxInFlight || 4, // I6b: cap at 4 in-flight frames
-      });
+      };
+      if (this.config.decodePool.workerCount !== undefined) {
+        poolConfig.workerCount = this.config.decodePool.workerCount;
+      }
+      this.decodePool = createDecodePool(poolConfig);
 
       this.decodePool.setResultCallback(this.handleDecodeResult.bind(this));
 
@@ -367,7 +371,12 @@ export class CameraPipeline {
    * Handle a decode result from the worker pool.
    */
   private handleDecodeResult(frameIndex: number, result: DecodedFrameResult, error?: string): void {
-    const decodeMs = performance.now() - this.frameTimestamps[frameIndex];
+    const frameTimestamp = this.frameTimestamps[frameIndex];
+    if (frameTimestamp === undefined || frameTimestamp === null) {
+      console.error('[Camera Pipeline] No timestamp for frame index:', frameIndex);
+      return;
+    }
+    const decodeMs = performance.now() - frameTimestamp;
     this.decodedCount++;
     this.decodeLatencies.push(decodeMs);
     this.packetsPerFrame.push(result.packets.length);
@@ -385,12 +394,13 @@ export class CameraPipeline {
 
     // Invoke callback if set
     if (this.onFrameResult) {
-      this.onFrameResult({
+      const frameResult: FrameResult = {
         frameIndex,
         result,
         decodeMs,
-        error,
-      });
+        ...(error !== undefined ? { error } : {}),
+      };
+      this.onFrameResult(frameResult);
     }
   }
 
@@ -498,10 +508,7 @@ export class CameraPipeline {
    * @param totalBlocks - Total number of blocks in the transfer (for ETA calculation)
    */
   setTransferParameters(streamId: number, totalBlocks: number): void {
-    this.stallDetector.setTransferParameters({
-      expectedStreamId: streamId,
-      totalBlocks,
-    });
+    this.stallDetector.setTransferParameters(totalBlocks);
   }
 
   /**
@@ -606,7 +613,9 @@ export class CameraPipeline {
    * Crop a VideoFrame to the specified ROI.
    */
   private cropVideoFrame(frame: VideoFrame, roi: ROI): ImageData {
-    const canvas = new OffscreenCanvas(frame.width, frame.height);
+    const width = (frame as unknown as { codedWidth?: number; displayWidth?: number }).codedWidth ?? (frame as unknown as { codedWidth?: number; displayWidth?: number }).displayWidth ?? 1920;
+    const height = (frame as unknown as { codedHeight?: number; displayHeight?: number }).codedHeight ?? (frame as unknown as { codedHeight?: number; displayHeight?: number }).displayHeight ?? 1080;
+    const canvas = new OffscreenCanvas(width, height);
     const ctx = canvas.getContext('2d');
     if (!ctx) {
       throw new Error('Failed to get 2D context for ROI crop');

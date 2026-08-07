@@ -121,9 +121,9 @@ export class BlockDecodePipeline {
       storageConfig: config.storageConfig ?? {},
       streamId: config.streamId,
       fileSize: config.fileSize,
-      onPacketReceived: config.onPacketReceived,
-      onPacketEvicted: config.onPacketEvicted,
-      onBlockDecoded: config.onBlockDecoded,
+      ...(config.onPacketReceived !== undefined && { onPacketReceived: config.onPacketReceived }),
+      ...(config.onPacketEvicted !== undefined && { onPacketEvicted: config.onPacketEvicted }),
+      ...(config.onBlockDecoded !== undefined && { onBlockDecoded: config.onBlockDecoded }),
     };
 
     // Create storage
@@ -265,7 +265,7 @@ export class BlockDecodePipeline {
     const fragments = decoder.recover();
 
     // Reassemble block from fragments
-    const blockData = fromFragments(fragments);
+    const blockData = fromFragments(fragments, this.blockGeom.blockSize);
 
     // Cache decoded block
     this.decodedBlocks.set(blockIndex, blockData);
@@ -311,7 +311,7 @@ export class BlockDecodePipeline {
 
     // Recover and reassemble
     const fragments = decoder.recover();
-    const blockData = fromFragments(fragments);
+    const blockData = fromFragments(fragments, this.blockGeom.blockSize);
 
     // Cache result
     this.decodedBlocks.set(blockIndex, blockData);
@@ -476,7 +476,12 @@ export class BlockDecodePipeline {
  * Parse composite key into components.
  */
 function parsePacketKey(key: string): { blockIndex: number; seq: number } {
-  const [blockIndex, seq] = key.split(':').map(Number);
+  const parts = key.split(':').map(Number);
+  const blockIndex = parts[0];
+  const seq = parts[1];
+  if (blockIndex === undefined || seq === undefined) {
+    throw new Error(`Invalid packet key: ${key}`);
+  }
   return { blockIndex, seq };
 }
 

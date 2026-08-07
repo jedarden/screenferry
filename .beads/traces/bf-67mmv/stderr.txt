@@ -1,2 +1,3 @@
-claude-print: child produced no stream-json output within deadline (process may be hung during session initialization)
-claude-print: sending SIGTERM to child pid 1354617
+Running as unit: run-p2547869-i1004824544.scope; invocation ID: 6f33e2dc90384b1fa82312ec234b6f52
+SessionEnd hook [/home/coding/.ccdash/hooks/session-end.sh] failed: /bin/sh: line 1: /home/coding/.ccdash/hooks/session-end.sh: cannot execute: required file not found
+

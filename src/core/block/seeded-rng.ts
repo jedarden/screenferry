@@ -342,7 +342,10 @@ export function selfTest(): boolean {
   }
 
   // Test 2: Determinism check
-  const [seq1, seq2] = verifyDeterminism(12345, 1000);
+  const seqs = verifyDeterminism(12345, 1000);
+  const seq1 = seqs[0];
+  const seq2 = seqs[1];
+  if (!seq1 || !seq2) return false;
   for (let i = 0; i < seq1.length; i++) {
     if (seq1[i] !== seq2[i]) return false;
   }

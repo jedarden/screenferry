@@ -267,10 +267,12 @@ export function validateSequenceConstraints(sequence: SyntheticBlockSequence): S
   if (sequence.blocks.length > 0) {
     const sortedIds = [...sequence.blocks].map(b => b.blockId).sort((a, b) => a - b);
     for (let i = 1; i < sortedIds.length; i++) {
-      if (sortedIds[i] !== sortedIds[i - 1] + 1) {
+      const currentId = sortedIds[i];
+      const previousId = sortedIds[i - 1];
+      if (currentId !== undefined && previousId !== undefined && currentId !== previousId + 1) {
         sequentialIds = false;
         violations.push(
-          `Block IDs not sequential: gap between ${sortedIds[i - 1]} and ${sortedIds[i]}`
+          `Block IDs not sequential: gap between ${previousId} and ${currentId}`
         );
         break;
       }
@@ -544,6 +546,136 @@ export function calculateSimpleHash(data: Uint8Array): number {
 export function verifyDataHash(data: Uint8Array, expectedHash: number): boolean {
   const actualHash = calculateSimpleHash(data);
   return actualHash === expectedHash;
+}
+
+/**
+ * Result from byte-wise comparison.
+ *
+ * Details about byte array comparison with difference location.
+ */
+export interface ByteComparisonResult {
+  /** Byte arrays are identical */
+  identical: boolean;
+  /** Number of bytes compared */
+  bytesCompared: number;
+  /** Number of differing bytes */
+  differences: number;
+  /** Index of first difference (if any) */
+  firstDifferenceIndex: number | null;
+  /** Details of differences (up to 10) */
+  differenceDetails: Array<{
+    index: number;
+    expected: number;
+    actual: number;
+  }>;
+  /** Length of expected array */
+  expectedLength: number;
+  /** Length of actual array */
+  actualLength: number;
+}
+
+/**
+ * Compare two byte arrays byte-by-byte.
+ *
+ * Performs exact comparison of two byte arrays and returns detailed
+ * information about any differences found.
+ *
+ * @param expected - Expected byte array
+ * @param actual - Actual byte array to compare
+ * @returns Comparison result with pass/fail and diff information
+ *
+ * @example
+ * ```ts
+ * const expected = new Uint8Array([1, 2, 3, 4, 5]);
+ * const actual = new Uint8Array([1, 2, 9, 4, 5]);
+ * const result = compareBytes(expected, actual);
+ * console.log(result.identical); // false
+ * console.log(result.firstDifferenceIndex); // 2
+ * console.log(result.differenceDetails[0]);
+ * // { index: 2, expected: 3, actual: 9 }
+ * ```
+ */
+export function compareBytes(expected: Uint8Array, actual: Uint8Array): ByteComparisonResult {
+  const expectedLength = expected.length;
+  const actualLength = actual.length;
+  const bytesCompared = Math.min(expectedLength, actualLength);
+
+  const differenceDetails: Array<{
+    index: number;
+    expected: number;
+    actual: number;
+  }> = [];
+
+  let firstDifferenceIndex: number | null = null;
+  let differences = 0;
+
+  // Compare byte by byte
+  for (let i = 0; i < bytesCompared; i++) {
+    if (expected[i] !== actual[i]) {
+      differences++;
+
+      if (firstDifferenceIndex === null) {
+        firstDifferenceIndex = i;
+      }
+
+      // Store up to 10 differences for detailed reporting
+      if (differenceDetails.length < 10) {
+        differenceDetails.push({
+          index: i,
+          expected: expected[i],
+          actual: actual[i],
+        });
+      }
+    }
+  }
+
+  // Account for length difference as additional differences
+  if (expectedLength !== actualLength) {
+    // Length mismatch is treated as differences beyond the shorter length
+    const extraDifferences = Math.abs(expectedLength - actualLength);
+    differences += extraDifferences;
+
+    // If no byte differences found but lengths differ, first difference is at min length
+    if (firstDifferenceIndex === null) {
+      firstDifferenceIndex = bytesCompared;
+    }
+  }
+
+  const identical = differences === 0;
+
+  return {
+    identical,
+    bytesCompared,
+    differences,
+    firstDifferenceIndex,
+    differenceDetails,
+    expectedLength,
+    actualLength,
+  };
+}
+
+/**
+ * Verify decoded output matches original input.
+ *
+ * Convenience function that performs byte-wise comparison and returns
+ * a simple boolean result along with optional diff details.
+ *
+ * @param original - Original byte array
+ * @param decoded - Decoded byte array to verify
+ * @returns true if arrays match exactly
+ *
+ * @example
+ * ```ts
+ * const original = new Uint8Array([1, 2, 3, 4, 5]);
+ * const decoded = new Uint8Array([1, 2, 3, 4, 5]);
+ * if (verifyDecodedOutput(original, decoded)) {
+ *   console.log('Decoding successful - exact match');
+ * }
+ * ```
+ */
+export function verifyDecodedOutput(original: Uint8Array, decoded: Uint8Array): boolean {
+  const result = compareBytes(original, decoded);
+  return result.identical;
 }
 
 /**
