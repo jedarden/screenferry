@@ -11,8 +11,11 @@ import { beforeEach } from 'vitest';
  *
  * jsdom doesn't implement navigator.storage.getDirectory(), so we
  * provide a minimal in-memory mock for tests.
+ *
+ * This class implements the FileSystemDirectoryHandle interface to ensure
+ * type compatibility with production code.
  */
-class MockFileSystemDirectoryHandle {
+class MockFileSystemDirectoryHandle implements FileSystemDirectoryHandle {
   private _entries = new Map<string, MockFileSystemDirectoryHandle | MockFileSystemFileHandle>();
 
   constructor(private _name: string) {}
@@ -53,7 +56,9 @@ class MockFileSystemDirectoryHandle {
     throw new DOMException('File not found', 'NotFoundError');
   }
 
-  async removeEntry(name: string): Promise<void> {
+  async removeEntry(name: string, options?: { recursive?: boolean }): Promise<void> {
+    // For this mock, we ignore the recursive option and just delete the entry
+    // This matches the behavior needed for the tests
     this._entries.delete(name);
   }
 
@@ -110,14 +115,14 @@ class MockFileSystemDirectoryHandle {
    * Async iterator implementation for for-await-of loops.
    * Delegates to entries() method.
    */
-  async *[Symbol.asyncIterator](): AsyncIterator<[string, FileSystemHandle]> {
+  async *[Symbol.asyncIterator](): FileSystemDirectoryHandleAsyncIterator<[string, FileSystemHandle]> {
     for await (const entry of this.entries()) {
       yield entry;
     }
   }
 }
 
-class MockFileSystemFileHandle {
+class MockFileSystemFileHandle implements FileSystemFileHandle {
   private data = new Uint8Array(0);
   private syncHandle: MockFileSystemSyncAccessHandle | null = null;
 
@@ -140,15 +145,37 @@ class MockFileSystemFileHandle {
     return this.syncHandle as unknown as FileSystemSyncAccessHandle;
   }
 
-  async getFile(): Promise<{ size: number; arrayBuffer: () => Promise<ArrayBuffer>; text: () => Promise<string> }> {
-    return {
+  async getFile(): Promise<File> {
+    // Create a mock File object with all required methods
+    const dataClone = new Uint8Array(this.data);
+    const mockFile = {
+      name: this._name,
       size: this.data.length,
-      arrayBuffer: async () => this.data.buffer.slice(0),
-      text: async () => {
-        const decoder = new TextDecoder();
-        return decoder.decode(this.data);
+      type: 'application/octet-stream',
+      lastModified: Date.now(),
+      async arrayBuffer(): Promise<ArrayBuffer> {
+        return dataClone.buffer.slice(0);
       },
-    };
+      async text(): Promise<string> {
+        const decoder = new TextDecoder();
+        return decoder.decode(dataClone);
+      },
+      slice(begin?: number, end?: number): Blob {
+        const start = begin ?? 0;
+        const stop = end ?? dataClone.length;
+        return new Blob([dataClone.slice(start, stop)]);
+      },
+      stream(): ReadableStream<Uint8Array> {
+        return new ReadableStream({
+          start(controller) {
+            controller.enqueue(dataClone);
+            controller.close();
+          },
+        });
+      },
+    } as File;
+
+    return mockFile;
   }
 
   get kind(): 'file' {
@@ -257,7 +284,7 @@ class MockFileSystemWritableFileStream {
 let mockRoot: MockFileSystemDirectoryHandle | null = null;
 
 const mockStorage = {
-  getDirectory: () => {
+  getDirectory: (): FileSystemDirectoryHandle => {
     if (!mockRoot) {
       mockRoot = new MockFileSystemDirectoryHandle('root');
     }
