@@ -823,7 +823,7 @@ SF1-<streamId32>-<ranges>-<check>
 ```
 
 - **Alphabet:** Crockford base32 (no I/L/O/U — removes the common misreadings).
-- **`streamId32`:** 32-bit streamId encoded as Crockford base32 (7-character, padded with leading zeros if needed). A 32-bit value requires up to 7 base32 digits (2^32 < 32^7).
+- **`streamId32`:** 32-bit streamId encoded as Crockford base32 (7 characters, padded with leading zeros if needed). A 32-bit value requires up to 7 Crockford base32 digits (2^32 < 32^7).
 - **`ranges`:** run-length encoded missing-block set. Contiguous runs are the common case
   because misses cluster (the user looked away).
 - **`check`:** 2 characters, CRC-8 over the decoded body. A mistyped code MUST be
@@ -926,7 +926,7 @@ they are goodput, not wire rate.
 The receiver knows exactly which blocks it lacks. The user reads a code off one screen and
 types it into the other:
 
-> **Receiver:** "Missing 3 blocks. Repair code: `SF1-3M7QKP9-B-D-X4`"
+> **Receiver:** "Missing 3 blocks. Repair code: `SF1-03M7QKP-B-D-X4`"
 > **Sender:** [paste] → transmits only those blocks
 
 Turns a multi-hour extra pass into a sub-minute repair, needs no second camera and no
@@ -1006,11 +1006,11 @@ stated limitation, not an oversight — see §18 R8.
 
 | # | Case | Resolution |
 |---|---|---|
-| E1 | **Zero-byte file** | Reject at selection with `E-ZERO-BYTE-FILE`. `K = 0` is undefined. |
+| E1 | **Zero-byte file** | Reject at selection with error code `E-ZERO-BYTE-FILE`. `K = 0` is undefined. |
 | E2 | **File smaller than one fragment** (< 256 B) | Pad to one fragment; `K = 1`; the fountain code degenerates to repetition, which is correct. Research specifies a `K < 8` guard — adopt it: below 8 fragments, send plain repetition, no LT. **Repetition is derived per-block** (not signalled): both encoder and decoder derive `repetition = (k < MIN_LT_K)` from the block's K using the shared per-block derivation E3a already mandates. A session-wide flag would force repetition on all 21,845 blocks or none; per-block derivation allows the last block (K=1-7) to use repetition while all other blocks (K=768) use LT. |
 | E3a | **The last block is short** — its K is `ceil(lastLen / L)`, not 768. Both sides derive K per block, and D7's PRNG is seeded with it. A mismatch produces wrong index sets, so the block never decodes and nothing says why. | Derive per-block K from `(blockIndex, blockSize, payloadLen)` in **one shared function** used by both encoder and decoder; conformance vector covers the last block explicitly. The beacon's `payloadLen` field (§7.2) is critical — without it, the receiver cannot compute the last block's actual length (`lastLen = payloadLen − (blockCount − 1) × blockSize`), leading to PRNG index mismatch and silent decode failure. |
 | E3b | **`blockCount == 1`** | Normal path; no special case, but tested explicitly since off-by-one in block iteration is likely. |
-| E4 | **Incompressible input where deflate expands it** | D8 samples first; if the sample ratio > 0.92, skip compression. If compression still expands, discard the staging file and send raw. Emit `E-INCOMPRESSIBLE-EXPANDS` as a warning. |
+| E4 | **Incompressible input where deflate expands it** | D8 samples first; if the sample ratio > 0.92, skip compression. If compression still expands, discard the staging file and send raw. Emit warning with error code `E-INCOMPRESSIBLE-EXPANDS`. |
 | E5 | **Source file changes mid-transfer** | A 10-hour read of a live `File` handle is the *normal* case. Re-check `file.size` and `lastModified` before each block read; on mismatch abort with `E-SOURCE-CHANGED`. Emitting blocks from two versions would produce a file that passes per-block hashes and fails the whole-file hash after hours. |
 | E6 | **Duplicate packet arrives** | GE reduces it to a zero row; contributes nothing, costs one reduction. No special handling. |
 | E7 | **Two senders in frame** | `streamId` lock (A9); packets from the unlocked stream are discarded and surfaced as `E-FOREIGN-STREAM`. |
@@ -1021,11 +1021,11 @@ stated limitation, not an oversight — see §18 R8.
 | E12 | **Block hash verification fails** | After manifest arrives, block hash verification fails. Clear the verified bitmap bit, re-collect the block. Emit `E-BLOCK-HASH`. Block may already be written to OPFS but is never surfaced until verified (I9). This is the CRC-8 false-accept path (§7.1) and MUST be implemented — at GB scale a silent re-do costs hours. |
 | E13 | **Whole-file hash fails after all blocks pass** | Indicates E5 or a block-hash collision. Report `E-FILE-HASH`; keep the output and label it unverified rather than deleting hours of work. |
 | E14 | **Filename with path separators or control bytes** | Sanitise on export (§12, T2). Never write an attacker-chosen path. |
-| E15 | **Decompression fails at the end** | All blocks verified (per-block hashes passed) but the gzip stream is invalid → `E-DECOMPRESS`. Keep the compressed artefact so nothing is lost, but note that **the whole-file hash cannot be evaluated** — it requires successful decompression to compute. The kept artefact follows T4b's deletion lifecycle: warn the user before keeping it (explicitly noting it is **unverified**), provide a delete control, and reap on startup. The compressed artefact is received data that passed per-block verification but failed the final format conversion (decompression); it cannot be surfaced to the user as the original file. |
-| E16 | **Worker crash mid-block** | Restart the worker, discard the active block only, keep the bitmap. Emit `E-WORKER-CRASH`. |
+| E15 | **Decompression fails at the end** | All blocks verified (per-block hashes passed) but the gzip stream is invalid → error code `E-DECOMPRESS`. Keep the compressed artefact so nothing is lost, but note that **the whole-file hash cannot be evaluated** — it requires successful decompression to compute. The kept artefact follows T4b's deletion lifecycle: warn the user before keeping it (explicitly noting it is **unverified**), provide a delete control, and reap on startup. The compressed artefact is received data that passed per-block verification but failed the final format conversion (decompression); it cannot be surfaced to the user as the original file. |
+| E16 | **Worker crash mid-block** | Restart the worker, discard the active block only, keep the bitmap. Emit error code `E-WORKER-CRASH`. |
 | E17a | **Sender-side thermal throttling** | Observed: the bench laptop decayed 6.7 → 2.4 fps over two minutes. Locally observable, so D18b's local step-down applies. **Receiver-side detection:** Camera fps drops >30% while decode latency stays within +30%. See `docs/notes/bf-3mnt-thermal-throttling-discrimination.md` for discrimination logic. The receiver MUST NOT duty-cycle in response to sender-side throttling — doing so would multiply transfer time without addressing the root cause. |
 | E17b | **Receiver-side thermal throttling** | Observed at **70 °C / throttling threshold within 20–30 minutes**. D18a's rule bites: fps decline is a *receiver* observation, the ladder is a *sender* control, and there is no back-channel — so "step the ladder down" is **structurally impossible** here. Mitigate locally instead: **duty-cycle (D27)** is the primary lever; drop decode resolution is often NOT viable because S3 showed 1080p was already at 2.25 camera px/module (below the 4 px/module cliff), and 720p measured 100% erasure. Resolution reduction MUST maintain ≥ 4 camera px/module floor. **Detection:** Decode latency increases >50% while camera fps stays within -20%. See `docs/notes/bf-3mnt-thermal-throttling-discrimination.md` for discrimination logic against sender-side throttling. |
-| E18 | **Resume offered for a file the user no longer has** (sender side) | `streamId` mismatch on re-selection → offer a fresh transfer with `E-RESUME-MISMATCH`, do not silently restart. |
+| E18 | **Resume offered for a file the user no longer has** (sender side) | `streamId` mismatch on re-selection → offer a fresh transfer with error code `E-RESUME-MISMATCH`, do not silently restart. |
 
 ---
 
@@ -1144,7 +1144,7 @@ net goodput is **~70 KB/s** — well above the 20 KB/s budget.
 | Reception overhead vs K | **≤ +5%** mean, **≤ +12%** p99 (measured: +2.97% / +4.2%) | Phase 1, `sim/` |
 | **Sustained operation duration** | **≥ 20 min** sustained throughput within **30% of initial rate** on target phone (Pixel 6-class) without active cooling. This is the **minimum viable duration** before R11's thermal throttling mitigation (duty-cycle reduction) must engage. The system is not required to avoid throttling indefinitely—only to (a) sustain long enough for practical use and (b) detect and surface throttling when it occurs (E17b, D27). | Phase 3; validated by T-long-run |
 | **Warn threshold** (D23) | estimated duration **> 30 min** → explicit confirm | Phase 4 |
-| **Refuse threshold** (D23) | estimated duration **> 24 h per single transfer session**, or quota insufficient → refuse with an override | Phase 4 |
+| **Refuse threshold** (D23) | estimated duration **> 24 h per single transfer session** (not cumulative across multiple sessions/resume), or quota insufficient → refuse with an override. The app calculates this from the measured transfer rate and warns the user before committing to a transfer that would take over 24 hours of continuous operation. Multi-session transfers (via resume) are allowed; this threshold applies to each individual session. | Phase 4 |
 
 ### 13.2 Benchmark denominator — the contract
 
