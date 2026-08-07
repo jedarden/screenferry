@@ -34,7 +34,7 @@ export interface QuotaCheck {
     message: string;
     requiredGB: number;
     availableGB: number;
-  };
+  } | undefined;
 }
 
 /**
@@ -72,16 +72,16 @@ function getPlatformMultiplier(): number {
 
   // Check for specific browsers
   if (userAgent.includes('edg/')) {
-    return PLATFORM_MULTIPLIERS.edge;
+    return PLATFORM_MULTIPLIERS.edge ?? 0.10;
   }
   if (userAgent.includes('chrome/')) {
-    return PLATFORM_MULTIPLIERS.chrome;
+    return PLATFORM_MULTIPLIERS.chrome ?? 0.10;
   }
   if (userAgent.includes('firefox/')) {
-    return PLATFORM_MULTIPLIERS.firefox;
+    return PLATFORM_MULTIPLIERS.firefox ?? 0.10;
   }
   if (userAgent.includes('safari/') && !userAgent.includes('chrome/')) {
-    return PLATFORM_MULTIPLIERS.safari;
+    return PLATFORM_MULTIPLIERS.safari ?? 0.10;
   }
 
   // Conservative default (Firefox-style)

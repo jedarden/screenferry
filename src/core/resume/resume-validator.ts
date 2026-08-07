@@ -318,7 +318,9 @@ export async function validateResumeToken(
 
   // Check bitmap sizes
   const completeValid = validateBitmapBlockSize(token.complete, token.meta.blockCount);
-  const writtenValid = validateBitmapBlockSize(token.writtenBlocks, token.meta.blockCount);
+  const writtenValid = token.writtenBlocks !== undefined
+    ? validateBitmapBlockSize(token.writtenBlocks, token.meta.blockCount)
+    : true; // writtenBlocks is optional, so missing is valid
 
   if (!completeValid || !writtenValid) {
     return generateIncompatibilityDiagnostics(token, currentFile, false, false);
