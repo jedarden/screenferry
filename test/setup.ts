@@ -13,7 +13,7 @@ import { beforeEach } from 'vitest';
  * provide a minimal in-memory mock for tests.
  */
 class MockFileSystemDirectoryHandle {
-  private entries = new Map<string, MockFileSystemDirectoryHandle | MockFileSystemFileHandle>();
+  private _entries = new Map<string, MockFileSystemDirectoryHandle | MockFileSystemFileHandle>();
 
   constructor(private _name: string) {}
 
@@ -21,40 +21,40 @@ class MockFileSystemDirectoryHandle {
     return this._name;
   }
 
-  async getDirectoryHandle(name: string, options?: { create?: boolean }): Promise<MockFileSystemDirectoryHandle> {
-    const entry = this.entries.get(name);
+  async getDirectoryHandle(name: string, options?: { create?: boolean }): Promise<FileSystemDirectoryHandle> {
+    const entry = this._entries.get(name);
 
     if (entry instanceof MockFileSystemDirectoryHandle) {
-      return entry;
+      return entry as unknown as FileSystemDirectoryHandle;
     }
 
     if (options?.create) {
       const dir = new MockFileSystemDirectoryHandle(name);
-      this.entries.set(name, dir);
-      return dir;
+      this._entries.set(name, dir);
+      return dir as unknown as FileSystemDirectoryHandle;
     }
 
     throw new DOMException('Directory not found', 'NotFoundError');
   }
 
-  async getFileHandle(name: string, options?: { create?: boolean }): Promise<MockFileSystemFileHandle> {
-    const entry = this.entries.get(name);
+  async getFileHandle(name: string, options?: { create?: boolean }): Promise<FileSystemFileHandle> {
+    let entry = this._entries.get(name);
 
     if (entry instanceof MockFileSystemFileHandle) {
-      return entry;
+      return entry as unknown as FileSystemFileHandle;
     }
 
     if (options?.create) {
       const file = new MockFileSystemFileHandle(name);
-      this.entries.set(name, file);
-      return file;
+      this._entries.set(name, file);
+      return file as unknown as FileSystemFileHandle;
     }
 
     throw new DOMException('File not found', 'NotFoundError');
   }
 
   async removeEntry(name: string): Promise<void> {
-    this.entries.delete(name);
+    this._entries.delete(name);
   }
 
   get kind(): 'directory' {
@@ -62,7 +62,12 @@ class MockFileSystemDirectoryHandle {
   }
 
   async isSameEntry(other: FileSystemDirectoryHandle): Promise<boolean> {
-    return other === this || (other instanceof MockFileSystemDirectoryHandle && other._name === this._name);
+    // For mock implementation, check if references are identical
+    // Cast this to the interface type for comparison
+    if (other === (this as unknown as FileSystemDirectoryHandle)) return true;
+    // Type guard to check if other is also a mock
+    const mockOther = other as unknown as MockFileSystemDirectoryHandle;
+    return mockOther instanceof MockFileSystemDirectoryHandle && mockOther._name === this._name;
   }
 
   async resolve(descendant: FileSystemDirectoryHandle | FileSystemFileHandle): Promise<string[] | null> {
@@ -70,8 +75,43 @@ class MockFileSystemDirectoryHandle {
     return null;
   }
 
-  async *values(): AsyncIterable<MockFileSystemDirectoryHandle | MockFileSystemFileHandle> {
-    for (const [name, entry] of this.entries) {
+  /**
+   * Returns an async iterator over directory entries.
+   * Matches the File System Access API specification entries() method.
+   */
+  async *entries(): AsyncIterableIterator<[string, FileSystemHandle]> {
+    for (const [name, entry] of this._entries) {
+      yield [name, entry as unknown as FileSystemHandle];
+    }
+  }
+
+  /**
+   * Returns an async iterator over entry names.
+   * Matches the File System Access API specification keys() method.
+   */
+  async *keys(): AsyncIterableIterator<string> {
+    for (const [name] of this._entries) {
+      yield name;
+    }
+  }
+
+  /**
+   * Returns an async iterator over entry handles.
+   * This is the method used by listOutputs() and scanOrphanedFiles().
+   * Matches the File System Access API specification values() method.
+   */
+  async *values(): AsyncIterableIterator<FileSystemHandle> {
+    for (const [name, entry] of this._entries) {
+      yield entry as unknown as FileSystemHandle;
+    }
+  }
+
+  /**
+   * Async iterator implementation for for-await-of loops.
+   * Delegates to entries() method.
+   */
+  async *[Symbol.asyncIterator](): AsyncIterator<[string, FileSystemHandle]> {
+    for await (const entry of this.entries()) {
       yield entry;
     }
   }
@@ -87,17 +127,17 @@ class MockFileSystemFileHandle {
     return this._name;
   }
 
-  async createWritable(): Promise<MockFileSystemWritableFileStream> {
-    return new MockFileSystemWritableFileStream(this);
+  async createWritable(): Promise<FileSystemWritableFileStream> {
+    return new MockFileSystemWritableFileStream(this) as unknown as FileSystemWritableFileStream;
   }
 
-  async createSyncAccessHandle(): Promise<MockFileSystemSyncAccessHandle> {
+  async createSyncAccessHandle(): Promise<FileSystemSyncAccessHandle> {
     // Return existing handle if already open (reuse pattern)
     if (this.syncHandle) {
-      return this.syncHandle;
+      return this.syncHandle as unknown as FileSystemSyncAccessHandle;
     }
     this.syncHandle = new MockFileSystemSyncAccessHandle(this);
-    return this.syncHandle;
+    return this.syncHandle as unknown as FileSystemSyncAccessHandle;
   }
 
   async getFile(): Promise<{ size: number; arrayBuffer: () => Promise<ArrayBuffer>; text: () => Promise<string> }> {
@@ -113,6 +153,15 @@ class MockFileSystemFileHandle {
 
   get kind(): 'file' {
     return 'file';
+  }
+
+  async isSameEntry(other: FileSystemFileHandle): Promise<boolean> {
+    // For mock implementation, check if references are identical
+    // Cast this to the interface type for comparison
+    if (other === (this as unknown as FileSystemFileHandle)) return true;
+    // Type guard to check if other is also a mock
+    const mockOther = other as unknown as MockFileSystemFileHandle;
+    return mockOther instanceof MockFileSystemFileHandle && mockOther._name === this._name;
   }
 
   // Internal methods for mock implementation
