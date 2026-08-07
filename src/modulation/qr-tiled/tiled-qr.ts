@@ -23,6 +23,8 @@ import {
 } from './ladder';
 import { encodeQRMatrix } from './qr-encoder';
 import type { Modulation, Profile, DecodedFrameResult, TileDiagnostics, QRPosition } from '../types';
+import { readBarcodesFromImageData } from 'zxing-wasm/reader';
+import { configureLocalZXingWASM } from './zxing-config.js';
 
 /**
  * Tiled QR modulation configuration.
@@ -248,10 +250,6 @@ export class TiledQRModulation implements Modulation {
    * @returns DecodedFrameResult with packets and diagnostics
    */
   async decodeFrame(frame: VideoFrame | ImageData): Promise<DecodedFrameResult> {
-    // Import zxing-wasm dynamically (it's an async module)
-    const { readBarcodes } = await import('zxing-wasm/reader');
-    const { configureLocalZXingWASM } = await import('./zxing-config.js');
-
     // Ensure zxing uses local WASM files (T5, T7, A8)
     configureLocalZXingWASM();
 
@@ -272,7 +270,9 @@ export class TiledQRModulation implements Modulation {
     }
 
     // Decode QR codes from the frame
-    const barcodes = await readBarcodes(imageData, ['qr_code', 'micro_qr', 'rect_micro_qr']);
+    const barcodes = await readBarcodesFromImageData(imageData, {
+      formats: ['QRCode', 'MicroQRCode'],
+    });
 
     // Process decoded barcodes into packets and diagnostics
     const packets: Uint8Array[] = [];
@@ -299,9 +299,9 @@ export class TiledQRModulation implements Modulation {
       diagnosticsMap.set(tileIndex, {
         tileIndex,
         decoded: true,
-        position,
-        cameraPxPerModule,
-      });
+        ...(position !== undefined && { position }),
+        ...(cameraPxPerModule !== undefined && { cameraPxPerModule }),
+      } as TileDiagnostics);
     }
 
     // Create diagnostic entries for undecoded tiles

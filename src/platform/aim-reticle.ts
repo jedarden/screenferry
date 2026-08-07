@@ -63,6 +63,8 @@ export class AimReticle {
   // Quality thresholds (pixels per module)
   private readonly CRITICAL_THRESHOLD = 4.0; // Below this, decode reliability collapses
   private readonly WARNING_THRESHOLD = 8.0;  // Below this, suboptimal performance
+  private criticalThresholdValue: number;
+  private warningThresholdValue: number;
 
   // Animation state
   private lastUpdate = 0;
@@ -93,8 +95,8 @@ export class AimReticle {
     }
     this.ctx = ctx;
 
-    this.criticalThreshold = config.criticalThreshold ?? this.CRITICAL_THRESHOLD;
-    this.warningThreshold = config.warningThreshold ?? this.WARNING_THRESHOLD;
+    this.criticalThresholdValue = config.criticalThreshold ?? this.CRITICAL_THRESHOLD;
+    this.warningThresholdValue = config.warningThreshold ?? this.WARNING_THRESHOLD;
     this.updateInterval = 1000 / (config.updateRate || 15); // Default 15 Hz
 
     this.resizeCanvas();
@@ -141,10 +143,10 @@ export class AimReticle {
     let quality: ReticleState['quality'];
     let message: string;
 
-    if (avgPxPerModule < this.criticalThreshold) {
+    if (avgPxPerModule < this.criticalThresholdValue) {
       quality = 'critical';
       message = `TOO FAR: ${avgPxPerModule.toFixed(1)} px/module - Move closer`;
-    } else if (avgPxPerModule < this.warningThreshold) {
+    } else if (avgPxPerModule < this.warningThresholdValue) {
       quality = 'warning';
       message = `Adjusting: ${avgPxPerModule.toFixed(1)} px/module - Almost there`;
     } else {

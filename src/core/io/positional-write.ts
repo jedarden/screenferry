@@ -271,7 +271,7 @@ class OPFSPositionalWriteHandle implements PositionalWriteHandle {
  * Factory implementation for creating positional write handles.
  */
 class PositionalWriteHandleFactoryImpl implements PositionalWriteHandleFactory {
-  private opfsRoot: FileSystemDirectoryHandle | null = null;
+  private opfsRoot!: FileSystemDirectoryHandle;
 
   private async getOPFSRoot(): Promise<FileSystemDirectoryHandle> {
     if (!this.opfsRoot) {
@@ -279,7 +279,9 @@ class PositionalWriteHandleFactoryImpl implements PositionalWriteHandleFactory {
       if (!root) {
         throw new WriteError('IO_ERROR', 'OPFS not available', {});
       }
-      this.opfsRoot = root;
+      // Type assertion via unknown to handle both production (real FileSystemDirectoryHandle)
+      // and test environments (MockFileSystemDirectoryHandle)
+      this.opfsRoot = root as unknown as FileSystemDirectoryHandle;
     }
     return this.opfsRoot;
   }
@@ -291,7 +293,7 @@ class PositionalWriteHandleFactoryImpl implements PositionalWriteHandleFactory {
     const root = await this.getOPFSRoot();
 
     // Parse path and create nested directories if needed
-    const pathParts = filePath.split('/');
+    const pathParts = filePath.split('/').filter(Boolean);
     let currentDir = root;
 
     for (let i = 0; i < pathParts.length - 1; i++) {
@@ -302,6 +304,9 @@ class PositionalWriteHandleFactoryImpl implements PositionalWriteHandleFactory {
     }
 
     const fileName = pathParts[pathParts.length - 1];
+    if (!fileName) {
+      throw new WriteError('INVALID_OFFSET', 'Invalid file path', { offset: 0 });
+    }
     const fileHandle = await currentDir.getFileHandle(fileName, { create: true });
 
     // Pre-allocate file if supported (truncate to expected size)
@@ -321,7 +326,7 @@ class PositionalWriteHandleFactoryImpl implements PositionalWriteHandleFactory {
     const root = await this.getOPFSRoot();
 
     // Parse path and navigate to file
-    const pathParts = filePath.split('/');
+    const pathParts = filePath.split('/').filter(Boolean);
     let currentDir = root;
 
     for (let i = 0; i < pathParts.length - 1; i++) {
@@ -332,7 +337,10 @@ class PositionalWriteHandleFactoryImpl implements PositionalWriteHandleFactory {
     }
 
     const fileName = pathParts[pathParts.length - 1];
-    const fileHandle = await currentDir.getFileHandle(fileName, { create: false });
+    if (!fileName) {
+      throw new WriteError('INVALID_OFFSET', 'Invalid file path', { offset: 0 });
+    }
+    const fileHandle = await currentDir.getFileHandle(fileName);
 
     const backend = new OPFSWriteBackend(fileHandle);
     return new OPFSPositionalWriteHandle(backend);
