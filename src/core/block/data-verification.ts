@@ -620,11 +620,15 @@ export function compareBytes(expected: Uint8Array, actual: Uint8Array): ByteComp
 
       // Store up to 10 differences for detailed reporting
       if (differenceDetails.length < 10) {
-        differenceDetails.push({
-          index: i,
-          expected: expected[i],
-          actual: actual[i],
-        });
+        const expectedByte = expected[i];
+        const actualByte = actual[i];
+        if (expectedByte !== undefined && actualByte !== undefined) {
+          differenceDetails.push({
+            index: i,
+            expected: expectedByte,
+            actual: actualByte,
+          });
+        }
       }
     }
   }
