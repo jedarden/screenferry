@@ -20,7 +20,7 @@
  * - 4 frames × 7.9 MiB = 31.6 MiB (within 64 MiB whole-receiver peak)
  */
 
-import { readBarcodes } from 'zxing-wasm/reader';
+import { readBarcodesFromImageData } from 'zxing-wasm/reader';
 import { configureLocalZXingWASM } from '../modulation/qr-tiled/zxing-config.js';
 import type { DecodedFrameResult, TileDiagnostics, QRPosition } from '../modulation/types.js';
 
@@ -66,7 +66,7 @@ interface DecodeRequest {
   expectedTileCount?: number;
 }
 
-interface DecodeResponse {
+export interface DecodeResponse {
   type: 'result';
   frameIndex: number;
   result: DecodedFrameResult;
@@ -79,7 +79,7 @@ interface DecodeResponse {
  * This is used for E-TOO-FAR detection (camera px/module < 4) per plan.md §11.
  */
 function estimateCameraPxPerModule(
-  decodedBarcode: ReturnType<typeof readBarcodes>[0],
+  decodedBarcode: Awaited<ReturnType<typeof readBarcodesFromImageData>>[0],
   frameWidth: number,
   frameHeight: number
 ): number | undefined {
@@ -87,16 +87,34 @@ function estimateCameraPxPerModule(
     return undefined;
   }
 
-  // Try to estimate module size from the QR code's position and size
-  // This is approximate but sufficient for quality diagnostics
-  const positions = decodedBarcode.position;
-  if (positions.length < 4) {
+  // Extract corner points from position object
+  const position = decodedBarcode.position;
+  if (typeof position !== 'object' || position === null) {
     return undefined;
   }
 
-  // Calculate bounding box
-  const xs = positions.map(p => p.x);
-  const ys = positions.map(p => p.y);
+  // Position is an object with corner keys like topLeft, topRight, etc.
+  const pos = position as unknown as Record<string, { x: number; y: number } | undefined>;
+
+  // Extract valid corner points
+  const corners: { x: number; y: number }[] = [];
+  const cornerKeys = ['topLeft', 'topRight', 'bottomRight', 'bottomLeft'];
+
+  for (const key of cornerKeys) {
+    const corner = pos[key];
+    if (corner && typeof corner.x === 'number' && typeof corner.y === 'number') {
+      corners.push(corner);
+    }
+  }
+
+  // Need at least 2 corners to calculate dimensions
+  if (corners.length < 2) {
+    return undefined;
+  }
+
+  // Calculate bounding box from corner points
+  const xs = corners.map(c => c.x);
+  const ys = corners.map(c => c.y);
   const width = Math.max(...xs) - Math.min(...xs);
   const height = Math.max(...ys) - Math.min(...ys);
 
@@ -136,11 +154,11 @@ function calculateSharpness(imageData: ImageData): number | undefined {
     for (let y = 1; y < height - 1; y++) {
       for (let x = 1; x < width - 1; x++) {
         const i = (y * width + x) * 4;
-        const center = data[i];
-        const top = data[i - width * 4];
-        const bottom = data[i + width * 4];
-        const left = data[i - 4];
-        const right = data[i + 4];
+        const center = data[i]!;
+        const top = data[i - width * 4]!;
+        const bottom = data[i + width * 4]!;
+        const left = data[i - 4]!;
+        const right = data[i + 4]!;
 
         const laplacian = 4 * center - top - bottom - left - right;
         sum += laplacian * laplacian;
@@ -179,9 +197,9 @@ function detectTornFrame(imageData: ImageData): boolean {
       for (let y = startY; y < endY; y++) {
         for (let x = 0; x < width; x++) {
           const i = (y * width + x) * 4;
-          sum += data[i]; // Red channel
-          sum += data[i + 1]; // Green channel
-          sum += data[i + 2]; // Blue channel
+          sum += data[i]!; // Red channel
+          sum += data[i + 1]!; // Green channel
+          sum += data[i + 2]!; // Blue channel
           count += 3;
         }
       }
@@ -258,11 +276,13 @@ async function processFrame(request: DecodeRequest): Promise<DecodeResponse> {
     const isTorn = detectTornFrame(imageData);
 
     // Call zxing-wasm to decode QR codes
-    const barcodes = await readBarcodes(imageData, [
-      'qr_code',
-      'micro_qr',
-      'rect_micro_qr',
-    ]);
+    const barcodes = await readBarcodesFromImageData(imageData, {
+      formats: [
+        'QRCode',
+        'MicroQRCode',
+        'rMQRCode',
+      ],
+    });
 
     // Process decoded barcodes into packets and diagnostics
     const packets: Uint8Array[] = [];
@@ -291,26 +311,32 @@ async function processFrame(request: DecodeRequest): Promise<DecodeResponse> {
         imageData.height
       );
 
-      diagnosticsMap.set(tileIndex, {
+      // Create diagnostic entry, only including properties that are defined
+      const diagnostic: TileDiagnostics = {
         tileIndex,
         decoded: true,
-        position,
-        cameraPxPerModule,
-        sharpness,
         isTorn,
-      });
+        ...(position !== undefined && { position }),
+        ...(cameraPxPerModule !== undefined && { cameraPxPerModule }),
+        ...(sharpness !== undefined && { sharpness }),
+      };
+
+      diagnosticsMap.set(tileIndex, diagnostic);
     }
 
     // Create diagnostic entries for undecoded tiles
     // (Expected tiles that weren't found in the frame)
     for (let i = 0; i < expectedTileCount; i++) {
       if (!diagnosticsMap.has(i)) {
-        diagnosticsMap.set(i, {
+        // Create diagnostic entry for undecoded tile
+        const diagnostic: TileDiagnostics = {
           tileIndex: i,
           decoded: false,
-          sharpness,
           isTorn,
-        });
+          ...(sharpness !== undefined && { sharpness }),
+        };
+
+        diagnosticsMap.set(i, diagnostic);
       }
     }
 
@@ -357,13 +383,13 @@ async function processFrame(request: DecodeRequest): Promise<DecodeResponse> {
  * We convert this to our QRPosition format.
  */
 function extractPosition(
-  barcode: ReturnType<typeof readBarcodes>[0]
+  barcode: Awaited<ReturnType<typeof readBarcodesFromImageData>>[0]
 ): readonly QRPosition[] | undefined {
   if (!barcode.position || typeof barcode.position !== 'object') {
     return undefined;
   }
 
-  const pos = barcode.position as Record<string, { x: number; y: number }>;
+  const pos = barcode.position as unknown as Record<string, { x: number; y: number }>;
 
   // Extract corner points if available
   const corners: QRPosition[] = [];
