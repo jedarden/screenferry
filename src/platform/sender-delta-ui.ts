@@ -17,7 +17,7 @@ import {
   confirmDeltaMode,
   resetDeltaMode,
   getDeltaModeStatus,
-  type DeltaModeState,
+  DeltaModeState,
 } from '../core/sender/delta-mode.js';
 import { isDeltaCodeTypable } from '../core/frame/delta-code.js';
 
@@ -124,7 +124,10 @@ export function validateDeltaCodeEntry(
   // Check if it should be displayed as QR code
   updated.showAsQR = !isDeltaCodeTypable(code);
   updated.isValid = true;
-  updated.validationError = undefined;
+  // Remove validationError property if it exists
+  if ('validationError' in updated) {
+    delete updated.validationError;
+  }
 
   return updated;
 }
@@ -159,16 +162,22 @@ export function formatDeltaCodeForDisplay(code: string): string {
 export function createDeltaConfirmation(context: DeltaModeContext): DeltaConfirmationState {
   const status = getDeltaModeStatus(context);
 
-  return {
+  const result: DeltaConfirmationState = {
     oldFileName: context.oldFile?.name || 'Unknown',
     newFileName: context.newFile?.name || 'Unknown',
     differingBlocks: status.differingBlocks,
     totalBlocks: status.totalBlocks,
     savings: status.estimatedSavings,
     securityValid: status.securityValid,
-    securityDetails: context.securityValidation?.report,
     confirmed: false,
   };
+
+  // Only include securityDetails if it exists
+  if (context.securityValidation?.report !== undefined) {
+    result.securityDetails = context.securityValidation.report;
+  }
+
+  return result;
 }
 
 /**

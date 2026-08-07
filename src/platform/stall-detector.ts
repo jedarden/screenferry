@@ -252,7 +252,7 @@ export class StallDetector {
       pxModuleCliff: config.pxModuleCliff || 4.0, // The critical cliff
       sharpnessThreshold: config.sharpnessThreshold || 100, // Below this = blur
       maxTornFrameRate: config.maxTornFrameRate || 0.3, // 30% torn frames = bad
-      expectedStreamId: config.expectedStreamId,
+      expectedStreamId: config.expectedStreamId ?? 0,
       enableCanaryDetection: config.enableCanaryDetection ?? true, // Default enabled
       autofocusOscillationThreshold: config.autofocusOscillationThreshold || 50, // Sharpness variance threshold
       thermalFpsDropThreshold: config.thermalFpsDropThreshold || 0.5, // 50% FPS drop = thermal throttle
@@ -372,8 +372,8 @@ export class StallDetector {
   private computeFrameHash(decodedTiles: TileDiagnostics[]): string {
     // Hash based on tile indices and positions (if available)
     const parts = decodedTiles.map(t => {
-      const posInfo = t.position
-        ? `${t.position[0].x.toFixed(0)},${t.position[0].y.toFixed(0)}`
+      const posInfo = t.position && t.position.length > 0 && t.position[0]
+        ? `${(t.position[0].x ?? 0).toFixed(0)},${(t.position[0].y ?? 0).toFixed(0)}`
         : 'no-pos';
       return `${t.tileIndex}-${posInfo}`;
     });
@@ -581,9 +581,10 @@ export class StallDetector {
 
     // Classify stall
     let category: StallCategory | undefined;
-    let confidence: Confidence;
-    let explanation: string;
-    let suggestion: string;
+    // Initialize with fallback defaults
+    let confidence: Confidence = 'low';
+    let explanation = 'QR codes are detected but not reliably decoded';
+    let suggestion = 'Try improving lighting, reducing distance, or adjusting camera angle to avoid glare';
 
     // PRIORITY 1: Canary tile signals (definitive optical vs payload separation)
     if (this.config.enableCanaryDetection && this.canaryTotalAttempts >= 5) {
@@ -706,21 +707,31 @@ export class StallDetector {
       suggestion = 'Try improving lighting, reducing distance, or adjusting camera angle to avoid glare';
     }
 
+    // Build details object without explicit undefined values
+    const tornFrameRate = recent.tornFrameRate ?? 0;
+    const details: StallDiagnosis['details'] = {
+      timeSinceLastPacket,
+      timeSinceLastDetection,
+      tornFrameRate,
+      captureFps: stats.captureFps,
+      decodeFps: stats.decodeFps,
+      packetsPerSec: stats.packetsPerSec,
+    };
+
+    // Only add optional properties if they have meaningful values
+    if (recent.avgPxPerModule > 0) {
+      details.pxPerModule = recent.avgPxPerModule;
+    }
+    if (recent.avgSharpness > 0) {
+      details.sharpness = recent.avgSharpness;
+    }
+
     return {
       category,
       confidence,
       explanation,
       suggestion,
-      details: {
-        timeSinceLastPacket,
-        timeSinceLastDetection,
-        pxPerModule: recent.avgPxPerModule || undefined,
-        sharpness: recent.avgSharpness || undefined,
-        tornFrameRate: recent.tornFrameRate,
-        captureFps: stats.captureFps,
-        decodeFps: stats.decodeFps,
-        packetsPerSec: stats.packetsPerSec,
-      },
+      details,
     };
   }
 
@@ -752,7 +763,6 @@ export class StallDetector {
       avgSharpness: acc.avgSharpness + frame.avgSharpness,
       tornFrameCount: acc.tornFrameCount + frame.tornFrameCount,
       packetCount: acc.packetCount + frame.packetCount,
-      totalCountForRate: acc.totalCountForRate + 1,
     }), {
       decodedCount: 0,
       totalCount: 0,
@@ -760,14 +770,14 @@ export class StallDetector {
       avgSharpness: 0,
       tornFrameCount: 0,
       packetCount: 0,
-      totalCountForRate: 0,
     });
 
     const count = recent.length;
     const tornFrameRate = count > 0 ? summed.tornFrameCount / count : 0;
 
+    const lastFrame = recent.at(-1);
     return {
-      timestamp: recent[recent.length - 1].timestamp,
+      timestamp: lastFrame?.timestamp ?? 0,
       decodedCount: summed.decodedCount,
       totalCount: summed.totalCount,
       avgPxPerModule: count > 0 ? summed.avgPxPerModule / count : 0,
@@ -919,10 +929,19 @@ export class StallDetector {
 
     // Calculate rate over the last several measurements
     const recent = this.rateHistory.slice(-Math.min(10, this.rateHistory.length));
-    if (recent.length < 2) return;
+    if (recent.length < 2) {
+      this.currentTransferRate = 0;
+      return;
+    }
 
     const oldest = recent[0];
-    const newest = recent[recent.length - 1];
+    const newest = recent.at(-1);
+
+    if (!oldest || !newest) {
+      this.currentTransferRate = 0;
+      return;
+    }
+
     const timeDiff = (newest.time - oldest.time) / 1000; // seconds
     const blocksDiff = newest.completed - oldest.completed;
 
@@ -956,12 +975,12 @@ export class StallDetector {
     if (this.rateHistory.length < 5) return true; // Not enough data
 
     // Check if rate is declining (bad sign)
-    const recentRates = this.rateHistory.slice(-5).map(r => r.rate);
+    const recentRates = this.rateHistory.slice(-5).map(r => r?.rate ?? 0);
     const firstRate = recentRates[0];
-    const lastRate = recentRates[recentRates.length - 1];
+    const lastRate = recentRates.at(-1);
 
     // If rate dropped by more than 50%, not converging well
-    if (lastRate < firstRate * 0.5) {
+    if (firstRate !== undefined && lastRate !== undefined && lastRate < firstRate * 0.5) {
       return false;
     }
 

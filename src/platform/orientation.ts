@@ -66,13 +66,18 @@ export function detectOrientation(
     ? undefined
     : 'This app works fine held normally — but if you\'d like more margin, match the orientation setting on the sending device, or turn the phone sideways.';
 
-  return {
+  const result: OrientationDetection = {
     orientation,
     width,
     height,
     isOptimal,
-    coaching,
   };
+
+  if (coaching) {
+    result.coaching = coaching;
+  }
+
+  return result;
 }
 
 /**

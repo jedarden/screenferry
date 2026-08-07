@@ -21,6 +21,7 @@ import {
   getDeltaCodeInfo,
 } from '../core/receiver/delta-generator.js';
 import { isDeltaCodeTypable } from '../core/frame/delta-code.js';
+import { BLOCK } from '../core/params.js';
 
 /**
  * File selection component state.
@@ -90,7 +91,9 @@ export function updateFileSelection(
   newFile?: File,
   oldFile?: File
 ): FileSelectionState {
-  const updated = { ...state, newFile, oldFile, error: undefined };
+  const updated: FileSelectionState = { ...state };
+  if (newFile !== undefined) updated.newFile = newFile;
+  if (oldFile !== undefined) updated.oldFile = oldFile;
 
   // Validate file selection
   if (!newFile) {
@@ -113,7 +116,10 @@ export function updateFileSelection(
   }
 
   updated.canGenerate = true;
-  updated.error = undefined;
+  // Remove error property if it exists
+  if ('error' in updated) {
+    delete updated.error;
+  }
   return updated;
 }
 

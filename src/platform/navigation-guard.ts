@@ -17,7 +17,7 @@ import {
   showPartialWarningDialog,
   dismissPartialWarningDialog,
   type WarningDialogResult,
-  type PartialArtefactAction,
+  PartialArtefactAction,
 } from './partial-warning-dialog.js';
 
 /**
@@ -42,7 +42,7 @@ export interface NavigationGuardConfig {
 const DEFAULT_CONFIG: NavigationGuardConfig = {
   enabled: true,
   requireAcknowledgment: true,
-  actions: ['keep', 'delete', 'cancel'],
+  actions: [PartialArtefactAction.KEEP, PartialArtefactAction.DELETE, PartialArtefactAction.CANCEL],
 };
 
 /**

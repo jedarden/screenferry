@@ -232,8 +232,8 @@ export class Transmitter {
 
       // Create packet header
       const header = createPacketHeader(
-        this.encoder.opts.streamId,
-        this.encoder.opts.blockIndex,
+        this.encoder.streamId,
+        this.encoder.blockIndex,
         seq
       );
 
@@ -311,8 +311,8 @@ export class Transmitter {
       this.state.currentSeq++;
 
       const header = createPacketHeader(
-        this.encoder.opts.streamId,
-        this.encoder.opts.blockIndex,
+        this.encoder.streamId,
+        this.encoder.blockIndex,
         seq
       );
 
@@ -343,8 +343,8 @@ export class Transmitter {
     this.state.currentSeq = seq + 1;
 
     const header = createPacketHeader(
-      this.encoder.opts.streamId,
-      this.encoder.opts.blockIndex,
+      this.encoder.streamId,
+      this.encoder.blockIndex,
       seq
     );
 
