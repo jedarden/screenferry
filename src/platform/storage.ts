@@ -37,6 +37,24 @@
  */
 
 import {createPositionalWriteHandleFactory} from '../core/io/positional-write.js';
+
+/**
+ * Type augmentation for FileSystemDirectoryHandle to include values() method.
+ *
+ * The File System Access API spec includes values(), keys(), and entries() methods,
+ * but TypeScript's standard type definitions may not include them. This augmentation
+ * ensures type compatibility across browsers and test environments.
+ */
+declare global {
+  interface FileSystemDirectoryHandle {
+    /**
+     * Returns an async iterator over entry handles.
+     * Part of the File System Access API spec.
+     */
+    values(): AsyncIterableIterator<FileSystemHandle>;
+  }
+}
+
 import { runAsyncCleanup, type CleanupWorkerMetrics } from './async-cleanup-worker.js';
 import { CleanupLogger, formatCleanupMetricsSummary, type CleanupMetrics } from './cleanup-logger.js';
 
@@ -364,6 +382,8 @@ export class OPFSStorageManager implements StorageManager {
    */
   private async getRoot(): Promise<FileSystemDirectoryHandle> {
     if (!this.opfsRoot) {
+      // navigator.storage.getDirectory() returns FileSystemDirectoryHandle in production
+      // and MockFileSystemDirectoryHandle (which implements FileSystemDirectoryHandle) in tests
       this.opfsRoot = await navigator.storage.getDirectory();
     }
     return this.opfsRoot;
@@ -469,7 +489,8 @@ export class OPFSStorageManager implements StorageManager {
       for await (const entry of outputDir.values()) {
         if (entry.kind === 'file' && entry.name.endsWith('.meta.json')) {
           try {
-            const file = await entry.getFile();
+            const fileHandle = entry as FileSystemFileHandle;
+            const file = await fileHandle.getFile();
             const text = await file.text();
             const metadata = JSON.parse(text) as OutputArtefact;
             outputs.push(metadata);
@@ -694,7 +715,8 @@ export class OPFSStorageManager implements StorageManager {
           logger.incrementFilesScanned();
 
           try {
-            const file = await entry.getFile();
+            const fileHandle = entry as FileSystemFileHandle;
+            const file = await fileHandle.getFile();
             const text = await file.text();
             const metadata = JSON.parse(text) as OutputArtefact;
 
