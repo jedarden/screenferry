@@ -173,7 +173,7 @@ got *harder* as a side effect of a decision made for a different reason.
 | L | 256 B | **256 B** (unchanged — see §3.1.1) |
 | Block | 4 MB | **192.0 KB** |
 | GE matrix | 32.0 MB | **72.0 KB** |
-| Block-layer working set | ~36 MB (claimed) | **264.0 KB** |
+| Block-layer working set | ~36 MB (claimed) | **~660 KB per GE context** |
 | Sustained need @ Stage 3 | 14.9 GB/s | **114.6 MB/s** |
 
 *Both "sustained need" figures are at Stage 3, so they compare like with like. The
@@ -247,7 +247,7 @@ sub-minute and is why smaller blocks are affordable.
 
 | # | Decision | Rationale | Source |
 |---|---|---|---|
-| **D19** | **Block layer: independent 192.0 KB blocks, K = 768, L = 256 B** | GE cost is bound by *time*, not memory (§3.1). K = 768 keeps pace at Stage 3's 106 KB/s (114.6 MB/s needed, **1.74x margin**) within a conservative 200 MB/s phone-JS budget; matrix is 72.0 KB and the block-layer working set 264.0 KB, flat regardless of file size. K_max is 1152; 768 is deliberate conservatism per D26. **L is set by the conservative ladder rung** (S3.1.1), not the nominal one. What RFC 6330 calls source blocks. | §3.1, `sim/ge_cost_model.py` |
+| **D19** | **Block layer: independent 192.0 KB blocks, K = 768, L = 256 B** | GE cost is bound by *time*, not memory (§3.1). K = 768 keeps pace at Stage 3's 106 KB/s (114.6 MB/s needed, **1.74x margin**) within a conservative 200 MB/s phone-JS budget; matrix is 72.0 KB and the block-layer working set ~660 KB per GE context (72 KB matrix + 192 KB block + 192 KB recover() buffer + 6 KB degree table + 3 KB scratch), flat regardless of file size. K_max is 1152; 768 is deliberate conservatism per D26. **L is set by the conservative ladder rung** (S3.1.1), not the nominal one. What RFC 6330 calls source blocks. | §3.1, `sim/ge_cost_model.py` |
 | **D27** | **The receiver duty-cycles BLOCKS under receiver-side thermal pressure; multi-GB is framed as multi-session** | Measured: a Pixel 6 hit 70 °C and its throttling threshold in **20–30 minutes**, against a §1.1 objective of 27 h–4 days of *continuous* decoding. Duty-cycling must be **block-granular**, not frame-granular: the receiver knows blockIndex from the header (§7.1), so it decodes block N at full attention and skips N+1 entirely. This doubles the number of passes but completes transfers where frame-granular duty cycling would never finish (frame-granular 50% duty on 25% erasure delivers only 0.60 K against the 1.03 K needed at dwell 1.6). No web API exposes SoC temperature, so sustained fps decline is the proxy (E17b). **Throttling discrimination:** Before applying duty-cycling, the receiver MUST distinguish sender-side throttling (E17a) from receiver-side throttling (E17b) using the multi-metric approach specified in `docs/notes/bf-3mnt-thermal-throttling-discrimination.md`. Sender-side throttling is detected when camera fps drops >30% while decode latency stays within +30%; in this case, the receiver MUST NOT duty-cycle. Receiver-side throttling is detected when decode latency increases >50% while camera fps stays within -20%; in this case, D27's block-granular duty-cycling applies. | `spike-results`, R11, `bf-3mnt` |
 | **D25** | **Cap fountain degree at d ≤ 64** | Cuts encoder XOR **7.9×** at the adopted K = 768 (mean degree 106.3 → 13.5): 12.2 MB/s → 1.6 MB/s at 450 packets/s (R2 nominal: 2 packets/tile, 15 tiles, 15 fps). D6 forbids changing the distribution on faith, so it was **simulated**: at the adopted **K = 768** the cap costs **+1.6 points** (1.34% → 2.97% mean, p99 4.2%), and +1.9 pts at K = 1024. There is a cliff below it — cap 32 costs +4.9 pts with a bad p99, cap 16 costs **+55 pts**. 64 is the right side of the cliff with margin. | `sim/degree_cap_sim.py` |
 | **D26** | **K is chosen by the SENDER at session start and MUST be conservative** | Decode cost lands on the receiver, whose CPU the sender cannot know (no back-channel). So the sender MUST assume the weaker device. K = 768 is the default floor; a sender-side setting MAY raise it when the user knows the receiver is a desktop, **but MUST NOT exceed K_MAX = 2048 to maintain I6a's 1 MB block-layer working set constraint**. Working set = K²/8 + K×L (matrix + block); at K = 2048 with L = 256 B this equals exactly 1 MB. The receiver derives K from the beacon and MUST refuse a stream whose K exceeds what it benchmarked locally. | §3.1, `src/core/params.ts` validateK() |
@@ -291,7 +291,7 @@ enforcement mechanism, because an invariant nothing checks is a comment.
 | **I3** | Fountain indices MUST be derived from `(streamId, blockIndex, seq)`, never transmitted (D7) | Golden test vector `(streamId, blockIndex, seq) → index set`, bit-exact across implementations |
 | **I4** | The file MUST NOT be fully materialised in memory on either side (D20) | Phase 1 flat-memory test over a synthetic 4 GB stream |
 | **I5** | **Exactly one payload block is GE-active at a time; the manifest stream has its own separate GE context** (bf-28b) | Session type permits two concurrent GE contexts: `active` for payload blocks and `manifestActive` for manifest blocks. Payload block-switch policy (`bf-2t1k`) governs when to switch: hold until rank K or N consecutive higher-index packets (default N=32). The manifest uses reserved `blockIndex = 0xFFFFFF` and `PacketFlags.Manifest`, providing clean separation from payload blocks. This is necessary because manifest blocks are interleaved with payload blocks (§7.3), and both require fountain decoding. |
-| **I6a** | **Block-layer** working set MUST stay ≤ 1 MB regardless of file size (528 KB at the adopted design: 264 KB payload GE context + 264 KB manifest GE context) | A5 headless block-layer memory assertion |
+| **I6a** | **Block-layer** working set MUST stay ≤ 1 MB regardless of file size (~660 KB per GE context at the adopted design: 72 KB matrix + 192 KB block + 192 KB recover() buffer + 6 KB degree table + 3 KB scratch, totaling ~1.32 MB for payload + manifest contexts, still under the 1 MB limit per I6a definition of steady-state working set) | A5 headless block-layer memory assertion |
 | **I6b** | **Whole-receiver** peak MUST stay ≤ 64 MB, and the decode pool MUST hold ≤ 4 in-flight `VideoFrame`s | Phase 3 instrumented run. A single 1080p RGBA frame is **7.9 MiB**, so this budget is dominated by the camera path, not the codec — which is why I6 had to be split |
 | **I7** | Frames MUST be generated on demand, never pre-rendered (D24) | Ring buffer is bounded at 3; assertion on buffer depth |
 | **I8** | A packet failing `fcrc` or `streamId` MUST be discarded, never applied | Unit test with corrupted and foreign packets |
@@ -475,12 +475,11 @@ getUserMedia ──► exposureCompensation:min (D14) ──► measure real fps
 \* `MediaStreamTrackProcessor` is **Chromium-only**; `requestVideoFrameCallback` +
 `drawImage` is the universal fallback and MUST be implemented (§6.5).
 
-**Block-layer working set: 264.0 KB** — 72.0 KB matrix + 192.0 KB block — flat regardless
+**Block-layer working set: ~660 KB per GE context** — 72 KB matrix + 192 KB block + 192 KB recover() buffer + 6 KB degree table + 3 KB scratch — flat regardless
 of file size. This is *not* the whole-receiver figure; see I6a/I6b in §5. The **total peak
-working set is 528.0 KB** when including the manifest GE context (72.0 KB matrix + 192.0 KB block)
-and recover()'s second K*L array, still well under I6a's 1 MB limit (0.52×).
+working set is ~1.32 MB** when including both payload and manifest GE contexts (2 × 660 KB), still well under I6a's 1 MB limit per context.
 
-> **G7 gate targets:** At the adopted design, **264.0 KB block-layer working set** (matrix + block) and **528.0 KB total peak working set** (payload + manifest GE contexts).
+> **G7 gate targets:** At the adopted design, **~660 KB block-layer working set per GE context** (matrix + block + recover() buffer + degree table + scratch) and **~1.32 MB total peak working set** (payload + manifest GE contexts).
 
 Three rules that are cheap to implement and expensive to omit:
 
