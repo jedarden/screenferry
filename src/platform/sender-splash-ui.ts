@@ -53,11 +53,11 @@ export class SenderSplashUI {
   private qrConfig: Required<SenderSplashUIConfig['qrConfig']>;
   private onFileDrop?: (file: File) => void;
 
-  // UI elements
-  private qrCodeContainer: HTMLElement;
-  private qrCanvas: HTMLCanvasElement;
-  private dropZone: HTMLElement;
-  private dropZoneText: HTMLElement;
+  // UI elements (definitely assigned in createUI, called by constructor)
+  private qrCodeContainer!: HTMLElement;
+  private qrCanvas!: HTMLCanvasElement;
+  private dropZone!: HTMLElement;
+  private dropZoneText!: HTMLElement;
 
   // State
   private initialized: boolean = false;
@@ -301,7 +301,10 @@ export class SenderSplashUI {
     zone.addEventListener('drop', (e) => {
       const files = e.dataTransfer?.files;
       if (files && files.length > 0) {
-        this.handleFileDrop(files[0]);
+        const file = files[0];
+        if (file) {
+          this.handleFileDrop(file);
+        }
       }
     });
 
@@ -313,7 +316,10 @@ export class SenderSplashUI {
       input.addEventListener('change', (e) => {
         const target = e.target as HTMLInputElement;
         if (target.files && target.files.length > 0) {
-          this.handleFileDrop(target.files[0]);
+          const file = target.files[0];
+          if (file) {
+            this.handleFileDrop(file);
+          }
         }
       });
       input.click();
@@ -526,8 +532,8 @@ export class SenderSplashUI {
         width: this.qrConfig.size,
         margin: this.qrConfig.margin,
         color: {
-          dark: this.qrConfig.color.dark,
-          light: this.qrConfig.color.light,
+          dark: this.qrConfig.color.dark!,
+          light: this.qrConfig.color.light!,
         },
       });
 
