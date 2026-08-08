@@ -16,7 +16,7 @@ evidence behind every number lives in [`../research/`](../research/).
 | 2026-07-31 | Link adaptation folded in (D16–D18) | `link-adaptation.md` |
 | 2026-07-31 | **Rewritten around the multi-GB objective** — block layer, streaming, resume | — |
 | 2026-07-31 | Ideation run: 7 roadmap items adopted (§17) | `ideas-ledger.md` |
-| 2026-07-31 | **Phase 0.5 spike run (S1/S2/S3 + thermal)**; §2 units, R11, D27, E17 split, §13.1 measured column, §6.4 ROI caveat, Stage 3 reframed as frame-rate. First measurements from real hardware | `../notes/spike-results.md` |
+| 2026-07-31 | **Phase 0.5 spike run (S1/S2/S3 + thermal)**; §2 units, D27, E17 split, R11, §13.1 measured column, §6.4 ROI caveat, Stage 3 reframed as frame-rate. First measurements from real hardware | `../notes/spike-results.md` |
 | 2026-07-31 | **Phases 0 (partial) and 1 built** — `src/core/`, 22 tests, gate G7 live | — |
 | 2026-07-31 | **Re-review corrections** — §3.1 formula was 2× wrong (fixed); L reverted 507 → 256 B because 507 broke D16's conservative rung (§3.1.1); D18 split into D18a/b/c with the erasure band restored to 20–30%; I6 split; module layout added; numbers now emitted by the model and diffed in CI (G7) | `sim/ge_cost_model.py` (rewritten), `sim/degree_cap_sim.py` (K=768) |
 | 2026-07-31 | **Plan review corrections** — D19 re-derived (K 16,384 → 768; see §3.1), degree cap added (D25), K made device-measured (D26), dwell/erasure inconsistency fixed, and §2/§5/§6/§9–§14/§16/§18 added | `sim/ge_cost_model.py`, `sim/degree_cap_sim.py` |
@@ -793,7 +793,7 @@ streamId = CRC32( originalSize ‖ first 64 KB ‖ middle 64 KB ‖ last 64 KB �
 **Critical:** `originalSize` is the **uncompressed** file size (the beacon's `originalSize` field), NOT the compressed payload size (`payloadLen`). This is required because:
 
 - **Resume (D22):** `streamId` identifies the FILE the user selected, not the compressed version. Using `originalSize` ensures the same file always produces the same `streamId` regardless of compression settings.
-- **Security separation:** E3a's block arithmetic uses `payloadLen` (compressed size) from the beacon to compute the last block's short length. T1's quota check, T3's decompression-bomb cap, and D23's ETA all use `originalSize` from the beacon. `streamId` participates in the original-size domain because it identifies the user's chosen file.
+- **Security separation:** D23's ETA, E3a's block arithmetic, T1's quota check, and T3's decompression-bomb cap all use `originalSize` from the beacon. `streamId` participates in the original-size domain because it identifies the user's chosen file. E3a's block arithmetic uses `payloadLen` (compressed size) from the beacon to compute the last block's short length.
 
 Three sampled windows plus size and mtime. Costs ~200 KB of reads regardless of file
 size, so it is instant even for 4 TB.
@@ -1143,7 +1143,7 @@ net goodput is **~70 KB/s** — well above the 20 KB/s budget.
 | Encode + render per frame | **≤ 20 ms** p99 — **measured ~150 ms** (6.7 fps against 12 requested) on a 2015 laptop with D4's pinned mask unimplemented | Phase 3 |
 | Time-to-first-packet after aim | **≤ 3 s** p50 | Phase 5 |
 | Reception overhead vs K | **≤ +5%** mean, **≤ +12%** p99 (measured: +2.97% / +4.2%) | Phase 1, `sim/` |
-| **Sustained operation duration** | **≥ 20 min** sustained throughput within **30% of initial rate** on target phone (Pixel 6-class) without active cooling. This is the **minimum viable duration** before R11's thermal throttling mitigation (duty-cycle reduction) must engage. The system is not required to avoid throttling indefinitely—only to (a) sustain long enough for practical use and (b) detect and surface throttling when it occurs (E17b, D27). | Phase 3; validated by T-long-run |
+| **Sustained operation duration** | **≥ 20 min** sustained throughput within **30% of initial rate** on target phone (Pixel 6-class) without active cooling. This is the **minimum viable duration** before R11's thermal throttling mitigation (duty-cycle reduction) must engage. The system is not required to avoid throttling indefinitely—only to (a) sustain long enough for practical use and (b) detect and surface throttling when it occurs (D27, E17b). | Phase 3; validated by T-long-run |
 | **Warn threshold** (D23) | estimated duration **> 30 min** → explicit confirm | Phase 4 |
 | **Refuse threshold** (D23) | estimated duration **> 24 h for a single transfer session** (not cumulative across resume sessions), or quota insufficient → refuse with an override. The app calculates this from the measured transfer rate and warns the user before committing. Multi-session transfers (via resume) are allowed; this threshold applies **per session**, not to total transfer time including resume. | Phase 4 |
 
@@ -1181,7 +1181,7 @@ to handheld numbers.
 | **T-degradation** | Synthetic blur / rotation / keystone / glare / rolling-shutter tearing applied to rendered frames. **Assert decode *rates*, not booleans** | Nightly |
 | **T-real-capture** | Frames → Y4M → Chromium fake camera. Proven in research (byte-exact, including late-join at 700 ms) | Nightly |
 | **T-scale** | Synthetic 4 GB stream at the block layer; assert flat memory across 21,845 blocks | Nightly |
-| **T-long-run** | **20–30 minute sustained run** on real devices to validate thermal behavior (R11), duty-cycle economics (D27), and sustained throughput. Tracks fps decline, decode rate, and effective goodput over time. **This is the ONLY tier that can measure R11 and D27** — the 60 s floor in §13.2 structurally excludes thermal phenomena. | Weekly (or per thermal-related change) |
+| **T-long-run** | **20–30 minute sustained run** on real devices to validate thermal behavior (R11), duty-cycle economics (D27), and sustained throughput. Tracks fps decline, decode rate, and effective goodput over time. **This is the ONLY tier that can measure D27 and R11** — the 60 s floor in §13.2 structurally excludes thermal phenomena. | Weekly (or per thermal-related change) |
 | **T-physical-rig** | Two real devices, fixed mounting, the §13.2 denominator. **This is the acceptance gate for §13.1 throughput** — nothing else can measure it | Per release |
 | **T-manual-iOS** | Full pass on a real iPhone. **Not CI-testable at any price** — WebKit cannot fake a camera, the Simulator has none | Per release |
 
@@ -1418,7 +1418,7 @@ debt (PIVOT-CAUSES PH-2).
 
 2. **G1 gate does not pass.** Typecheck fails due to test mock type issues; lint fails with 787 problems (479 errors). These must be resolved before Phase 0 exit criteria are met.
 
-3. **The on-device GE benchmark has not run**, and D26/T1 both cite a "locally benchmarked max" that no component produces (§16.4 owns it).
+3. **The on-device GE benchmark has not run**, and T1/D26 both cite a "locally benchmarked max" that no component produces (§16.4 owns it).
 
 4. **The A5 memory assertion is a smoke test, not the invariant.** `test/codec.test.ts` checks a
    heap *trend* with 64 MB of slack across 40 blocks (7.9 MB), which cannot detect a 40 MB
@@ -1452,7 +1452,7 @@ whoever writes the new section.
 | **R6** | **OPFS quota smaller than advertised** | Medium | Medium | Pre-flight (`bf-4d6`) + graceful stop (E10) | Repeated E-QUOTA-EXHAUSTED → lower the refuse threshold |
 | **R7** | **libcimbar MPL-2.0 contaminates the licence** | Low | Medium | Decide before Phase 7 (§19 Q1) | Cannot accept mixed licence → clean-room Stage 3 or stop at Stage 2 |
 | **R8** | **No way to learn real-world performance** (no telemetry by design) | **High** | Low | Accepted; T-physical-rig substitutes | If field failures are suspected → voluntary copyable benchmark string (ledger, currently cut) |
-| **R9** | **Multi-hour transfers die to backgrounding / sleep / thermal** | **High** | Medium | E8, E17, wake lock, resume (D22) | Resume proves insufficient → reduce block size further so less is lost |
+| **R9** | **Multi-hour transfers die to backgrounding / sleep / thermal** | **High** | Medium | D22 (resume), E8, E17, wake lock | Resume proves insufficient → reduce block size further so less is lost |
 | **R10** | **A wire-version bump strands cached receivers** | Medium | Medium | §16.3 one-way-door rule | Skew observed → extend the soak period before bumping |
 | **R11** | **Thermal throttling makes long transfers self-defeating** | **High** (observed first session) | **High** — attacks the multi-GB objective directly | Duty-cycling (D27), decode-resolution drop, resume (D22). Self-reinforcing loop: SoC slows → decode slower → camera fps falls → erasure rises → transfer lengthens → more heat | **Trigger:** Discriminate sender-side (camera fps drops >30%, decode latency within +30%) vs receiver-side (decode latency increases >50%, camera fps within -20%) throttling per `docs/notes/bf-3mnt-thermal-throttling-discrimination.md`. Apply D27 duty-cycling only for receiver-side throttling. Sender-side throttling should NOT trigger receiver duty-cycling — doing so makes transfers slower without addressing the root cause. If duty-cycling cannot hold the rate, reframe multi-GB as a multi-session workflow (§1.1) |
 | **R12** | **Residual erasure exceeds the assumed 20–30% band** | **High** — measured 48% (non-qualifying conditions) | **High** — D18c, the §8.1 dwell budget and every §13.1 throughput figure rest on this band | Raise dwell; promote the repair code (§8.2). Note v1 cannot *observe* erasure (D18a), so this is an assumption, not a controlled quantity | Erasure > 35% under §13.2 conditions → the **repair code becomes the primary recovery path, not the tail**, and dwell is re-derived from the measured band |
