@@ -171,10 +171,10 @@ describe('DecodePacketStorage', () => {
       }
 
       const completion = storage.getBlockCompletion(0, k);
-      expect(completion.blockIndex).toBe(0);
-      expect(completion.uniquePackets).toBe(5);
-      expect(completion.estimatedProgress).toBe(0.5);
-      expect(completion.complete).toBe(false);
+      expect(completion?.blockIndex).toBe(0);
+      expect(completion?.uniquePackets).toBe(5);
+      expect(completion?.estimatedProgress).toBe(0.5);
+      expect(completion?.complete).toBe(false);
     });
   });
 
@@ -360,7 +360,9 @@ describe('BlockDecodePipeline', () => {
   describe('Construction', () => {
     it('should create pipeline with valid config', () => {
       expect(pipeline).toBeDefined();
-      expect(pipeline.getBlockGeometry().blockCount).toBeGreaterThan(0);
+      const geom = pipeline.getBlockGeometry();
+      expect(geom).toBeDefined();
+      expect(geom.blockCount).toBeGreaterThan(0);
     });
 
     it('should throw with missing streamId', () => {
@@ -383,13 +385,16 @@ describe('BlockDecodePipeline', () => {
 
   describe('Pipeline lifecycle', () => {
     it('should start and stop pipeline', () => {
-      expect(pipeline.getState().running).toBe(false);
+      let state = pipeline.getState();
+      expect(state?.running).toBe(false);
 
       pipeline.start();
-      expect(pipeline.getState().running).toBe(true);
+      state = pipeline.getState();
+      expect(state?.running).toBe(true);
 
       pipeline.stop();
-      expect(pipeline.getState().running).toBe(false);
+      state = pipeline.getState();
+      expect(state?.running).toBe(false);
     });
 
     it('should throw on duplicate start', () => {
@@ -404,7 +409,8 @@ describe('BlockDecodePipeline', () => {
       const received = pipeline.receivePacket(0, 0, payload);
 
       expect(received).toBe(true);
-      expect(pipeline.getState().packetsReceived).toBe(1);
+      const state = pipeline.getState();
+      expect(state?.packetsReceived).toBe(1);
     });
 
     it('should not receive packets when stopped', () => {
@@ -439,7 +445,8 @@ describe('BlockDecodePipeline', () => {
     });
 
     it('should reject invalid block indices', () => {
-      const blockCount = pipeline.getBlockGeometry().blockCount;
+      const geom = pipeline.getBlockGeometry();
+      const blockCount = geom?.blockCount ?? 0;
       const payload = new Uint8Array(L);
 
       const received = pipeline.receivePacket(blockCount + 10, 0, payload);
@@ -471,16 +478,16 @@ describe('BlockDecodePipeline', () => {
       }
 
       const completion = pipeline.getBlockCompletion(0);
-      expect(completion.blockIndex).toBe(0);
-      expect(completion.uniquePackets).toBe(5);
-      expect(completion.estimatedProgress).toBeGreaterThan(0);
+      expect(completion?.blockIndex).toBe(0);
+      expect(completion?.uniquePackets).toBe(5);
+      expect(completion?.estimatedProgress).toBeGreaterThan(0);
     });
 
     it('should return zero progress for empty block', () => {
       const completion = pipeline.getBlockCompletion(0);
-      expect(completion.uniquePackets).toBe(0);
-      expect(completion.estimatedProgress).toBe(0);
-      expect(completion.complete).toBe(false);
+      expect(completion?.uniquePackets).toBe(0);
+      expect(completion?.estimatedProgress).toBe(0);
+      expect(completion?.complete).toBe(false);
     });
   });
 
@@ -525,7 +532,8 @@ describe('BlockDecodePipeline', () => {
     });
 
     it('should reassemble file when all blocks decoded', () => {
-      const blockCount = pipeline.getBlockGeometry().blockCount;
+      const geom = pipeline.getBlockGeometry();
+      const blockCount = geom?.blockCount ?? 0;
       const totalSize = pipeline.config.fileSize;
 
       // Mock decoded blocks
@@ -554,10 +562,10 @@ describe('BlockDecodePipeline', () => {
       }
 
       const state = pipeline.getState();
-      expect(state.running).toBe(true);
-      expect(state.packetsReceived).toBe(10);
-      expect(state.totalBlocks).toBeGreaterThan(0);
-      expect(state.storageStats.packetCount).toBe(10);
+      expect(state?.running).toBe(true);
+      expect(state?.packetsReceived).toBe(10);
+      expect(state?.totalBlocks).toBeGreaterThan(0);
+      expect(state?.storageStats.packetCount).toBe(10);
     });
 
     it('should provide storage statistics', () => {
@@ -590,11 +598,13 @@ describe('BlockDecodePipeline', () => {
     });
 
     it('should clear all state', () => {
-      expect(pipeline.getState().packetsReceived).toBe(10);
+      let state = pipeline.getState();
+      expect(state?.packetsReceived).toBe(10);
 
       pipeline.clear();
 
-      expect(pipeline.getState().packetsReceived).toBe(0);
+      state = pipeline.getState();
+      expect(state?.packetsReceived).toBe(0);
       expect(pipeline.getStorage().size()).toBe(0);
       expect(pipeline['decodedBlocks'].size).toBe(0);
     });
@@ -667,7 +677,8 @@ describe('Edge cases and error handling', () => {
       fileSize: 100,
     });
 
-    expect(pipeline.getBlockGeometry().blockCount).toBe(1);
+    const geom = pipeline.getBlockGeometry();
+    expect(geom?.blockCount).toBe(1);
   });
 
   it('should handle very large file', () => {
@@ -676,7 +687,8 @@ describe('Edge cases and error handling', () => {
       fileSize: 10 * 1024 * 1024 * 1024, // 10 GB
     });
 
-    expect(pipeline.getBlockGeometry().blockCount).toBeGreaterThan(0);
+    const geom = pipeline.getBlockGeometry();
+    expect(geom?.blockCount).toBeGreaterThan(0);
   });
 
   it('should handle zero-length packets', () => {
@@ -703,7 +715,8 @@ describe('Edge cases and error handling', () => {
       fileSize: 1024 * 1024,
     });
 
-    const blockCount = pipeline.getBlockGeometry().blockCount;
+    const geom = pipeline.getBlockGeometry();
+    const blockCount = geom?.blockCount ?? 0;
 
     pipeline.start();
 
