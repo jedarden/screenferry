@@ -71,7 +71,7 @@ async function roundtripTest(
   decodeConfig?: Partial<DecodePipelineConfig>
 ): Promise<{
   success: boolean;
-  decodedData?: Uint8Array;
+  decodedData: Uint8Array | undefined;
   packetsReceived: number;
   blocksDecoded: number;
 }> {
@@ -149,12 +149,12 @@ async function roundtripTest(
 
 describe('Encode→Decode Roundtrip Integration', () => {
   describe('Basic roundtrip tests', () => {
-    it('should roundtrip a single block file', () => {
+    it('should roundtrip a single block file', async () => {
       const testData = createTestData(BLOCK, 0x42);
       const streamId = 1;
 
       // K=768, send K+50 packets for reliable decoding
-      const result = roundtripTest(testData, streamId, 818); // 768 + 50 overhead
+      const result = await roundtripTest(testData, streamId, 818); // 768 + 50 overhead
 
       expect(result.success).toBe(true);
       expect(result.decodedData).toBeDefined();
@@ -162,15 +162,16 @@ describe('Encode→Decode Roundtrip Integration', () => {
       expect(result.packetsReceived).toBe(818);
 
       // Verify data integrity
-      expect(result.decodedData).toEqual(testData);
+      const decodedData: Uint8Array | undefined = result.decodedData;
+      expect(decodedData).toEqual(testData);
     });
 
-    it('should roundtrip a multi-block file', () => {
+    it('should roundtrip a multi-block file', async () => {
       const fileSize = 5 * BLOCK; // 5 blocks
       const testData = createTestData(fileSize);
       const streamId = 2;
 
-      const result = roundtripTest(testData, streamId, 818); // K=768 + 50 overhead
+      const result = await roundtripTest(testData, streamId, 818); // K=768 + 50 overhead
 
       expect(result.success).toBe(true);
       expect(result.decodedData).toBeDefined();
@@ -178,67 +179,72 @@ describe('Encode→Decode Roundtrip Integration', () => {
       expect(result.packetsReceived).toBe(5 * 10);
 
       // Verify data integrity
-      expect(result.decodedData).toEqual(testData);
+      const decodedData: Uint8Array | undefined = result.decodedData;
+      expect(decodedData).toEqual(testData);
     });
 
-    it('should roundtrip with minimal packets (near K)', () => {
+    it('should roundtrip with minimal packets (near K)', async () => {
       const fileSize = 2 * BLOCK;
       const testData = createTestData(fileSize);
       const streamId = 3;
 
       // K=768, use K+20 packets for minimal overhead
-      const result = roundtripTest(testData, streamId, 788);
+      const result = await roundtripTest(testData, streamId, 788);
 
       expect(result.success).toBe(true);
-      expect(result.decodedData).toEqual(testData);
+      const decodedData: Uint8Array | undefined = result.decodedData;
+      expect(decodedData).toEqual(testData);
     });
 
-    it('should handle files with non-block-aligned sizes', () => {
+    it('should handle files with non-block-aligned sizes', async () => {
       const fileSize = 2 * BLOCK + 100; // Not a multiple of BLOCK
       const testData = createTestData(fileSize);
       const streamId = 4;
 
-      const result = roundtripTest(testData, streamId, 818); // K=768 + 50 overhead
+      const result = await roundtripTest(testData, streamId, 818); // K=768 + 50 overhead
 
       expect(result.success).toBe(true);
-      expect(result.decodedData).toEqual(testData);
+      const decodedData: Uint8Array | undefined = result.decodedData;
+      expect(decodedData).toEqual(testData);
     });
 
-    it('should preserve exact data with different patterns', () => {
+    it('should preserve exact data with different patterns', async () => {
       const patterns = [0x00, 0x55, 0xAA, 0xFF];
       const streamId = 5;
 
       for (const pattern of patterns) {
         const testData = createTestData(BLOCK, pattern);
-        const result = roundtripTest(testData, streamId, 818); // K=768 + 50 overhead
+        const result = await roundtripTest(testData, streamId, 818); // K=768 + 50 overhead
 
         expect(result.success).toBe(true);
-        expect(result.decodedData).toEqual(testData);
+        const decodedData: Uint8Array | undefined = result.decodedData;
+        expect(decodedData).toEqual(testData);
       }
     });
   });
 
   describe('Packet loss scenarios', () => {
-    it('should handle packet loss gracefully', () => {
+    it('should handle packet loss gracefully', async () => {
       const fileSize = 3 * BLOCK;
       const testData = createTestData(fileSize);
       const streamId = 6;
 
       // Send 790 packets per block instead of 818 (packet loss simulation)
-      const result = roundtripTest(testData, streamId, 790);
+      const result = await roundtripTest(testData, streamId, 790);
 
       // Should still succeed with 790 packets (K=768, so 790 > K)
       expect(result.success).toBe(true);
-      expect(result.decodedData).toEqual(testData);
+      const decodedData: Uint8Array | undefined = result.decodedData;
+      expect(decodedData).toEqual(testData);
     });
 
-    it('should fail with insufficient packets', () => {
+    it('should fail with insufficient packets', async () => {
       const fileSize = BLOCK;
       const testData = createTestData(fileSize);
       const streamId = 7;
 
       // Only send 700 packets (K=768, so this should fail)
-      const result = roundtripTest(testData, streamId, 700);
+      const result = await roundtripTest(testData, streamId, 700);
 
       // Should fail to decode with insufficient packets
       expect(result.success).toBe(false);
@@ -247,39 +253,55 @@ describe('Encode→Decode Roundtrip Integration', () => {
   });
 
   describe('Storage constraints', () => {
-    it('should roundtrip with limited decode storage', () => {
+    it('should roundtrip with limited decode storage', async () => {
       const fileSize = 10 * BLOCK;
       const testData = createTestData(fileSize);
       const streamId = 8;
 
-      const result = roundtripTest(testData, streamId, 10, undefined, {
-        storageConfig: {
-          maxPackets: 500, // Limited packet cache
-          maxMemoryBytes: 1024 * 1024, // 1 MB
-        },
-      });
+      const result = await roundtripTest(
+        testData,
+        streamId,
+        10,
+        {}, // encodeConfig
+        {
+          // decodeConfig
+          storageConfig: {
+            maxPackets: 500, // Limited packet cache
+            maxMemoryBytes: 1024 * 1024, // 1 MB
+          },
+        }
+      );
 
       expect(result.success).toBe(true);
-      expect(result.decodedData).toEqual(testData);
+      const decodedData: Uint8Array | undefined = result.decodedData;
+      expect(decodedData).toEqual(testData);
       expect(result.blocksDecoded).toBe(10);
     });
 
-    it('should handle storage eviction during decode', () => {
+    it('should handle storage eviction during decode', async () => {
       const fileSize = 5 * BLOCK;
       const testData = createTestData(fileSize);
       const streamId = 9;
 
       // Very small storage to force evictions
-      const result = roundtripTest(testData, streamId, 15, undefined, {
-        storageConfig: {
-          maxPackets: 20, // Very small cache
-          maxMemoryBytes: L * 20,
-        },
-      });
+      const result = await roundtripTest(
+        testData,
+        streamId,
+        15,
+        {}, // encodeConfig
+        {
+          // decodeConfig
+          storageConfig: {
+            maxPackets: 20, // Very small cache
+            maxMemoryBytes: L * 20,
+          },
+        }
+      );
 
       // Should still succeed despite evictions
       expect(result.success).toBe(true);
-      expect(result.decodedData).toEqual(testData);
+      const decodedData: Uint8Array | undefined = result.decodedData;
+      expect(decodedData).toEqual(testData);
     });
   });
 
@@ -308,10 +330,13 @@ describe('Encode→Decode Roundtrip Integration', () => {
       expect(entry).toBeDefined();
 
       // Generate packets with encode stream ID
+      if (!entry) {
+        throw new Error('Block 0 not encoded');
+      }
       const encoder = new LTEncoder({
         streamId: encodeStreamId,
         blockIndex: 0,
-        fragments: entry!.fragments,
+        fragments: entry.fragments,
       });
 
       let packetCount = 0;
@@ -354,10 +379,13 @@ describe('Encode→Decode Roundtrip Integration', () => {
         const entry = encodePipeline.getBlock(blockIndex);
         expect(entry).toBeDefined();
 
+        if (!entry) {
+          throw new Error(`Block ${blockIndex} not encoded`);
+        }
         const encoder = new LTEncoder({
           streamId,
           blockIndex,
-          fragments: entry!.fragments,
+          fragments: entry.fragments,
         });
 
         let packetCount = 0;
@@ -411,10 +439,13 @@ describe('Encode→Decode Roundtrip Integration', () => {
         const entry = encodePipeline.getBlock(blockIndex);
         expect(entry).toBeDefined();
 
+        if (!entry) {
+          throw new Error(`Block ${blockIndex} not encoded`);
+        }
         const encoder = new LTEncoder({
           streamId,
           blockIndex,
-          fragments: entry!.fragments,
+          fragments: entry.fragments,
         });
 
         let packetCount = 0;
@@ -487,14 +518,17 @@ describe('Encode→Decode Roundtrip Integration', () => {
       expect(entry).toBeDefined();
 
       // Generate same packet twice
+      if (!entry) {
+        throw new Error('Block 0 not encoded');
+      }
       const packet1 = generatePacketsForBlock(
         0,
-        entry!.fragments,
+        entry.fragments,
         streamId
       ).next().value;
       const packet2 = generatePacketsForBlock(
         0,
-        entry!.fragments,
+        entry.fragments,
         streamId
       ).next().value;
 
@@ -551,10 +585,14 @@ describe('Encode→Decode Roundtrip Integration', () => {
       const entry0 = encodePipeline.getBlock(0);
       expect(entry0).toBeDefined();
 
+      if (!entry0) {
+        throw new Error('Block 0 not encoded');
+      }
+
       let packetCount = 0;
       for (const packet of generatePacketsForBlock(
         0,
-        entry0!.fragments,
+        entry0.fragments,
         streamId
       )) {
         if (packetCount >= 10) break;
@@ -572,10 +610,14 @@ describe('Encode→Decode Roundtrip Integration', () => {
       const entry1 = encodePipeline.getBlock(1);
       expect(entry1).toBeDefined();
 
+      if (!entry1) {
+        throw new Error('Block 1 not encoded');
+      }
+
       packetCount = 0;
       for (const packet of generatePacketsForBlock(
         1,
-        entry1!.fragments,
+        entry1.fragments,
         streamId
       )) {
         if (packetCount >= 10) break;
@@ -615,10 +657,14 @@ describe('Encode→Decode Roundtrip Integration', () => {
       const entry = encodePipeline.getBlock(0);
       expect(entry).toBeDefined();
 
+      if (!entry) {
+        throw new Error('Block 0 not encoded');
+      }
+
       let packetCount = 0;
       for (const packet of generatePacketsForBlock(
         0,
-        entry!.fragments,
+        entry.fragments,
         streamId
       )) {
         if (packetCount >= 10) break;
@@ -644,12 +690,12 @@ describe('Encode→Decode Roundtrip Integration', () => {
   });
 
   describe('Large-scale tests', () => {
-    it('should roundtrip a large file (50 blocks)', () => {
+    it('should roundtrip a large file (50 blocks)', async () => {
       const fileSize = 50 * BLOCK;
       const testData = createTestData(fileSize);
       const streamId = 18;
 
-      const result = roundtripTest(testData, streamId, 8);
+      const result = await roundtripTest(testData, streamId, 8);
 
       expect(result.success).toBe(true);
       expect(result.decodedData).toEqual(testData);
@@ -678,13 +724,17 @@ describe('Encode→Decode Roundtrip Integration', () => {
         const entry = encodePipeline.getBlock(blockIndex);
         expect(entry).toBeDefined();
 
+        if (!entry) {
+          throw new Error(`Block ${blockIndex} not encoded`);
+        }
+
         // Variable packets per block (8-12)
         const packetsForBlock = 8 + Math.floor(Math.random() * 5);
 
         let packetCount = 0;
         for (const packet of generatePacketsForBlock(
           blockIndex,
-          entry!.fragments,
+          entry.fragments,
           streamId
         )) {
           if (packetCount >= packetsForBlock) break;
@@ -735,10 +785,14 @@ describe('Encode→Decode Roundtrip Integration', () => {
       const entry = encodePipeline.getBlock(0);
       expect(entry).toBeDefined();
 
+      if (!entry) {
+        throw new Error('Block 0 not encoded');
+      }
+
       let packetCount = 0;
       for (const packet of generatePacketsForBlock(
         0,
-        entry!.fragments,
+        entry.fragments,
         streamId
       )) {
         if (packetCount >= 10) break;
