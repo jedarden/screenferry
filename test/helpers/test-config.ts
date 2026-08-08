@@ -2,9 +2,57 @@
  * Common test configuration system.
  *
  * Provides shared configuration interfaces and utilities for tests,
- * including sampling parameters with validation.
+ * including memory sampling parameters with validation.
  *
- * Reference: bead bf-20d0h
+ * ## Memory Sampling Configuration
+ *
+ * Memory sampling is **disabled by default** in all integration tests to avoid
+ * overhead unless explicitly needed. To enable memory sampling:
+ *
+ * ### In encode-integration.test.ts:
+ * ```ts
+ * it('should sample memory during block encoding', () => {
+ *   const config: EncodeTestConfig = {
+ *     pipelineConfig: { streamId: 200, dwellPackets: 2 },
+ *     memorySampling: {
+ *       enabled: true,              // Enable sampling
+ *       sampleIntervalBlocks: 5,   // Sample every 5 blocks
+ *     },
+ *   };
+ *
+ *   const samples = config.memorySampling?.enabled
+ *     ? createMemorySampleStorage()
+ *     : null;
+ *
+ *   // ... test code ...
+ *
+ *   if (samples && (blockIndex === 0 || blockIndex % sampleInterval === 0)) {
+ *     captureMemorySample(samples, blockIndex);
+ *   }
+ * });
+ * ```
+ *
+ * ### In roundtrip-integration.test.ts:
+ * ```ts
+ * const result = await roundtripTest(testData, streamId, packetsPerBlock, {
+ *   memorySampling: {
+ *     enabled: true,              // Enable sampling
+ *     sampleIntervalBlocks: 100,   // Sample every 100 blocks
+ *   },
+ * });
+ * ```
+ *
+ * ### Sampling Configuration Options:
+ * - `enabled`: Set to `true` to enable memory sampling (default: `false`)
+ * - `sampleIntervalBlocks`: Sample every N blocks (default: 100 in roundtrip, 5 in encode)
+ *
+ * ### When to Enable Memory Sampling:
+ * - Investigating memory leaks or growth issues
+ * - Profiling heap usage during encode/decode cycles
+ * - Debugging memory-related test failures
+ * - Performance analysis and optimization
+ *
+ * Reference: bead bf-20d0h, bf-485in
  */
 
 /**
@@ -21,8 +69,13 @@ export interface BaseTestConfig {
 export interface SamplingConfig {
   /** Sample every N blocks (must be positive integer, default: 100) */
   interval: number;
-  /** Enable/disable sampling (default: true) */
-  enabled?: boolean;
+  /**
+   * Enable/disable sampling (default: false)
+   *
+   * When set to false, sampling operations are skipped to avoid overhead.
+   * Set to true when investigating memory leaks or profiling heap usage.
+   */
+  enabled: boolean;
 }
 
 /**
@@ -97,7 +150,7 @@ export function getSamplingInterval(
  * @example
  * ```ts
  * const samplingConfig = createSamplingConfig({ samplingInterval: 200 });
- * // { interval: 200, enabled: true }
+ * // { interval: 200, enabled: false }
  * ```
  */
 export function createSamplingConfig(
@@ -108,7 +161,7 @@ export function createSamplingConfig(
 
   return {
     interval,
-    enabled: true,
+    enabled: false,
   };
 }
 

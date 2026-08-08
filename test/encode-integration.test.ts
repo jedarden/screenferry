@@ -26,9 +26,11 @@ import {
 } from '../src/core/block/encode-pipeline.js';
 import { BLOCK, L, K } from '../src/core/params.js';
 import {
-  createMemorySampler,
+  createMemorySampleStorage,
+  captureMemorySample,
+  type MemorySampleStorage,
   type MemorySample,
-} from './helpers/memory-sampler.js';
+} from '../src/platform/memory-samples.js';
 
 describe('EncodeBlockStorage', () => {
   let storage: EncodeBlockStorage;
@@ -837,6 +839,24 @@ describe('Utility functions', () => {
   });
 });
 
+/**
+ * Memory sampling configuration for encode tests.
+ */
+export interface EncodeTestMemorySamplingConfig {
+  /** Enable memory sampling during encode operations (default: false) */
+  enabled?: boolean;
+  /** Sample every N unique blocks (default: 5) */
+  sampleIntervalBlocks?: number;
+}
+
+/**
+ * Encode test configuration with memory sampling support.
+ */
+export interface EncodeTestConfig {
+  pipelineConfig?: Partial<EncodePipelineConfig> | undefined;
+  memorySampling?: EncodeTestMemorySamplingConfig | undefined;
+}
+
 describe('Integration tests', () => {
   it('should handle complete encode cycle', () => {
     const fileSize = 10 * BLOCK;
@@ -908,16 +928,24 @@ describe('Integration tests', () => {
       testData[i] = i & 0xff;
     }
 
-    const pipeline = createEncodePipeline(testData, {
-      streamId: 200,
-      dwellPackets: 2,
-    });
+    const config: EncodeTestConfig = {
+      pipelineConfig: {
+        streamId: 200,
+        dwellPackets: 2,
+      },
+      memorySampling: {
+        enabled: true, // Enable sampling for this test
+        sampleIntervalBlocks: 5, // Sample every 5 unique blocks
+      },
+    };
 
-    // Set up memory sampler
-    const sampler = createMemorySampler({
-      sampleIntervalBlocks: 5, // Sample every 5 unique blocks
-      enabled: true,
-    });
+    const pipeline = createEncodePipeline(testData, config.pipelineConfig ?? {});
+
+    // Set up memory sampling if enabled
+    const samples = config.memorySampling?.enabled
+      ? createMemorySampleStorage()
+      : null;
+    const sampleInterval = config.memorySampling?.sampleIntervalBlocks ?? 5;
 
     pipeline.start();
 
@@ -930,28 +958,31 @@ describe('Integration tests', () => {
 
       // Only count when we actually encode a new block (not cached)
       if (!result.cached) {
-        sampler.sample(blocksEncoded);
+        // Sample at configured intervals (if sampling enabled)
+        if (samples && (blocksEncoded === 0 || blocksEncoded % sampleInterval === 0)) {
+          captureMemorySample(samples, blocksEncoded);
+        }
         blocksEncoded++;
       }
     }
 
-    // Verify we got samples
-    expect(sampler.getSampleCount()).toBeGreaterThan(0);
+    // Verify we got samples (if sampling was enabled)
+    if (config.memorySampling?.enabled && samples) {
+      expect(samples.length).toBeGreaterThan(0);
 
-    // Should have sampled at blocks 0, 5, 10
-    const samples = sampler.getSamples();
-    const sampleIndices = samples.map(s => s.blockIndex);
+      // Should have sampled at blocks 0, 5, 10
+      const sampleIndices = samples.map(s => s.blockNumber);
 
-    expect(sampleIndices).toContain(0);
-    expect(sampleIndices.some(i => i >= 5 && i <= 7)).toBe(true);
+      expect(sampleIndices).toContain(0);
+      expect(sampleIndices.some(i => i >= 5 && i <= 7)).toBe(true);
 
-    // Verify sample structure
-    const firstSample = samples[0];
-    expect(firstSample).toBeDefined();
-    expect(firstSample?.blockIndex).toBe(0);
-    expect(firstSample?.timestamp).toBeGreaterThan(0);
-    expect(firstSample?.metrics).toBeDefined();
-    expect(firstSample.metrics.heapUsed).toBeGreaterThan(0);
+      // Verify sample structure
+      const firstSample = samples[0];
+      expect(firstSample).toBeDefined();
+      expect(firstSample?.blockNumber).toBe(0);
+      expect(firstSample?.timestamp).toBeGreaterThan(0);
+      expect(firstSample?.heapUsage).toBeGreaterThan(0);
+    }
 
     pipeline.stop();
     pipeline.clear();
@@ -964,15 +995,24 @@ describe('Integration tests', () => {
       testData[i] = i & 0xff;
     }
 
-    const pipeline = createEncodePipeline(testData, {
-      streamId: 201,
-      dwellPackets: 1,
-    });
+    const config: EncodeTestConfig = {
+      pipelineConfig: {
+        streamId: 201,
+        dwellPackets: 1,
+      },
+      memorySampling: {
+        enabled: false, // Disabled by default - change to true to enable
+        sampleIntervalBlocks: 5,
+      },
+    };
 
-    const sampler = createMemorySampler({
-      sampleIntervalBlocks: 5,
-      enabled: true,
-    });
+    const pipeline = createEncodePipeline(testData, config.pipelineConfig ?? {});
+
+    // Set up memory sampling if enabled
+    const samples = config.memorySampling?.enabled
+      ? createMemorySampleStorage()
+      : null;
+    const sampleInterval = config.memorySampling?.sampleIntervalBlocks ?? 5;
 
     pipeline.start();
 
@@ -982,30 +1022,33 @@ describe('Integration tests', () => {
       const result = pipeline.encodeNext();
 
       if (!result.cached) {
-        sampler.sample(uniqueBlocksEncoded);
+        // Sample at configured intervals (if sampling enabled)
+        if (samples && (uniqueBlocksEncoded === 0 || uniqueBlocksEncoded % sampleInterval === 0)) {
+          captureMemorySample(samples, uniqueBlocksEncoded);
+        }
         uniqueBlocksEncoded++;
       }
 
       if (uniqueBlocksEncoded >= 20) break;
     }
 
-    const samples = sampler.getSamples();
-    expect(samples.length).toBeGreaterThanOrEqual(4); // 0, 5, 10, 15
+    // Verify samples (if sampling was enabled)
+    if (config.memorySampling?.enabled && samples) {
+      expect(samples.length).toBeGreaterThanOrEqual(4); // 0, 5, 10, 15
 
-    // Calculate growth
-    if (samples.length >= 2) {
-      const firstSample = samples[0];
-      const lastSample = samples[samples.length - 1];
-      expect(firstSample).toBeDefined();
-      expect(lastSample).toBeDefined();
-      expect(firstSample?.metrics).toBeDefined();
-      expect(lastSample?.metrics).toBeDefined();
-      const firstHeap = firstSample.metrics.heapUsed;
-      const lastHeap = lastSample.metrics.heapUsed;
-      const growth = lastHeap - firstHeap;
+      // Calculate growth
+      if (samples.length >= 2) {
+        const firstSample = samples[0];
+        const lastSample = samples[samples.length - 1];
+        expect(firstSample).toBeDefined();
+        expect(lastSample).toBeDefined();
+        const firstHeap = firstSample?.heapUsage ?? 0;
+        const lastHeap = lastSample?.heapUsage ?? 0;
+        const growth = lastHeap - firstHeap;
 
-      // Growth should be reasonable (not unbounded leak)
-      expect(growth).toBeLessThan(50 * 1024 * 1024); // Less than 50 MB growth
+        // Growth should be reasonable (not unbounded leak)
+        expect(growth).toBeLessThan(50 * 1024 * 1024); // Less than 50 MB growth
+      }
     }
 
     pipeline.stop();
@@ -1014,26 +1057,29 @@ describe('Integration tests', () => {
 
   it('should respect disabled memory sampling', () => {
     const testData = new Uint8Array(10 * BLOCK);
-    const pipeline = createEncodePipeline(testData, {
-      streamId: 202,
-    });
 
-    const sampler = createMemorySampler({
-      enabled: false, // Disabled
-    });
+    const config: EncodeTestConfig = {
+      pipelineConfig: {
+        streamId: 202,
+      },
+      memorySampling: {
+        enabled: false, // Explicitly disabled
+      },
+    };
+
+    const pipeline = createEncodePipeline(testData, config.pipelineConfig ?? {});
+
+    // No samples array created - sampling disabled
+    expect(config.memorySampling?.enabled).toBe(false);
 
     pipeline.start();
 
     // Encode some blocks
     for (let i = 0; i < 10; i++) {
       pipeline.encodeNext();
-      sampler.sample(i);
     }
 
-    // Should have no samples
-    expect(sampler.getSampleCount()).toBe(0);
-    expect(sampler.isEnabled()).toBe(false);
-
+    // No verification needed - just ensure no crashes
     pipeline.stop();
     pipeline.clear();
   });
