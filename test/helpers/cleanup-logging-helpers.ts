@@ -19,6 +19,11 @@ import { vi, expect } from 'vitest';
 type SpyInstance = ReturnType<typeof vi.spyOn>;
 
 /**
+ * Type for console method call arguments.
+ */
+type ConsoleCallArgs = unknown[] | undefined;
+
+/**
  * Console spy collection for capturing all console output.
  */
 export interface ConsoleSpies {
@@ -59,12 +64,14 @@ export function restoreConsoleSpies(spies: ConsoleSpies): void {
  * @param callIndex - Index of the call to parse (default: 0)
  * @returns Parsed JSON object from the second argument of the call
  */
-export function parseLoggedJson<T = unknown>(spy: SpyInstance, callIndex: number = 0): T {
+export function parseLoggedJson<T = unknown>(spy: SpyInstance, callIndex?: number | undefined): T {
   const calls = spy.mock.calls;
-  if (!calls[callIndex] || calls[callIndex].length < 2) {
-    throw new Error(`No JSON found in spy call at index ${callIndex}`);
+  const index = callIndex ?? 0;
+  const call = calls[index];
+  if (!call || call.length < 2) {
+    throw new Error(`No JSON found in spy call at index ${index}`);
   }
-  return JSON.parse(calls[callIndex][1] as string) as T;
+  return JSON.parse(call[1] as string) as T;
 }
 
 /**
@@ -102,7 +109,7 @@ export function assertLogHasRequiredFields(log: CleanupLogEntry, operation: stri
  */
 export function assertConsolePrefix(spy: SpyInstance, operation: string): void {
   expect(spy).toHaveBeenCalled();
-  const callArgs = spy.mock.calls[0];
+  const callArgs: ConsoleCallArgs = spy.mock.calls[0];
   if (callArgs !== undefined && callArgs[0] !== undefined) {
     expect(callArgs[0]).toBe(`[Cleanup:${operation}]`);
   }
@@ -312,8 +319,8 @@ export function cleanupTestState(): void {
  * @param operationName - Name for the cleanup operation
  * @returns Configured CleanupLogger instance
  */
-export function createTestLogger(operationName: string = 'test-operation'): CleanupLogger {
-  return new CleanupLogger(operationName);
+export function createTestLogger(operationName?: string | undefined): CleanupLogger {
+  return new CleanupLogger(operationName ?? 'test-operation');
 }
 
 /**
@@ -325,7 +332,8 @@ export function assertAllOutputsParseable(spies: ConsoleSpies): void {
   Object.entries(spies).forEach(([level, spy]) => {
     if (spy.mock.calls.length === 0) return;
 
-    spy.mock.calls.forEach((callArgs: unknown[], callIndex: number) => {
+    spy.mock.calls.forEach((callArgs: ConsoleCallArgs, callIndex: number) => {
+      if (callArgs === undefined) return;
       expect(callArgs).toHaveLength(2);
       const secondArg = callArgs[1];
       if (secondArg !== undefined) {
