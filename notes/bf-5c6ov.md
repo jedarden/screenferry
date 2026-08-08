@@ -2,6 +2,8 @@
 
 ## Date: 2026-08-08
 
+**Re-check Date:** 2026-08-08 (16:20 UTC)
+
 ## Task
 Verify if ADB recognizes the Pixel 6 device by running `adb devices`.
 
@@ -24,8 +26,16 @@ These processes:
 ### Phone Status
 **Phone IS reachable:**
 - Tailscale IP: `100.88.10.113`
+- **Ping successful:** 84-100ms response times, 0% packet loss (verified 2026-08-08 16:20 UTC)
 - Port `5555` is **open and accepting connections** (verified with `nc -zv`)
 - Previously saved port `36777` is **refusing connections** (port changed)
+
+### Re-check Findings (2026-08-08 16:20 UTC)
+- Multiple stuck ADB processes still present (7 total running)
+- Saved ADB port: `36777` (from `~/.adb_last_port`)
+- Network connectivity verified via ping: ✓ OK
+- ADB commands continue to hang (exit code 137 - killed)
+- Issue persists: socat interference on port 5037
 
 ### Connection Attempts
 All ADB commands timeout:
