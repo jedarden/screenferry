@@ -27,7 +27,7 @@ import { BLOCK, L } from '../src/core/params.js';
 /**
  * Create test data with a specific pattern for verification.
  */
-function createTestData(size: number, pattern?: number): Uint8Array {
+function createTestData(size: number, pattern?: number | undefined): Uint8Array {
   const data = new Uint8Array(size);
   if (pattern !== undefined) {
     data.fill(pattern);
@@ -46,7 +46,7 @@ function* generatePacketsForBlock(
   blockIndex: number,
   fragments: Uint8Array[],
   streamId: number,
-  fromSeq = 0
+  fromSeq?: number | undefined
 ): Generator<{ seq: number; payload: Uint8Array }> {
   const encoder = new LTEncoder({
     streamId,
@@ -55,7 +55,8 @@ function* generatePacketsForBlock(
   });
 
   // Use the encoder's stream method
-  for (const packet of encoder.stream(fromSeq)) {
+  const startSeq = fromSeq ?? 0;
+  for (const packet of encoder.stream(startSeq)) {
     yield packet;
   }
 }
@@ -67,8 +68,8 @@ async function roundtripTest(
   originalData: Uint8Array,
   streamId: number,
   packetsPerBlock: number,
-  encodeConfig?: Partial<EncodePipelineConfig>,
-  decodeConfig?: Partial<DecodePipelineConfig>
+  encodeConfig?: Partial<EncodePipelineConfig> | undefined,
+  decodeConfig?: Partial<DecodePipelineConfig> | undefined
 ): Promise<{
   success: boolean;
   decodedData: Uint8Array | undefined;
@@ -162,8 +163,10 @@ describe('Encode→Decode Roundtrip Integration', () => {
       expect(result.packetsReceived).toBe(818);
 
       // Verify data integrity
-      const decodedData: Uint8Array | undefined = result.decodedData;
-      expect(decodedData).toEqual(testData);
+      if (result.decodedData === undefined) {
+        throw new Error('decodedData should be defined when success is true');
+      }
+      expect(result.decodedData).toEqual(testData);
     });
 
     it('should roundtrip a multi-block file', async () => {
@@ -179,8 +182,10 @@ describe('Encode→Decode Roundtrip Integration', () => {
       expect(result.packetsReceived).toBe(5 * 10);
 
       // Verify data integrity
-      const decodedData: Uint8Array | undefined = result.decodedData;
-      expect(decodedData).toEqual(testData);
+      if (result.decodedData === undefined) {
+        throw new Error('decodedData should be defined when success is true');
+      }
+      expect(result.decodedData).toEqual(testData);
     });
 
     it('should roundtrip with minimal packets (near K)', async () => {
@@ -192,8 +197,10 @@ describe('Encode→Decode Roundtrip Integration', () => {
       const result = await roundtripTest(testData, streamId, 788);
 
       expect(result.success).toBe(true);
-      const decodedData: Uint8Array | undefined = result.decodedData;
-      expect(decodedData).toEqual(testData);
+      if (result.decodedData === undefined) {
+        throw new Error('decodedData should be defined when success is true');
+      }
+      expect(result.decodedData).toEqual(testData);
     });
 
     it('should handle files with non-block-aligned sizes', async () => {
@@ -204,8 +211,10 @@ describe('Encode→Decode Roundtrip Integration', () => {
       const result = await roundtripTest(testData, streamId, 818); // K=768 + 50 overhead
 
       expect(result.success).toBe(true);
-      const decodedData: Uint8Array | undefined = result.decodedData;
-      expect(decodedData).toEqual(testData);
+      if (result.decodedData === undefined) {
+        throw new Error('decodedData should be defined when success is true');
+      }
+      expect(result.decodedData).toEqual(testData);
     });
 
     it('should preserve exact data with different patterns', async () => {
@@ -217,8 +226,10 @@ describe('Encode→Decode Roundtrip Integration', () => {
         const result = await roundtripTest(testData, streamId, 818); // K=768 + 50 overhead
 
         expect(result.success).toBe(true);
-        const decodedData: Uint8Array | undefined = result.decodedData;
-        expect(decodedData).toEqual(testData);
+        if (result.decodedData === undefined) {
+          throw new Error('decodedData should be defined when success is true');
+        }
+        expect(result.decodedData).toEqual(testData);
       }
     });
   });
@@ -234,8 +245,10 @@ describe('Encode→Decode Roundtrip Integration', () => {
 
       // Should still succeed with 790 packets (K=768, so 790 > K)
       expect(result.success).toBe(true);
-      const decodedData: Uint8Array | undefined = result.decodedData;
-      expect(decodedData).toEqual(testData);
+      if (result.decodedData === undefined) {
+        throw new Error('decodedData should be defined when success is true');
+      }
+      expect(result.decodedData).toEqual(testData);
     });
 
     it('should fail with insufficient packets', async () => {
@@ -273,8 +286,10 @@ describe('Encode→Decode Roundtrip Integration', () => {
       );
 
       expect(result.success).toBe(true);
-      const decodedData: Uint8Array | undefined = result.decodedData;
-      expect(decodedData).toEqual(testData);
+      if (result.decodedData === undefined) {
+        throw new Error('decodedData should be defined when success is true');
+      }
+      expect(result.decodedData).toEqual(testData);
       expect(result.blocksDecoded).toBe(10);
     });
 
@@ -300,8 +315,10 @@ describe('Encode→Decode Roundtrip Integration', () => {
 
       // Should still succeed despite evictions
       expect(result.success).toBe(true);
-      const decodedData: Uint8Array | undefined = result.decodedData;
-      expect(decodedData).toEqual(testData);
+      if (result.decodedData === undefined) {
+        throw new Error('decodedData should be defined when success is true');
+      }
+      expect(result.decodedData).toEqual(testData);
     });
   });
 
