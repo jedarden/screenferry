@@ -201,7 +201,7 @@ export function createEncoder(fixture: typeof REPETITION_K4_L4): LTEncoder {
  */
 export function createDecoder(fixture: typeof REPETITION_K4_L4): GEDecoder {
   const firstFragment: Uint8Array | undefined = fixture.config.fragments[0];
-  if (!firstFragment) {
+  if (firstFragment === undefined) {
     throw new Error('Fixture must have at least one fragment');
   }
   return new GEDecoder({
@@ -243,7 +243,7 @@ export function runEncodeDecodeCycle(
   recovered: Uint8Array[] | null;
 } {
   const firstFragment: Uint8Array | undefined = fixture.config.fragments[0];
-  if (!firstFragment) {
+  if (firstFragment === undefined) {
     throw new Error('Fixture must have at least one fragment');
   }
   const encoder = new LTEncoder(fixture.config);
@@ -294,6 +294,9 @@ export function verifyRecovery(
     for (let j = 0; j < sourceItem.length; j++) {
       const sourceByte: number | undefined = sourceItem[j];
       const recoveredByte: number | undefined = recoveredItem[j];
+      if (sourceByte === undefined || recoveredByte === undefined) {
+        return false;
+      }
       if (sourceByte !== recoveredByte) {
         return false;
       }

@@ -89,15 +89,18 @@ export function assertLogHasRequiredFields(log: CleanupLogEntry, operation: stri
   expect(typeof log.timestamp).toBe('string');
   expect(typeof log.operation).toBe('string');
 
-  if (log.message !== undefined) {
-    expect(typeof log.message).toBe('string');
+  const message: string | undefined = log.message;
+  if (message !== undefined) {
+    expect(typeof message).toBe('string');
   }
 
-  if (log.timestamp !== undefined) {
-    expect(log.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+  const timestamp: string | undefined = log.timestamp;
+  if (timestamp !== undefined) {
+    expect(timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
   }
-  if (log.operation !== undefined) {
-    expect(log.operation).toBe(operation);
+  const op: string | undefined = log.operation;
+  if (op !== undefined) {
+    expect(op).toBe(operation);
   }
 }
 
@@ -255,10 +258,12 @@ export function runMockCleanup(logger: CleanupLogger, config: MockCleanupConfig)
   logger.incrementDeletionsFailed(deletionsFailed);
   errors.forEach((errorConfig) => {
     logger.error('Deletion failed', errorConfig);
-    if (errorConfig.streamId !== undefined && errorConfig.filename !== undefined) {
+    const streamId = errorConfig.streamId;
+    const filename = errorConfig.filename;
+    if (streamId !== undefined && filename !== undefined) {
       logger.recordError(
-        errorConfig.streamId,
-        errorConfig.filename,
+        streamId,
+        filename,
         errorConfig.error,
         errorConfig.errorType
       );

@@ -115,7 +115,7 @@ class MockFileSystemDirectoryHandle implements FileSystemDirectoryHandle {
    * Async iterator implementation for for-await-of loops.
    * Delegates to entries() method.
    */
-  async *[Symbol.asyncIterator](): FileSystemDirectoryHandleAsyncIterator<[string, FileSystemHandle]> {
+  async *[Symbol.asyncIterator](): AsyncIterator<[string, FileSystemHandle]> {
     for await (const entry of this.entries()) {
       yield entry;
     }
@@ -482,7 +482,7 @@ class MockMediaStreamTrack {
   _capabilities: MediaTrackCapabilities;
   _constraints: MediaTrackConstraints | undefined;
   contentHint: string | null | undefined;
-  onended: ((this: MediaStreamTrack, ev: Event) => unknown) | null | undefined;
+  onended: ((this: MediaStreamTrack, ev: Event) => unknown) | null;
 
   constructor(
     id: string,
@@ -506,8 +506,8 @@ class MockMediaStreamTrack {
       frameRate: { min: 0, max: 60 },
     };
     this._constraints = {};
-    this.contentHint = undefined;
-    this.onended = undefined;
+    this.contentHint = null;
+    this.onended = null;
   }
 
   get readyState(): MediaStreamTrackState {
@@ -522,7 +522,7 @@ class MockMediaStreamTrack {
     return this._capabilities;
   }
 
-  getConstraints(): MediaTrackConstraints {
+  getConstraints(): MediaTrackConstraints | undefined {
     return this._constraints;
   }
 
@@ -547,8 +547,8 @@ class MockMediaStream implements MediaStream {
   id: string;
   _tracks: MediaStreamTrack[];
   active: boolean;
-  onaddtrack: ((this: MediaStream, ev: MediaStreamTrackEvent) => unknown) | null | undefined;
-  onremovetrack: ((this: MediaStream, ev: MediaStreamTrackEvent) => unknown) | null | undefined;
+  onaddtrack: ((this: MediaStream, ev: MediaStreamTrackEvent) => unknown) | null;
+  onremovetrack: ((this: MediaStream, ev: MediaStreamTrackEvent) => unknown) | null;
 
   constructor(tracks?: MediaStreamTrack[]) {
     this.id = `mock-stream-${Date.now()}-${Math.random()}`;
