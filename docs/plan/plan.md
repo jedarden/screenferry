@@ -473,7 +473,7 @@ getUserMedia ──► exposureCompensation:min (D14) ──► measure real fps
 ```
 
 \* `MediaStreamTrackProcessor` is **Chromium-only**; `requestVideoFrameCallback` +
-`drawImage` is the universal fallback and MUST be implemented (§6.5).
+`drawImage` is the universal fallback and MUST be implemented.
 
 **Block-layer working set: ~660 KB per GE context** — 72 KB matrix + 192 KB block + 192 KB recover() buffer + 6 KB degree table + 3 KB scratch — flat regardless
 of file size. This is *not* the whole-receiver figure; see I6a/I6b in §5. The **total peak
@@ -926,7 +926,7 @@ they are goodput, not wire rate.
 The receiver knows exactly which blocks it lacks. The user reads a code off one screen and
 types it into the other:
 
-> **Receiver:** "Missing 3 blocks. Repair code: `SF1-03M7QKP-B-D-X4`"
+> **Receiver:** "Missing 3 blocks. Repair code: `SF1-03M7QKP-B-3A`"
 > **Sender:** [paste] → transmits only those blocks
 
 Turns a multi-hour extra pass into a sub-minute repair, needs no second camera and no
@@ -1356,7 +1356,7 @@ independently once Phase 0 lands.
 | **6 — Calibration probe + colour** | Phase 5 exit | Probe reports device cutoffs; colour enabled only where it measurably wins; A1 improves or colour stays off |
 | **7 — Custom codec** | Phase 6 exit **and** the §19 Q1 licensing decision recorded | Stage 3 beats Stage 2 on T-physical-rig |
 
-## 17.1 Phase 0.5 — why a spike, and why here
+### 17.1 Phase 0.5 — why a spike, and why here
 
 The plan's parameters are currently modelled or borrowed from research on other
 people's hardware. The spike does not decide **whether** to build the codec — the
@@ -1398,7 +1398,7 @@ service worker, file in/out per platform, pairing splash (`bf-4tb`), version foo
 framing, session ≈ 800. Modulation Stage 1 ≈ 600. Receiver pipeline ≈ 700. App shell, UI,
 coaching ≈ 1500 — **Phase 5 is the largest single phase**, which the phase ordering hides.
 
-## 17.2 Where the phases actually stand — and the gates that were skipped
+### 17.2 Where the phases actually stand — and the gates that were skipped
 
 Recorded honestly, because a gate that reads green and is not is how Phase 3 inherits Phase 0's
 debt (PIVOT-CAUSES PH-2).
@@ -1453,12 +1453,12 @@ whoever writes the new section.
 | **R8** | **No way to learn real-world performance** (no telemetry by design) | **High** | Low | Accepted; T-physical-rig substitutes | If field failures are suspected → voluntary copyable benchmark string (ledger, currently cut) |
 | **R9** | **Multi-hour transfers die to backgrounding / sleep / thermal** | **High** | Medium | E8, E17, wake lock, resume (D22) | Resume proves insufficient → reduce block size further so less is lost |
 | **R10** | **A wire-version bump strands cached receivers** | Medium | Medium | §16.3 one-way-door rule | Skew observed → extend the soak period before bumping |
-| **R11** | **Thermal throttling makes long transfers self-defeating** | **High** (observed first session) | **High** — attacks the multi-GB objective directly | Duty-cycling (D27), decode-resolution drop, resume (D22). Self-reinforcing loop: SoC slows → decode slower → camera fps falls → erasure rises → transfer lengthens → more heat | **Trigger:** Discriminate sender-side (camera fps drops >30%, decode latency within +30%) vs receiver-side (decode latency increases >50%, camera fps within -20%) throttling per `docs/notes/bf-3mnt-thermal-throttling-discrimination.md`. Apply D27 duty-cycling only for receiver-side throttling. Sender-side throttling should NOT trigger receiver duty-cycling — doing so makes transfers slower without addressing the root cause. If duty-cycling cannot hold the rate, reframe multi-GB as a multi-session workflow (§1.1) |
-| **R12** | **Residual erasure exceeds the assumed 20–30% band** | **High** — measured 48% (non-qualifying conditions) | **High** — D18c, the §8.1 dwell budget and every §13.1 throughput figure rest on this band | Raise dwell; promote the repair code (§8.2). Note v1 cannot *observe* erasure (D18a), so this is an assumption, not a controlled quantity | Erasure > 35% under §13.2 conditions → the **repair code becomes the primary recovery path, not the tail**, and dwell is re-derived from the measured band |
+| **R11** | **Residual erasure exceeds the assumed 20–30% band** | **High** — measured 48% (non-qualifying conditions) | **High** — D18c, the §8.1 dwell budget and every §13.1 throughput figure rest on this band | Raise dwell; promote the repair code (§8.2). Note v1 cannot *observe* erasure (D18a), so this is an assumption, not a controlled quantity | Erasure > 35% under §13.2 conditions → the **repair code becomes the primary recovery path, not the tail**, and dwell is re-derived from the measured band |
+| **R12** | **Thermal throttling makes long transfers self-defeating** | **High** (observed first session) | **High** — attacks the multi-GB objective directly | Duty-cycling (D27), decode-resolution drop, resume (D22). Self-reinforcing loop: SoC slows → decode slower → camera fps falls → erasure rises → transfer lengthens → more heat | **Trigger:** Discriminate sender-side (camera fps drops >30%, decode latency within +30%) vs receiver-side (decode latency increases >50%, camera fps within -20%) throttling per `docs/notes/bf-3mnt-thermal-throttling-discrimination.md`. Apply D27 duty-cycling only for receiver-side throttling. Sender-side throttling should NOT trigger receiver duty-cycling — doing so makes transfers slower without addressing the root cause. If duty-cycling cannot hold the rate, reframe multi-GB as a multi-session workflow (§1.1) |
 
 ---
 
-## 18.1 Anti-patterns — mistakes this project has already made
+### 18.1 Anti-patterns — mistakes this project has already made
 
 Every entry below was made *in this repo* and cost real time. They are collected here because
 each was previously buried in the narrative of the section that fixed it, where an implementer
@@ -1477,7 +1477,7 @@ starting a later phase would never encounter it.
 | **AP9** | **Never offering a torch button** | 3.6× fps gain makes it tempting; an LED on glossy glass destroys a region of the frame. | §6.4. |
 | **AP10** | **Writing a comment that asserts a file exists** | `prng.ts` claimed `test/fixtures/vectors.json` pinned the wire format. It did not exist. | Generate the artifact in the same commit as the claim (§14.3). |
 
-## 18.2 Proof obligations
+### 18.2 Proof obligations
 
 Each load-bearing assumption, what must be true, and what would invalidate it. This exists
 because the project has a documented history of confident-and-wrong (AP1, AP3, AP4, plus a
