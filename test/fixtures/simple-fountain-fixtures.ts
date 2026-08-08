@@ -292,8 +292,8 @@ export function verifyRecovery(
       return false;
     }
     for (let j = 0; j < sourceItem.length; j++) {
-      const sourceByte = sourceItem[j];
-      const recoveredByte = recoveredItem[j];
+      const sourceByte: number | undefined = sourceItem[j];
+      const recoveredByte: number | undefined = recoveredItem[j];
       if (sourceByte !== recoveredByte) {
         return false;
       }
