@@ -47,6 +47,8 @@ export interface CleanupLogEntry {
   timestamp: string;
   /** Operation being logged */
   operation: string;
+  /** Log message (optional, added dynamically) */
+  message?: string | undefined;
   /** Additional properties */
   [key: string]: any;
 }
@@ -196,13 +198,28 @@ export class CleanupLogger {
     error: string,
     errorType?: string
   ): void {
-    this.metrics.errors!.push({
-      streamId,
-      filename,
+    const errorEntry: {
+      streamId?: number;
+      filename?: string;
+      error: string;
+      errorType?: string;
+      timestamp: string;
+    } = {
       error,
-      errorType,
       timestamp: new Date().toISOString(),
-    });
+    };
+
+    if (streamId !== undefined) {
+      errorEntry.streamId = streamId;
+    }
+    if (filename !== undefined) {
+      errorEntry.filename = filename;
+    }
+    if (errorType !== undefined) {
+      errorEntry.errorType = errorType;
+    }
+
+    this.metrics.errors!.push(errorEntry);
   }
 
   /**
