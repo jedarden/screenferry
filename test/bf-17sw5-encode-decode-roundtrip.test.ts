@@ -153,11 +153,17 @@ describe('bf-17sw5: Encode-decode roundtrip test framework', () => {
 
       // Verify using comparison function
       expect(result.comparison).toBeDefined();
-      expect(result.comparison!.identical).toBe(true);
-      expect(result.comparison!.differences).toBe(0);
+      if (result.comparison === undefined) {
+        throw new Error('comparison should be defined when success is true');
+      }
+      expect(result.comparison.identical).toBe(true);
+      expect(result.comparison.differences).toBe(0);
 
       // Verify using convenience function
-      expect(verifyDecodedOutput(testData, result.decodedData!)).toBe(true);
+      if (result.decodedData === undefined) {
+        throw new Error('decodedData should be defined when success is true');
+      }
+      expect(verifyDecodedOutput(testData, result.decodedData)).toBe(true);
     });
 
     it('should roundtrip single block with sequential pattern', async () => {
@@ -168,8 +174,14 @@ describe('bf-17sw5: Encode-decode roundtrip test framework', () => {
 
       expect(result.success).toBe(true);
       expect(result.decodedData).toBeDefined();
-      expect(result.comparison!.identical).toBe(true);
-      expect(verifyDecodedOutput(testData, result.decodedData!)).toBe(true);
+      if (result.comparison === undefined) {
+        throw new Error('comparison should be defined when success is true');
+      }
+      expect(result.comparison.identical).toBe(true);
+      if (result.decodedData === undefined) {
+        throw new Error('decodedData should be defined when success is true');
+      }
+      expect(verifyDecodedOutput(testData, result.decodedData)).toBe(true);
     });
 
     it('should roundtrip multiple blocks with simple pattern', async () => {
@@ -181,8 +193,14 @@ describe('bf-17sw5: Encode-decode roundtrip test framework', () => {
 
       expect(result.success).toBe(true);
       expect(result.blocksDecoded).toBe(3);
-      expect(result.comparison!.identical).toBe(true);
-      expect(verifyDecodedOutput(testData, result.decodedData!)).toBe(true);
+      if (result.comparison === undefined) {
+        throw new Error('comparison should be defined when success is true');
+      }
+      expect(result.comparison.identical).toBe(true);
+      if (result.decodedData === undefined) {
+        throw new Error('decodedData should be defined when success is true');
+      }
+      expect(verifyDecodedOutput(testData, result.decodedData)).toBe(true);
     });
 
     it('should roundtrip non-block-aligned size', async () => {
@@ -193,8 +211,14 @@ describe('bf-17sw5: Encode-decode roundtrip test framework', () => {
       const result = await roundtripBuffer(testData, streamId, 818);
 
       expect(result.success).toBe(true);
-      expect(result.comparison!.identical).toBe(true);
-      expect(verifyDecodedOutput(testData, result.decodedData!)).toBe(true);
+      if (result.comparison === undefined) {
+        throw new Error('comparison should be defined when success is true');
+      }
+      expect(result.comparison.identical).toBe(true);
+      if (result.decodedData === undefined) {
+        throw new Error('decodedData should be defined when success is true');
+      }
+      expect(verifyDecodedOutput(testData, result.decodedData)).toBe(true);
     });
   });
 
@@ -334,7 +358,10 @@ describe('bf-17sw5: Encode-decode roundtrip test framework', () => {
 
       const entry = encodePipeline.getBlock(0);
       expect(entry).toBeDefined();
-      expect(entry!.fragments.length).toBeGreaterThan(0);
+      if (entry === undefined) {
+        throw new Error('entry should be defined for block 0');
+      }
+      expect(entry.fragments.length).toBeGreaterThan(0);
 
       encodePipeline.stop();
       encodePipeline.clear();
@@ -377,12 +404,15 @@ describe('bf-17sw5: Encode-decode roundtrip test framework', () => {
 
       const entry = encodePipeline.getBlock(0);
       expect(entry).toBeDefined();
+      if (entry === undefined) {
+        throw new Error('entry should be defined for block 0');
+      }
 
       // Generate packets with encode stream ID
       const encoder = new LTEncoder({
         streamId: encodeStreamId,
         blockIndex: 0,
-        fragments: entry!.fragments,
+        fragments: entry.fragments,
       });
 
       let packetCount = 0;
