@@ -200,11 +200,15 @@ export function createEncoder(fixture: typeof REPETITION_K4_L4): LTEncoder {
  * Helper: Create decoder from fixture
  */
 export function createDecoder(fixture: typeof REPETITION_K4_L4): GEDecoder {
+  const firstFragment: Uint8Array | undefined = fixture.config.fragments[0];
+  if (!firstFragment) {
+    throw new Error('Fixture must have at least one fragment');
+  }
   return new GEDecoder({
     streamId: fixture.config.streamId,
     blockIndex: fixture.config.blockIndex,
     k: fixture.config.fragments.length,
-    fragLen: fixture.config.fragments[0].length,
+    fragLen: firstFragment.length,
   });
 }
 
@@ -238,12 +242,16 @@ export function runEncodeDecodeCycle(
   overhead: number;
   recovered: Uint8Array[] | null;
 } {
+  const firstFragment: Uint8Array | undefined = fixture.config.fragments[0];
+  if (!firstFragment) {
+    throw new Error('Fixture must have at least one fragment');
+  }
   const encoder = new LTEncoder(fixture.config);
   const decoder = new GEDecoder({
     streamId: fixture.config.streamId,
     blockIndex: fixture.config.blockIndex,
     k: fixture.config.fragments.length,
-    fragLen: fixture.config.fragments[0].length,
+    fragLen: firstFragment.length,
   });
 
   let packetsUsed = 0;
@@ -275,11 +283,18 @@ export function verifyRecovery(
     return false;
   }
   for (let i = 0; i < source.length; i++) {
-    if (source[i].length !== recovered[i].length) {
+    const sourceItem: Uint8Array | undefined = source[i];
+    const recoveredItem: Uint8Array | undefined = recovered[i];
+    if (sourceItem === undefined || recoveredItem === undefined) {
       return false;
     }
-    for (let j = 0; j < source[i].length; j++) {
-      if (source[i][j] !== recovered[i][j]) {
+    if (sourceItem.length !== recoveredItem.length) {
+      return false;
+    }
+    for (let j = 0; j < sourceItem.length; j++) {
+      const sourceByte = sourceItem[j];
+      const recoveredByte = recoveredItem[j];
+      if (sourceByte !== recoveredByte) {
         return false;
       }
     }
