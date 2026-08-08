@@ -597,7 +597,7 @@ describe('Encode→Decode Roundtrip Integration', () => {
         streamId
       ).next();
 
-      if (packet1Result.value === undefined || packet2Result.value === undefined) {
+      if (packet1Result.done || packet2Result.done || packet1Result.value === undefined || packet2Result.value === undefined) {
         throw new Error('Failed to generate test packets');
       }
       const packet1 = packet1Result.value;
@@ -882,6 +882,99 @@ describe('Encode→Decode Roundtrip Integration', () => {
       encodePipeline.clear();
       decodePipeline.stop();
       decodePipeline.clear();
+    });
+  });
+
+  describe('Memory sampling', () => {
+    it('should sample memory at configured intervals', async () => {
+      const fileSize = 50 * BLOCK; // 50 blocks
+      const testData = createTestData(fileSize);
+      const streamId = 100;
+
+      const result = await roundtripTest(testData, streamId, 8, {
+        memorySampling: {
+          enabled: true,
+          sampleIntervalBlocks: 10, // Sample every 10 blocks
+        },
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.memorySamples).toBeDefined();
+      expect(result.memorySamples?.length).toBeGreaterThan(0);
+
+      // Should have samples at blocks 0, 10, 20, 30, 40
+      // (or close to those intervals depending on exact behavior)
+      const sampleIndices = result.memorySamples?.map(s => s.blockIndex) ?? [];
+      expect(sampleIndices).toContain(0);
+      expect(sampleIndices.some(i => i >= 10 && i <= 12)).toBe(true);
+    });
+
+    it('should respect disabled memory sampling', async () => {
+      const fileSize = 10 * BLOCK;
+      const testData = createTestData(fileSize);
+      const streamId = 101;
+
+      const result = await roundtripTest(testData, streamId, 8, {
+        memorySampling: {
+          enabled: false,
+        },
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.memorySamples).toBeUndefined();
+    });
+
+    it('should include block index and timestamp in samples', async () => {
+      const fileSize = 20 * BLOCK;
+      const testData = createTestData(fileSize);
+      const streamId = 102;
+
+      const result = await roundtripTest(testData, streamId, 8, {
+        memorySampling: {
+          enabled: true,
+          sampleIntervalBlocks: 5,
+        },
+      });
+
+      expect(result.memorySamples).toBeDefined();
+
+      if (result.memorySamples === undefined) {
+        throw new Error('memorySamples should be defined');
+      }
+
+      // Check first sample
+      const firstSample = result.memorySamples[0];
+      expect(firstSample.blockIndex).toBe(0);
+      expect(firstSample.timestamp).toBeGreaterThan(0);
+      expect(firstSample.metrics).toBeDefined();
+      expect(firstSample.metrics.heapUsed).toBeGreaterThan(0);
+
+      // Check last sample has different timestamp (later)
+      const lastSample = result.memorySamples[result.memorySamples.length - 1];
+      expect(lastSample.timestamp).toBeGreaterThan(firstSample.timestamp);
+    });
+
+    it('should provide enough samples for analysis', async () => {
+      const fileSize = 100 * BLOCK; // Large file for more samples
+      const testData = createTestData(fileSize);
+      const streamId = 103;
+
+      const result = await roundtripTest(testData, streamId, 8, {
+        memorySampling: {
+          enabled: true,
+          sampleIntervalBlocks: 25, // Should get ~5 samples (0, 25, 50, 75, 100)
+        },
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.memorySamples).toBeDefined();
+
+      if (result.memorySamples === undefined) {
+        throw new Error('memorySamples should be defined');
+      }
+
+      // Should have at least 4-5 samples for 100 blocks at 25-block intervals
+      expect(result.memorySamples.length).toBeGreaterThanOrEqual(4);
     });
   });
 });
