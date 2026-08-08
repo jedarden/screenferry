@@ -15,6 +15,7 @@ import {
   BlockEncodePipeline,
   createEncodePipeline,
   type EncodePipelineConfig,
+  type EncodedBlockEntry,
 } from '../src/core/block/encode-pipeline.js';
 import {
   BlockDecodePipeline,
@@ -23,6 +24,12 @@ import {
 } from '../src/core/block/decode-pipeline.js';
 import { LTEncoder } from '../src/core/fountain/encoder.js';
 import { BLOCK, L } from '../src/core/params.js';
+import {
+  createMemorySampler,
+  type MemorySampler,
+  type MemorySamplerConfig,
+  type MemorySample,
+} from './helpers/memory-sampler.js';
 
 /**
  * Create test data with a specific pattern for verification.
@@ -62,20 +69,52 @@ function* generatePacketsForBlock(
 }
 
 /**
+ * Memory sampling configuration for roundtrip tests.
+ */
+export interface RoundtripMemorySamplingConfig {
+  /** Enable memory sampling during block processing (default: false) */
+  enabled?: boolean;
+  /** Sample every N blocks (default: 100) */
+  sampleIntervalBlocks?: number;
+  /** Maximum samples to store (default: 1000) */
+  maxSamples?: number;
+}
+
+/**
+ * Roundtrip test configuration with memory sampling support.
+ */
+export interface RoundtripTestConfig {
+  encodeConfig?: Partial<EncodePipelineConfig> | undefined;
+  decodeConfig?: Partial<DecodePipelineConfig> | undefined;
+  memorySampling?: RoundtripMemorySamplingConfig | undefined;
+}
+
+/**
  * Complete encode→decode roundtrip for a file.
  */
 async function roundtripTest(
   originalData: Uint8Array,
   streamId: number,
   packetsPerBlock: number,
-  encodeConfig?: Partial<EncodePipelineConfig> | undefined,
-  decodeConfig?: Partial<DecodePipelineConfig> | undefined
+  config?: RoundtripTestConfig
 ): Promise<{
   success: boolean;
   decodedData: Uint8Array | undefined;
   packetsReceived: number;
   blocksDecoded: number;
+  memorySamples?: MemorySample[] | undefined;
 }> {
+  const { encodeConfig, decodeConfig, memorySampling } = config ?? {};
+
+  // Set up memory sampler if enabled
+  const memorySampler = memorySampling?.enabled
+    ? createMemorySampler({
+        sampleIntervalBlocks: memorySampling.sampleIntervalBlocks ?? 100,
+        enabled: true,
+        maxSamples: memorySampling.maxSamples ?? 1000,
+      })
+    : null;
+
   // Phase 1: Encode
   const encodePipeline = createEncodePipeline(originalData, {
     streamId,
@@ -101,7 +140,7 @@ async function roundtripTest(
   // Phase 3: Generate and receive packets for each block
   for (let blockIndex = 0; blockIndex < blockGeom.blockCount; blockIndex++) {
     // Get the encoded block entry
-    const entry = encodePipeline.getBlock(blockIndex);
+    const entry: EncodedBlockEntry | undefined = encodePipeline.getBlock(blockIndex);
     if (!entry) {
       throw new Error(`Block ${blockIndex} not encoded`);
     }
@@ -128,11 +167,19 @@ async function roundtripTest(
 
     // Try to decode the block
     decodePipeline.decodeBlock(blockIndex);
+
+    // Sample memory after decoding this block
+    memorySampler?.sample(blockIndex);
   }
 
   // Phase 4: Reassemble file
   const decodedData = decodePipeline.reassembleFile();
   const blocksDecoded = decodePipeline.getState().blocksDecoded;
+
+  // Collect memory samples if enabled
+  const memorySamples = memorySampler?.isEnabled()
+    ? memorySampler.getSamples()
+    : undefined;
 
   // Cleanup
   encodePipeline.stop();
@@ -145,6 +192,7 @@ async function roundtripTest(
     decodedData,
     packetsReceived,
     blocksDecoded,
+    memorySamples,
   };
 }
 
@@ -343,11 +391,11 @@ describe('Encode→Decode Roundtrip Integration', () => {
       });
       decodePipeline.start();
 
-      const entry = encodePipeline.getBlock(0);
+      const entry: EncodedBlockEntry | undefined = encodePipeline.getBlock(0);
       expect(entry).toBeDefined();
 
       // Generate packets with encode stream ID
-      if (!entry) {
+      if (entry === undefined) {
         throw new Error('Block 0 not encoded');
       }
       const encoder = new LTEncoder({
@@ -393,10 +441,10 @@ describe('Encode→Decode Roundtrip Integration', () => {
 
       // Only send packets for first 2 blocks
       for (let blockIndex = 0; blockIndex < 2; blockIndex++) {
-        const entry = encodePipeline.getBlock(blockIndex);
+        const entry: EncodedBlockEntry | undefined = encodePipeline.getBlock(blockIndex);
         expect(entry).toBeDefined();
 
-        if (!entry) {
+        if (entry === undefined) {
           throw new Error(`Block ${blockIndex} not encoded`);
         }
         const encoder = new LTEncoder({
@@ -453,10 +501,10 @@ describe('Encode→Decode Roundtrip Integration', () => {
 
       // Send packets one block at a time
       for (let blockIndex = 0; blockIndex < 3; blockIndex++) {
-        const entry = encodePipeline.getBlock(blockIndex);
+        const entry: EncodedBlockEntry | undefined = encodePipeline.getBlock(blockIndex);
         expect(entry).toBeDefined();
 
-        if (!entry) {
+        if (entry === undefined) {
           throw new Error(`Block ${blockIndex} not encoded`);
         }
         const encoder = new LTEncoder({
@@ -531,23 +579,29 @@ describe('Encode→Decode Roundtrip Integration', () => {
       });
       decodePipeline.start();
 
-      const entry = encodePipeline.getBlock(0);
+      const entry: EncodedBlockEntry | undefined = encodePipeline.getBlock(0);
       expect(entry).toBeDefined();
 
       // Generate same packet twice
-      if (!entry) {
+      if (entry === undefined) {
         throw new Error('Block 0 not encoded');
       }
-      const packet1 = generatePacketsForBlock(
+      const packet1Result = generatePacketsForBlock(
         0,
         entry.fragments,
         streamId
-      ).next().value;
-      const packet2 = generatePacketsForBlock(
+      ).next();
+      const packet2Result = generatePacketsForBlock(
         0,
         entry.fragments,
         streamId
-      ).next().value;
+      ).next();
+
+      if (packet1Result.value === undefined || packet2Result.value === undefined) {
+        throw new Error('Failed to generate test packets');
+      }
+      const packet1 = packet1Result.value;
+      const packet2 = packet2Result.value;
 
       // Receive first packet
       const result1 = decodePipeline.receivePacket(0, packet1.seq, packet1.payload);
@@ -599,10 +653,10 @@ describe('Encode→Decode Roundtrip Integration', () => {
       decodePipeline.start();
 
       // Decode first block
-      const entry0 = encodePipeline.getBlock(0);
+      const entry0: EncodedBlockEntry | undefined = encodePipeline.getBlock(0);
       expect(entry0).toBeDefined();
 
-      if (!entry0) {
+      if (entry0 === undefined) {
         throw new Error('Block 0 not encoded');
       }
 
@@ -624,10 +678,10 @@ describe('Encode→Decode Roundtrip Integration', () => {
       expect(packetsAfterDecode0).toHaveLength(0);
 
       // Decode second block
-      const entry1 = encodePipeline.getBlock(1);
+      const entry1: EncodedBlockEntry | undefined = encodePipeline.getBlock(1);
       expect(entry1).toBeDefined();
 
-      if (!entry1) {
+      if (entry1 === undefined) {
         throw new Error('Block 1 not encoded');
       }
 
@@ -671,7 +725,7 @@ describe('Encode→Decode Roundtrip Integration', () => {
       decodePipeline.start();
 
       // Decode one block
-      const entry = encodePipeline.getBlock(0);
+      const entry: EncodedBlockEntry | undefined = encodePipeline.getBlock(0);
       expect(entry).toBeDefined();
 
       if (!entry) {
@@ -738,7 +792,7 @@ describe('Encode→Decode Roundtrip Integration', () => {
       const blockGeom = encodePipeline.getBlockGeometry();
 
       for (let blockIndex = 0; blockIndex < blockGeom.blockCount; blockIndex++) {
-        const entry = encodePipeline.getBlock(blockIndex);
+        const entry: EncodedBlockEntry | undefined = encodePipeline.getBlock(blockIndex);
         expect(entry).toBeDefined();
 
         if (!entry) {
@@ -799,7 +853,7 @@ describe('Encode→Decode Roundtrip Integration', () => {
       expect(state.running).toBe(true);
 
       // Decode one block
-      const entry = encodePipeline.getBlock(0);
+      const entry: EncodedBlockEntry | undefined = encodePipeline.getBlock(0);
       expect(entry).toBeDefined();
 
       if (!entry) {
