@@ -107,3 +107,41 @@ export function calculateHeapGrowth(
 ): number {
   return later.heapUsage - earlier.heapUsage;
 }
+
+/**
+ * Capture a memory sample with error handling.
+ *
+ * This function captures current heap usage and stores it in the provided
+ * storage array. It handles memory capture errors gracefully by returning
+ * a success indicator rather than throwing.
+ *
+ * Integrates with existing memory utilities (bf-i0wkw) via process.memoryUsage().
+ *
+ * @param storage - The memory sample storage array
+ * @param blockNumber - Current block number when sample is captured
+ * @returns true if sample was captured and stored successfully, false on error
+ *
+ * @example
+ * ```ts
+ * const samples = createMemorySampleStorage();
+ * for (let i = 0; i < 1000; i++) {
+ *   processBlock(i);
+ *   captureMemorySample(samples, i); // Hook into test loop
+ * }
+ * ```
+ */
+export function captureMemorySample(
+  storage: MemorySampleStorage,
+  blockNumber: number
+): boolean {
+  try {
+    const sample = createMemorySample(blockNumber);
+    addMemorySample(storage, sample);
+    return true;
+  } catch (error) {
+    // Handle memory capture errors gracefully - log but don't throw
+    // This ensures test loops can continue even if memory sampling fails
+    console.error(`Failed to capture memory sample at block ${blockNumber}:`, error);
+    return false;
+  }
+}
