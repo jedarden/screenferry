@@ -56,7 +56,7 @@ class MockFileSystemDirectoryHandle implements FileSystemDirectoryHandle {
     throw new DOMException('File not found', 'NotFoundError');
   }
 
-  async removeEntry(name: string, options?: { recursive?: boolean }): Promise<void> {
+  async removeEntry(name: string, options?: { recursive?: boolean | undefined }): Promise<void> {
     // For this mock, we ignore the recursive option and just delete the entry
     // This matches the behavior needed for the tests
     this._entries.delete(name);
@@ -220,13 +220,13 @@ class MockFileSystemFileHandle implements FileSystemFileHandle {
 class MockFileSystemSyncAccessHandle {
   constructor(private fileHandle: MockFileSystemFileHandle) {}
 
-  write(buffer: Uint8Array, options?: { at?: number }): number {
+  write(buffer: Uint8Array, options?: { at?: number | undefined }): number {
     const offset = options?.at ?? 0;
     this.fileHandle._write(offset, buffer);
     return buffer.length;
   }
 
-  read(buffer: Uint8Array, options?: { at?: number }): number {
+  read(buffer: Uint8Array, options?: { at?: number | undefined }): number {
     const offset = options?.at ?? 0;
     const data = this.fileHandle._read(offset, buffer.length);
     buffer.set(data);
@@ -330,20 +330,23 @@ if (typeof ImageData === 'undefined') {
     data: Uint8ClampedArray;
     width: number;
     height: number;
+    colorSpace: PredefinedColorSpace;
 
-    constructor(width: number, height: number);
-    constructor(data: Uint8ClampedArray, width: number, height: number);
-    constructor(dataOrWidth: Uint8ClampedArray | number, widthOrHeight?: number, height?: number) {
+    constructor(width: number, height: number, colorSpace?: PredefinedColorSpace | null);
+    constructor(data: Uint8ClampedArray, width: number, height: number, colorSpace?: PredefinedColorSpace | null);
+    constructor(dataOrWidth: Uint8ClampedArray | number, widthOrHeight?: number, height?: number | PredefinedColorSpace | null, colorSpace?: PredefinedColorSpace | null) {
       if (typeof dataOrWidth === 'number') {
-        // ImageData(width, height) constructor
+        // ImageData(width, height, colorSpace?) constructor
         this.width = dataOrWidth;
         this.height = widthOrHeight as number;
+        this.colorSpace = ((typeof height === 'string' ? height : colorSpace) ?? 'srgb') as PredefinedColorSpace;
         this.data = new Uint8ClampedArray(this.width * this.height * 4);
       } else {
-        // ImageData(data, width, height) constructor
+        // ImageData(data, width, height, colorSpace?) constructor
         this.data = dataOrWidth;
         this.width = widthOrHeight as number;
         this.height = height as number;
+        this.colorSpace = (colorSpace ?? 'srgb') as PredefinedColorSpace;
       }
     }
   }
@@ -359,10 +362,11 @@ if (typeof ImageData === 'undefined') {
  */
 if (typeof HTMLCanvasElement !== 'undefined') {
   const originalGetContext = HTMLCanvasElement.prototype.getContext;
-  HTMLCanvasElement.prototype.getContext = function(
+  (HTMLCanvasElement.prototype.getContext as unknown) = function(
+    this: HTMLCanvasElement,
     contextType: string,
-    _options?: unknown
-  ): CanvasRenderingContext2D | null {
+    options?: unknown
+  ): RenderingContext | null {
     if (contextType === '2d') {
       // Create a mock 2D context if one doesn't exist for this canvas
       if (!(this as any)._mockContext) {
@@ -374,7 +378,7 @@ if (typeof HTMLCanvasElement !== 'undefined') {
           _canvas: this,
           _imageData: mockImageDataCurrent,
 
-          fillStyle: '#000000',
+          fillStyle: '#000000' as string | CanvasGradient | CanvasPattern,
           fillRect(x: number, y: number, w: number, h: number) {
             // Simple mock - just track that fillRect was called
             const imageData = this._imageData;
@@ -455,7 +459,7 @@ if (typeof HTMLCanvasElement !== 'undefined') {
       return (this as any)._mockContext as CanvasRenderingContext2D;
     }
     // Fall back to original implementation for other context types
-    return originalGetContext.call(this, contextType, _options);
+    return originalGetContext.call(this, contextType, options);
   };
 }
 
@@ -470,13 +474,15 @@ if (typeof HTMLCanvasElement !== 'undefined') {
 class MockMediaStreamTrack {
   kind: 'video' | 'audio' = 'video';
   id: string;
-  enabled = true;
-  muted = false;
-  _readyState: MediaStreamTrackState = 'live';
+  enabled: boolean;
+  muted: boolean;
+  _readyState: MediaStreamTrackState;
   label: string;
   _settings: MediaTrackSettings;
   _capabilities: MediaTrackCapabilities;
-  _constraints: MediaTrackConstraints;
+  _constraints: MediaTrackConstraints | undefined;
+  contentHint: string | null | undefined;
+  onended: ((this: MediaStreamTrack, ev: Event) => unknown) | null | undefined;
 
   constructor(
     id: string,
@@ -485,6 +491,9 @@ class MockMediaStreamTrack {
   ) {
     this.id = id;
     this.kind = kind;
+    this.enabled = true;
+    this.muted = false;
+    this._readyState = 'live';
     this.label = `Mock Track (${id})`;
     this._settings = {
       width: settings?.width ?? 640,
@@ -497,6 +506,8 @@ class MockMediaStreamTrack {
       frameRate: { min: 0, max: 60 },
     };
     this._constraints = {};
+    this.contentHint = undefined;
+    this.onended = undefined;
   }
 
   get readyState(): MediaStreamTrackState {
@@ -536,11 +547,15 @@ class MockMediaStream implements MediaStream {
   id: string;
   _tracks: MediaStreamTrack[];
   active: boolean;
+  onaddtrack: ((this: MediaStream, ev: MediaStreamTrackEvent) => unknown) | null | undefined;
+  onremovetrack: ((this: MediaStream, ev: MediaStreamTrackEvent) => unknown) | null | undefined;
 
-  constructor(tracks: MediaStreamTrack[] = []) {
+  constructor(tracks?: MediaStreamTrack[]) {
     this.id = `mock-stream-${Date.now()}-${Math.random()}`;
-    this._tracks = [...tracks];
-    this.active = tracks.some((t) => t.readyState === 'live');
+    this._tracks = [...(tracks ?? [])];
+    this.active = (tracks ?? []).some((t) => t.readyState === 'live');
+    this.onaddtrack = null;
+    this.onremovetrack = null;
   }
 
   getVideoTracks(): MediaStreamTrack[] {
@@ -578,20 +593,30 @@ class MockMediaStream implements MediaStream {
     return new MockMediaStream(this._tracks.map((t) => t.clone())) as unknown as MediaStream;
   }
 
-  onaddtrack: ((this: MediaStream, ev: MediaStreamTrackEvent) => unknown) | null = null;
-  onremovetrack: ((this: MediaStream, ev: MediaStreamTrackEvent) => unknown) | null = null;
+  addEventListener(
+    type: string,
+    listener: EventListenerOrEventListenerObject | null | undefined,
+    options?: boolean | AddEventListenerOptions | undefined
+  ): void {
+    // Minimal mock implementation
+  }
+
+  removeEventListener(
+    type: string,
+    listener: EventListenerOrEventListenerObject | null | undefined,
+    options?: boolean | EventListenerOptions | undefined
+  ): void {
+    // Minimal mock implementation
+  }
+
+  dispatchEvent(event: Event): boolean {
+    return true;
+  }
 }
 
 // Make MediaStream available globally if it doesn't exist
 if (typeof MediaStream === 'undefined') {
   (globalThis as any).MediaStream = MockMediaStream;
-}
-
-// Extend navigator with mock mediaDevices if needed
-declare global {
-  interface Navigator {
-    mediaDevices?: MediaDevices;
-  }
 }
 
 if (typeof navigator !== 'undefined' && !navigator.mediaDevices) {
@@ -606,10 +631,11 @@ if (typeof navigator !== 'undefined' && !navigator.mediaDevices) {
     enumerateDevices: async () => {
       return [
         {
-          kind: 'videoinput',
+          kind: 'videoinput' as const,
           deviceId: 'mock-camera',
           label: 'Mock Camera',
           groupId: 'mock-group',
+          toJSON: () => ({ kind: 'videoinput', deviceId: 'mock-camera', label: 'Mock Camera', groupId: 'mock-group' }),
         },
       ];
     },
@@ -621,5 +647,5 @@ if (typeof navigator !== 'undefined' && !navigator.mediaDevices) {
     }),
   };
 
-  navigator.mediaDevices = mockMediaDevices as MediaDevices;
+  (navigator as Navigator & { mediaDevices: MediaDevices }).mediaDevices = mockMediaDevices as MediaDevices;
 }
