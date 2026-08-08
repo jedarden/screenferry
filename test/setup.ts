@@ -24,7 +24,7 @@ class MockFileSystemDirectoryHandle implements FileSystemDirectoryHandle {
     return this._name;
   }
 
-  async getDirectoryHandle(name: string, options?: { create?: boolean }): Promise<FileSystemDirectoryHandle> {
+  async getDirectoryHandle(name: string, options?: { create?: boolean | undefined }): Promise<FileSystemDirectoryHandle> {
     const entry = this._entries.get(name);
 
     if (entry instanceof MockFileSystemDirectoryHandle) {
@@ -40,7 +40,7 @@ class MockFileSystemDirectoryHandle implements FileSystemDirectoryHandle {
     throw new DOMException('Directory not found', 'NotFoundError');
   }
 
-  async getFileHandle(name: string, options?: { create?: boolean }): Promise<FileSystemFileHandle> {
+  async getFileHandle(name: string, options?: { create?: boolean | undefined }): Promise<FileSystemFileHandle> {
     let entry = this._entries.get(name);
 
     if (entry instanceof MockFileSystemFileHandle) {
@@ -56,7 +56,7 @@ class MockFileSystemDirectoryHandle implements FileSystemDirectoryHandle {
     throw new DOMException('File not found', 'NotFoundError');
   }
 
-  async removeEntry(name: string, options?: { recursive?: boolean | undefined }): Promise<void> {
+  async removeEntry(name: string, options?: { recursive?: boolean | undefined } | undefined): Promise<void> {
     // For this mock, we ignore the recursive option and just delete the entry
     // This matches the behavior needed for the tests
     this._entries.delete(name);
@@ -160,7 +160,7 @@ class MockFileSystemFileHandle implements FileSystemFileHandle {
         const decoder = new TextDecoder();
         return decoder.decode(dataClone);
       },
-      slice(begin?: number, end?: number): Blob {
+      slice(begin?: number | undefined, end?: number | undefined): Blob {
         const start = begin ?? 0;
         const stop = end ?? dataClone.length;
         return new Blob([dataClone.slice(start, stop)]);
@@ -220,13 +220,13 @@ class MockFileSystemFileHandle implements FileSystemFileHandle {
 class MockFileSystemSyncAccessHandle {
   constructor(private fileHandle: MockFileSystemFileHandle) {}
 
-  write(buffer: Uint8Array, options?: { at?: number | undefined }): number {
+  write(buffer: Uint8Array, options?: { at?: number | undefined } | undefined): number {
     const offset = options?.at ?? 0;
     this.fileHandle._write(offset, buffer);
     return buffer.length;
   }
 
-  read(buffer: Uint8Array, options?: { at?: number | undefined }): number {
+  read(buffer: Uint8Array, options?: { at?: number | undefined } | undefined): number {
     const offset = options?.at ?? 0;
     const data = this.fileHandle._read(offset, buffer.length);
     buffer.set(data);
@@ -332,9 +332,9 @@ if (typeof ImageData === 'undefined') {
     height: number;
     colorSpace: PredefinedColorSpace;
 
-    constructor(width: number, height: number, colorSpace?: PredefinedColorSpace | null);
-    constructor(data: Uint8ClampedArray, width: number, height: number, colorSpace?: PredefinedColorSpace | null);
-    constructor(dataOrWidth: Uint8ClampedArray | number, widthOrHeight?: number, height?: number | PredefinedColorSpace | null, colorSpace?: PredefinedColorSpace | null) {
+    constructor(width: number, height: number, colorSpace?: PredefinedColorSpace | null | undefined);
+    constructor(data: Uint8ClampedArray, width: number, height: number, colorSpace?: PredefinedColorSpace | null | undefined);
+    constructor(dataOrWidth: Uint8ClampedArray | number, widthOrHeight?: number | undefined, height?: number | PredefinedColorSpace | null | undefined, colorSpace?: PredefinedColorSpace | null | undefined) {
       if (typeof dataOrWidth === 'number') {
         // ImageData(width, height, colorSpace?) constructor
         this.width = dataOrWidth;
@@ -365,7 +365,7 @@ if (typeof HTMLCanvasElement !== 'undefined') {
   (HTMLCanvasElement.prototype.getContext as unknown) = function(
     this: HTMLCanvasElement,
     contextType: string,
-    options?: unknown
+    options?: unknown | undefined
   ): RenderingContext | null {
     if (contextType === '2d') {
       // Create a mock 2D context if one doesn't exist for this canvas
@@ -596,7 +596,7 @@ class MockMediaStream implements MediaStream {
   addEventListener(
     type: string,
     listener: EventListenerOrEventListenerObject | null | undefined,
-    options?: boolean | AddEventListenerOptions | undefined
+    options?: boolean | AddEventListenerOptions | undefined | undefined
   ): void {
     // Minimal mock implementation
   }
@@ -604,7 +604,7 @@ class MockMediaStream implements MediaStream {
   removeEventListener(
     type: string,
     listener: EventListenerOrEventListenerObject | null | undefined,
-    options?: boolean | EventListenerOptions | undefined
+    options?: boolean | EventListenerOptions | undefined | undefined
   ): void {
     // Minimal mock implementation
   }
@@ -622,7 +622,7 @@ if (typeof MediaStream === 'undefined') {
 if (typeof navigator !== 'undefined' && !navigator.mediaDevices) {
   // Create a minimal mock mediaDevices
   const mockMediaDevices: Partial<MediaDevices> = {
-    getUserMedia: async (_constraints: MediaStreamConstraints): Promise<MediaStream> => {
+    getUserMedia: async (_constraints?: MediaStreamConstraints | undefined): Promise<MediaStream> => {
       // Return a mock stream with a video track
       const mockTrack = new MockMediaStreamTrack(`mock-track-${Date.now()}`, 'video');
       return new MockMediaStream([mockTrack as unknown as MediaStreamTrack]) as unknown as MediaStream;
