@@ -529,6 +529,9 @@ describe('Encode→Decode Roundtrip Integration', () => {
         } else {
           // After last block, should have complete file
           expect(reassembled).toBeDefined();
+          if (reassembled === undefined) {
+            throw new Error('reassembled should be defined');
+          }
           expect(reassembled).toEqual(testData);
         }
       }
@@ -769,6 +772,9 @@ describe('Encode→Decode Roundtrip Integration', () => {
       const result = await roundtripTest(testData, streamId, 8);
 
       expect(result.success).toBe(true);
+      if (result.decodedData === undefined) {
+        throw new Error('decodedData should be defined when success is true');
+      }
       expect(result.decodedData).toEqual(testData);
       expect(result.blocksDecoded).toBe(50);
     });
@@ -819,6 +825,9 @@ describe('Encode→Decode Roundtrip Integration', () => {
       const reassembled = decodePipeline.reassembleFile();
 
       expect(reassembled).toBeDefined();
+      if (reassembled === undefined) {
+        throw new Error('reassembled should be defined');
+      }
       expect(reassembled).toEqual(testData);
 
       // Cleanup
@@ -891,7 +900,7 @@ describe('Encode→Decode Roundtrip Integration', () => {
       const testData = createTestData(fileSize);
       const streamId = 100;
 
-      const result = await roundtripTest(testData, streamId, 8, {
+      const result = await roundtripTest(testData, streamId, 818, {
         memorySampling: {
           enabled: true,
           sampleIntervalBlocks: 10, // Sample every 10 blocks
@@ -914,7 +923,7 @@ describe('Encode→Decode Roundtrip Integration', () => {
       const testData = createTestData(fileSize);
       const streamId = 101;
 
-      const result = await roundtripTest(testData, streamId, 8, {
+      const result = await roundtripTest(testData, streamId, 818, {
         memorySampling: {
           enabled: false,
         },
@@ -929,7 +938,7 @@ describe('Encode→Decode Roundtrip Integration', () => {
       const testData = createTestData(fileSize);
       const streamId = 102;
 
-      const result = await roundtripTest(testData, streamId, 8, {
+      const result = await roundtripTest(testData, streamId, 818, {
         memorySampling: {
           enabled: true,
           sampleIntervalBlocks: 5,
@@ -943,14 +952,29 @@ describe('Encode→Decode Roundtrip Integration', () => {
       }
 
       // Check first sample
+      if (result.memorySamples.length === 0) {
+        throw new Error('memorySamples should have at least one sample');
+      }
       const firstSample = result.memorySamples[0];
+      if (firstSample === undefined) {
+        throw new Error('firstSample should be defined');
+      }
       expect(firstSample.blockIndex).toBe(0);
       expect(firstSample.timestamp).toBeGreaterThan(0);
       expect(firstSample.metrics).toBeDefined();
+      if (firstSample.metrics === undefined) {
+        throw new Error('firstSample.metrics should be defined');
+      }
       expect(firstSample.metrics.heapUsed).toBeGreaterThan(0);
 
       // Check last sample has different timestamp (later)
+      if (result.memorySamples.length === 0) {
+        throw new Error('memorySamples should have at least one sample');
+      }
       const lastSample = result.memorySamples[result.memorySamples.length - 1];
+      if (lastSample === undefined) {
+        throw new Error('lastSample should be defined');
+      }
       expect(lastSample.timestamp).toBeGreaterThan(firstSample.timestamp);
     });
 
@@ -959,7 +983,13 @@ describe('Encode→Decode Roundtrip Integration', () => {
       const testData = createTestData(fileSize);
       const streamId = 103;
 
-      const result = await roundtripTest(testData, streamId, 8, {
+      const result = await roundtripTest(testData, streamId, 818, {
+        encodeConfig: {
+          storageConfig: {
+            maxBlocks: 150, // Enough for 100 blocks
+            maxMemoryBytes: 150 * BLOCK,
+          },
+        },
         memorySampling: {
           enabled: true,
           sampleIntervalBlocks: 25, // Should get ~5 samples (0, 25, 50, 75, 100)
