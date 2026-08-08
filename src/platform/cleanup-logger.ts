@@ -73,10 +73,10 @@ export interface CleanupMetrics {
   deletionsFailed: number;
   /** Errors encountered */
   errors: Array<{
-    streamId?: number;
-    filename?: string;
+    streamId?: number | undefined;
+    filename?: string | undefined;
     error: string;
-    errorType?: string;
+    errorType?: string | undefined;
     timestamp: string;
   }>;
 }
