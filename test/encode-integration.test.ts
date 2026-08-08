@@ -25,6 +25,10 @@ import {
   type EncodePipelineConfig,
 } from '../src/core/block/encode-pipeline.js';
 import { BLOCK, L, K } from '../src/core/params.js';
+import {
+  createMemorySampler,
+  type MemorySample,
+} from './helpers/memory-sampler.js';
 
 describe('EncodeBlockStorage', () => {
   let storage: EncodeBlockStorage;
@@ -421,13 +425,14 @@ describe('BlockEncodePipeline', () => {
   describe('Construction', () => {
     it('should create pipeline with source data', () => {
       expect(pipeline).toBeDefined();
-      expect(pipeline.getBlockGeometry().totalLen).toBe(testFileSize);
-      expect(pipeline.getBlockGeometry().blockCount).toBe(5);
+      const geom = pipeline.getBlockGeometry();
+      expect(geom.totalLen).toBe(testFileSize);
+      expect(geom.blockCount).toBe(5);
     });
 
     it('should require streamId', () => {
       expect(() => {
-        createEncodePipeline(testData, {});
+        createEncodePipeline(testData, {} as EncodePipelineConfig);
       }).toThrow('streamId is required');
     });
 
@@ -470,6 +475,7 @@ describe('BlockEncodePipeline', () => {
       expect(result.cached).toBe(false);
       expect(result.blockIndex).toBe(0);
       expect(result.entry).toBeDefined();
+      expect(result.entry?.metadata).toBeDefined();
       expect(result.entry.metadata.blockIndex).toBe(0);
     });
 
@@ -505,7 +511,10 @@ describe('BlockEncodePipeline', () => {
 
       const entry = pipeline.encodeBlock(2);
 
+      expect(entry).toBeDefined();
+      expect(entry?.metadata).toBeDefined();
       expect(entry.metadata.blockIndex).toBe(2);
+      expect(entry?.fragments).toBeDefined();
       expect(entry.fragments.length).toBeGreaterThan(0);
     });
 
@@ -779,14 +788,13 @@ describe('BlockEncodePipeline', () => {
       const result = singlePipeline.encodeNext();
 
       expect(result.blockIndex).toBe(0);
-      expect(singlePipeline.getBlockGeometry().blockCount).toBe(1);
+      const geom = singlePipeline.getBlockGeometry();
+      expect(geom.blockCount).toBe(1);
     });
 
     it('should handle empty callback functions', () => {
       const pipelineWithNoCallbacks = createEncodePipeline(testData, {
         streamId: 1,
-        onBlockEncoded: undefined,
-        onBlockEvicted: undefined,
       });
 
       expect(() => {
@@ -888,6 +896,143 @@ describe('Integration tests', () => {
 
     // Verify storage constraints
     expect(pipeline.validateConstraints()).toBe(true);
+
+    pipeline.stop();
+    pipeline.clear();
+  });
+
+  it('should sample memory during block encoding', () => {
+    const fileSize = 30 * BLOCK;
+    const testData = new Uint8Array(fileSize);
+    for (let i = 0; i < testData.length; i++) {
+      testData[i] = i & 0xff;
+    }
+
+    const pipeline = createEncodePipeline(testData, {
+      streamId: 200,
+      dwellPackets: 2,
+    });
+
+    // Set up memory sampler
+    const sampler = createMemorySampler({
+      sampleIntervalBlocks: 5, // Sample every 5 unique blocks
+      enabled: true,
+    });
+
+    pipeline.start();
+
+    // Encode blocks and sample memory
+    let blocksEncoded = 0;
+    const maxBlocks = 15;
+
+    while (blocksEncoded < maxBlocks) {
+      const result = pipeline.encodeNext();
+
+      // Only count when we actually encode a new block (not cached)
+      if (!result.cached) {
+        sampler.sample(blocksEncoded);
+        blocksEncoded++;
+      }
+    }
+
+    // Verify we got samples
+    expect(sampler.getSampleCount()).toBeGreaterThan(0);
+
+    // Should have sampled at blocks 0, 5, 10
+    const samples = sampler.getSamples();
+    const sampleIndices = samples.map(s => s.blockIndex);
+
+    expect(sampleIndices).toContain(0);
+    expect(sampleIndices.some(i => i >= 5 && i <= 7)).toBe(true);
+
+    // Verify sample structure
+    const firstSample = samples[0];
+    expect(firstSample).toBeDefined();
+    expect(firstSample?.blockIndex).toBe(0);
+    expect(firstSample?.timestamp).toBeGreaterThan(0);
+    expect(firstSample?.metrics).toBeDefined();
+    expect(firstSample.metrics.heapUsed).toBeGreaterThan(0);
+
+    pipeline.stop();
+    pipeline.clear();
+  });
+
+  it('should track memory growth across encode cycle', () => {
+    const fileSize = 20 * BLOCK;
+    const testData = new Uint8Array(fileSize);
+    for (let i = 0; i < testData.length; i++) {
+      testData[i] = i & 0xff;
+    }
+
+    const pipeline = createEncodePipeline(testData, {
+      streamId: 201,
+      dwellPackets: 1,
+    });
+
+    const sampler = createMemorySampler({
+      sampleIntervalBlocks: 5,
+      enabled: true,
+    });
+
+    pipeline.start();
+
+    // Encode all blocks
+    let uniqueBlocksEncoded = 0;
+    for (let i = 0; i < 100; i++) {
+      const result = pipeline.encodeNext();
+
+      if (!result.cached) {
+        sampler.sample(uniqueBlocksEncoded);
+        uniqueBlocksEncoded++;
+      }
+
+      if (uniqueBlocksEncoded >= 20) break;
+    }
+
+    const samples = sampler.getSamples();
+    expect(samples.length).toBeGreaterThanOrEqual(4); // 0, 5, 10, 15
+
+    // Calculate growth
+    if (samples.length >= 2) {
+      const firstSample = samples[0];
+      const lastSample = samples[samples.length - 1];
+      expect(firstSample).toBeDefined();
+      expect(lastSample).toBeDefined();
+      expect(firstSample?.metrics).toBeDefined();
+      expect(lastSample?.metrics).toBeDefined();
+      const firstHeap = firstSample.metrics.heapUsed;
+      const lastHeap = lastSample.metrics.heapUsed;
+      const growth = lastHeap - firstHeap;
+
+      // Growth should be reasonable (not unbounded leak)
+      expect(growth).toBeLessThan(50 * 1024 * 1024); // Less than 50 MB growth
+    }
+
+    pipeline.stop();
+    pipeline.clear();
+  });
+
+  it('should respect disabled memory sampling', () => {
+    const testData = new Uint8Array(10 * BLOCK);
+    const pipeline = createEncodePipeline(testData, {
+      streamId: 202,
+    });
+
+    const sampler = createMemorySampler({
+      enabled: false, // Disabled
+    });
+
+    pipeline.start();
+
+    // Encode some blocks
+    for (let i = 0; i < 10; i++) {
+      pipeline.encodeNext();
+      sampler.sample(i);
+    }
+
+    // Should have no samples
+    expect(sampler.getSampleCount()).toBe(0);
+    expect(sampler.isEnabled()).toBe(false);
 
     pipeline.stop();
     pipeline.clear();
