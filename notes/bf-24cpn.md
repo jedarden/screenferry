@@ -16,10 +16,17 @@
 ❌ **ADB not responding**
 
 Attempted commands:
-- `adb shell screencap -p > /tmp/screen.png` - Timed out
-- `adb devices` - Timed out
-- `adb-check` - Timed out
-- `adb-connect 36777` (using saved port) - Timed out
+- `adb shell screencap -p > /tmp/screen.png` - **Protocol fault error**: `adb: protocol fault (couldn't read status): Success`
+- `adb devices` - **Protocol fault error**: `adb: failed to check server version: protocol fault (couldn't read status): Success`
+- `adb-check` - Hung/timed out
+- `adb kill-server && adb start-server` - Both commands hung, required SIGKILL
+- `adb-connect 36777` (using saved port) - Hung, required SIGKILL
+
+### 3. Additional Troubleshooting (Session 2)
+- Verified phone network connectivity: `ping 100.88.10.113` ✅ **Successful (57ms)**
+- Force-killed stuck ADB processes: `pkill -9 adb`
+- Multiple restart attempts: All ADB commands (start-server, devices, connect) resulted in hung processes
+- Protocol fault errors persist even after clearing all ADB processes
 
 ### 3. Saved Port
 - Last known port: `36777` (from `~/.adb_last_port`)
