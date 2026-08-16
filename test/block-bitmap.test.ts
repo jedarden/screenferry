@@ -218,7 +218,7 @@ describe('block-bitmap', () => {
 
     it('should return empty missing array when all complete', () => {
       const bitmap = createBitmapWithBlocks(10, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
-      const missing = getMissingBlocks(bitmap);
+      const missing = getMissingBlocks(bitmap, 10);
 
       expect(missing).toEqual([]);
     });
@@ -246,11 +246,11 @@ describe('block-bitmap', () => {
       for (let i = 0; i < 10; i++) {
         setBitmapBit(bitmap, i);
       }
-      expect(isBitmapComplete(bitmap)).toBe(true);
+      expect(isBitmapComplete(bitmap, 10)).toBe(true);
 
       // Clear one valid bit
       clearBitmapBit(bitmap, 5);
-      expect(isBitmapComplete(bitmap)).toBe(false);
+      expect(isBitmapComplete(bitmap, 10)).toBe(false);
     });
   });
 
@@ -401,12 +401,12 @@ describe('block-bitmap', () => {
 
     it('should return 1.0 for complete bitmap', () => {
       const bitmap = createBitmapWithBlocks(10, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
-      expect(getBitmapProgress(bitmap)).toBe(1.0);
+      expect(getBitmapProgress(bitmap, 10)).toBe(1.0);
     });
 
     it('should return correct progress for partial bitmap', () => {
       const bitmap = createBitmapWithBlocks(100, [0, 1, 2, 3, 4]);
-      expect(getBitmapProgress(bitmap)).toBe(0.05);
+      expect(getBitmapProgress(bitmap, 100)).toBe(0.05);
     });
 
     it('should handle zero block count', () => {
@@ -452,12 +452,12 @@ describe('block-bitmap', () => {
         setBitmapBit(bitmap, i);
       }
 
-      const missing = getMissingBlocks(bitmap);
-      const complete = getCompleteBlocks(bitmap);
+      const missing = getMissingBlocks(bitmap, blockCount);
+      const complete = getCompleteBlocks(bitmap, blockCount);
 
       expect(missing.length).toBe(50);
       expect(complete.length).toBe(50);
-      expect(getBitmapProgress(bitmap)).toBe(0.5);
+      expect(getBitmapProgress(bitmap, blockCount)).toBe(0.5);
 
       // Serialize for resume token
       const serialized = serializeBitmap(bitmap);
@@ -474,10 +474,10 @@ describe('block-bitmap', () => {
         Array.from({length: 95}, (_, i) => i)
       );
 
-      const missing = getMissingBlocks(bitmap);
+      const missing = getMissingBlocks(bitmap, blockCount);
 
       expect(missing).toEqual([95, 96, 97, 98, 99]);
-      expect(getBitmapProgress(bitmap)).toBe(0.95);
+      expect(getBitmapProgress(bitmap, blockCount)).toBe(0.95);
     });
 
     it('should handle scattered block completion (repair scenario)', () => {
@@ -486,8 +486,8 @@ describe('block-bitmap', () => {
       const scatteredBlocks = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45];
       const bitmap = createBitmapWithBlocks(blockCount, scatteredBlocks);
 
-      const missing = getMissingBlocks(bitmap);
-      const complete = getCompleteBlocks(bitmap);
+      const missing = getMissingBlocks(bitmap, blockCount);
+      const complete = getCompleteBlocks(bitmap, blockCount);
 
       expect(complete).toEqual(scatteredBlocks);
       expect(missing.length).toBe(90); // 100 - 10
@@ -518,8 +518,8 @@ describe('block-bitmap', () => {
       expect(getBitmapSize(1)).toBe(1);
 
       setBitmapBit(bitmap, 0);
-      expect(isBitmapComplete(bitmap)).toBe(true);
-      expect(getBitmapProgress(bitmap)).toBe(1.0);
+      expect(isBitmapComplete(bitmap, 1)).toBe(true);
+      expect(getBitmapProgress(bitmap, 1)).toBe(1.0);
     });
 
     it('should handle exact byte boundary', () => {
@@ -543,7 +543,7 @@ describe('block-bitmap', () => {
         setBitmapBit(bitmap, i);
       }
 
-      expect(isBitmapComplete(bitmap)).toBe(true);
+      expect(isBitmapComplete(bitmap, 9)).toBe(true);
     });
   });
 });
