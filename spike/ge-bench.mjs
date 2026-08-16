@@ -133,15 +133,24 @@ const BUDGET = 200;                  // MB/s — the plan's assumed phone-JS fig
 const PHONE_FACTOR = 4;              // desktop → mid-range phone, conservative
 
 /**
- * Run benchmark report with optional thermal state verification
+ * Run benchmark report with optional thermal state verification and monitoring
  * @param {number} K - Block size parameter
  * @param {number} L - Payload size parameter
  * @param {Object} options - Options for thermal checking
  * @param {boolean} options.checkThermal - Check thermal state before running
  * @param {boolean} options.requireThrottled - Require throttled state (fail if not throttled)
+ * @param {boolean} options.monitorThermal - Monitor thermal state throughout benchmark
  */
 async function report(K, L, options = {}) {
-  const { checkThermal = false, requireThrottled = false } = options;
+  const { checkThermal = false, requireThrottled = false, monitorThermal = true } = options;
+
+  // Store thermal monitoring data
+  const thermalLog = [];
+
+  // Capture initial thermal state
+  const thermal = await import('./thermal-detection.mjs');
+  const initialThermalState = thermal.readThermalState();
+  thermalLog.push({ phase: 'initial', ...initialThermalState });
 
   // Thermal state verification if requested
   if (checkThermal || requireThrottled) {
@@ -165,9 +174,30 @@ async function report(K, L, options = {}) {
   run(K, L);
   let best = null;
   for (let i = 0; i < 3; i++) {
+    // Capture thermal state before each iteration
+    const preIterThermalState = thermal.readThermalState();
+
     const r = run(K, L, { seed: 0xC0FFEE + i });
+
+    // Capture thermal state after each iteration
+    const postIterThermalState = thermal.readThermalState();
+
+    // Log thermal data with iteration results
+    thermalLog.push({
+      phase: `iteration_${i + 1}`,
+      iteration: i + 1,
+      preIteration: preIterThermalState,
+      postIteration: postIterThermalState,
+      throughput: r.throughputMBs,
+      ms: r.ms
+    });
+
     if (!best || r.throughputMBs > best.throughputMBs) best = r;
   }
+
+  // Capture final thermal state
+  const finalThermalState = thermal.readThermalState();
+  thermalLog.push({ phase: 'final', ...finalThermalState });
 
   console.log(`\nK=${best.K}  L=${best.L}  cap=${best.cap}`);
   console.log(`  block ${(best.blockBytes / 1024).toFixed(0)} KB · matrix ${(best.matrixBytes / 1024).toFixed(0)} KB`);
@@ -177,12 +207,54 @@ async function report(K, L, options = {}) {
   const phone = best.throughputMBs / PHONE_FACTOR;
   console.log(`  est. phone (÷${PHONE_FACTOR}): ${phone.toFixed(0)} MB/s   [plan assumes ${BUDGET}]`);
 
+  // Print thermal monitoring data
+  if (monitorThermal) {
+    console.log(`\n  === Thermal Monitoring ===`);
+    thermalLog.forEach((entry) => {
+      if (entry.phase === 'initial' || entry.phase === 'final') {
+        const phaseLabel = entry.phase === 'initial' ? 'Initial State' : 'Final State';
+        const tempInfo = Object.entries(entry.temperatures)
+          .filter(([_, temp]) => temp !== null)
+          .map(([name, temp]) => `${name}: ${temp.toFixed(0)}°C`)
+          .join(', ');
+        const freqInfo = entry.cpuFrequency.current !== null ?
+          `CPU: ${entry.cpuFrequency.current.toFixed(2)} GHz` +
+          (entry.cpuFrequency.throttling ? ` 🔥 THROTTLED (${entry.cpuFrequency.throttlePercent}% reduction)` : '') :
+          '';
+        console.log(`  [${phaseLabel}] ${entry.isoTime} | ${tempInfo} | ${freqInfo}`);
+      } else if (entry.phase.startsWith('iteration_')) {
+        const iterTemps = Object.entries(entry.postIteration.temperatures)
+          .filter(([_, temp]) => temp !== null)
+          .map(([name, temp]) => `${name}: ${temp.toFixed(0)}°C`)
+          .join(', ');
+        const iterFreq = entry.postIteration.cpuFrequency.current !== null ?
+          `${entry.postIteration.cpuFrequency.current.toFixed(2)} GHz` +
+          (entry.postIteration.cpuFrequency.throttling ? ` 🔥` : '') : 'N/A';
+        console.log(`  [Iteration ${entry.iteration}] Throughput: ${entry.throughput.toFixed(0)} MB/s (${entry.ms.toFixed(0)} ms) | ${iterTemps} | CPU: ${iterFreq}`);
+      }
+    });
+
+    // Calculate thermal drift
+    const initialTemps = thermalLog.find(e => e.phase === 'initial');
+    const finalTemps = thermalLog.find(e => e.phase === 'final');
+    if (initialTemps && finalTemps) {
+      const initialCpuTemp = initialTemps.temperatures.x86_pkg_temp || initialTemps.temperatures.acpitz;
+      const finalCpuTemp = finalTemps.temperatures.x86_pkg_temp || finalTemps.temperatures.acpitz;
+      if (initialCpuTemp !== null && finalCpuTemp !== null) {
+        const tempDrift = finalCpuTemp - initialCpuTemp;
+        console.log(`  [Thermal Drift] CPU temperature change: ${tempDrift >= 0 ? '+' : ''}${tempDrift.toFixed(1)}°C`);
+      }
+    }
+  }
+
   for (const [name, kb] of STAGES) {
     const need = requiredMBs(K, L, kb * 1024);
     const ok = phone >= need;
     console.log(`    ${name.padEnd(8)} needs ${need.toFixed(0).padStart(4)} MB/s  → ${ok ? 'OK' : 'FAILS'}  (${(phone / need).toFixed(2)}x margin)`);
   }
-  return best;
+
+  // Return best result with thermal log
+  return { ...best, thermalLog };
 }
 
 if (typeof process !== 'undefined' && process.argv[1]?.endsWith('ge-bench.mjs')) {

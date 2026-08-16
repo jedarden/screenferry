@@ -21,6 +21,12 @@ const THERMAL_ZONES = [
 ];
 
 /**
+ * CPU frequency monitoring path
+ */
+const CPU_FREQ_PATH = '/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq';
+const CPU_BASE_FREQ_PATH = '/sys/devices/system/cpu/cpu0/cpufreq/base_frequency';
+
+/**
  * Read current temperatures from all available thermal zones
  * @returns {Object} Object mapping thermal zone names to temperatures in Celsius
  */
@@ -35,6 +41,59 @@ export function readTemperatures() {
     }
   }
   return temps;
+}
+
+/**
+ * Read current CPU frequency
+ * @returns {Object} CPU frequency information in GHz
+ */
+export function readCpuFrequency() {
+  try {
+    const freqRaw = fs.readFileSync(CPU_FREQ_PATH, 'utf8');
+    const currentFreqKHz = parseInt(freqRaw.trim());
+    const currentFreqGHz = currentFreqKHz / 1000000;
+
+    // Get base frequency for comparison
+    let baseFreqGHz = null;
+    try {
+      const baseFreqRaw = fs.readFileSync(CPU_BASE_FREQ_PATH, 'utf8');
+      baseFreqGHz = parseInt(baseFreqRaw.trim()) / 1000000;
+    } catch (e) {
+      // Base frequency might not be available
+    }
+
+    return {
+      current: currentFreqGHz,
+      base: baseFreqGHz,
+      throttling: baseFreqGHz !== null && currentFreqGHz < baseFreqGHz * 0.9,
+      throttlePercent: baseFreqGHz !== null ?
+        ((baseFreqGHz - currentFreqGHz) / baseFreqGHz * 100).toFixed(1) : null
+    };
+  } catch (e) {
+    return {
+      current: null,
+      base: null,
+      throttling: null,
+      throttlePercent: null
+    };
+  }
+}
+
+/**
+ * Read comprehensive thermal state
+ * @returns {Object} Complete thermal state including temperatures, frequency, and timestamp
+ */
+export function readThermalState() {
+  const timestamp = Date.now();
+  const temperatures = readTemperatures();
+  const cpuFrequency = readCpuFrequency();
+
+  return {
+    timestamp,
+    isoTime: new Date(timestamp).toISOString(),
+    temperatures,
+    cpuFrequency
+  };
 }
 
 /**
