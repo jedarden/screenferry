@@ -207,7 +207,7 @@ export interface Modulation {
    *
    * Accepts both VideoFrame (Chromium's `MediaStreamTrackProcessor` path) and ImageData
    * (universal fallback: `requestVideoFrameCallback` + `drawImage`). This compatibility
-   * is required by plan.md §6.4 and §16.3 — non-Chromium browsers cannot produce VideoFrame.
+   * is required by plan.md §6.4 and §6.5 — non-Chromium browsers cannot produce VideoFrame.
    *
    * @param frame - VideoFrame (Chromium) or ImageData (fallback)
    * @returns DecodedFrameResult with packets and diagnostics
