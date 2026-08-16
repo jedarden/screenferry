@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Thermal Monitoring Benchmark - screenferry</title>
+  <style>
+    body {
+      font-family: 'Courier New', monospace;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 20px;
+      background: #1a1a1a;
+      color: #00ff00;
+    }
+
+    .header {
+      text-align: center;
+      margin-bottom: 30px;
+    }
+
+    .controls {
+      background: #2a2a2a;
+      padding: 20px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+    }
+
+    .status {
+      background: #0a0a0a;
+      padding: 15px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      border: 1px solid #333;
+    }
+
+    .status-item {
+      margin: 5px 0;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .console-output {
+      background: #0a0a0a;
+      padding: 15px;
+      border-radius: 8px;
+      height: 400px;
+      overflow-y: auto;
+      border: 1px solid #333;
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
+    .log-entry {
+      margin: 2px 0;
+      padding: 2px 5px;
+    }
+
+    .log-info { color: #00ffff; }
+    .log-warn { color: #ffff00; }
+    .log-error { color: #ff6666; }
+    .log-success { color: #00ff00; }
+    .log-thermal { color: #ff9900; }
+
+    button {
+      background: #00ff00;
+      color: #1a1a1a;
+      border: none;
+      padding: 10px 20px;
+      margin: 5px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-weight: bold;
+      font-family: inherit;
+    }
+
+    button:hover {
+      background: #00cc00;
+    }
+
+    button:disabled {
+      background: #666;
+      cursor: not-allowed;
+    }
+
+    .input-group {
+      margin: 10px 0;
+    }
+
+    label {
+      display: inline-block;
+      min-width: 150px;
+    }
+
+    input, select {
+      background: #1a1a1a;
+      color: #00ff00;
+      border: 1px solid #333;
+      padding: 5px;
+      border-radius: 4px;
+      font-family: inherit;
+    }
+
+    .results-section {
+      background: #2a2a2a;
+      padding: 20px;
+      border-radius: 8px;
+      margin-top: 20px;
+    }
+
+    .results-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 10px 0;
+    }
+
+    .results-table th, .results-table td {
+      border: 1px solid #333;
+      padding: 8px;
+      text-align: left;
+    }
+
+    .results-table th {
+      background: #1a1a1a;
+      color: #00ff00;
+    }
+
+    .progress-bar {
+      background: #333;
+      height: 20px;
+      border-radius: 10px;
+      margin: 10px 0;
+      overflow: hidden;
+    }
+
+    .progress-fill {
+      background: linear-gradient(90deg, #00ff00, #00cc00);
+      height: 100%;
+      transition: width 0.3s ease;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>🌡️ Thermal Monitoring Benchmark</h1>
+    <p>screenferry GE Benchmark with Continuous Thermal State Monitoring</p>
+  </div>
+
+  <div class="controls">
+    <div class="input-group">
+      <label>Iterations:</label>
+      <input type="number" id="iterations" value="10" min="1" max="50">
+    </div>
+
+    <div class="input-group">
+      <label>Output Format:</label>
+      <select id="outputFormat">
+        <option value="console">Console</option>
+        <option value="json">JSON</option>
+        <option value="csv">CSV</option>
+      </select>
+    </div>
+
+    <div class="input-group">
+      <label>Auto Re-induce:</label>
+      <input type="checkbox" id="autoReinduce" checked>
+    </div>
+
+    <div class="input-group">
+      <label>Stress Test Duration (ms):</label>
+      <input type="number" id="stressTestDuration" value="120000" min="30000" max="300000" step="10000">
+    </div>
+
+    <div>
+      <button id="startBtn">▶ Start Benchmark</button>
+      <button id="stopBtn" disabled>⏹ Stop</button>
+      <button id="clearBtn">🗑 Clear Console</button>
+      <button id="exportBtn">💾 Export Results</button>
+    </div>
+  </div>
+
+  <div class="status">
+    <div class="status-item">
+      <span>Status:</span>
+      <span id="status">Ready</span>
+    </div>
+    <div class="status-item">
+      <span>Current Iteration:</span>
+      <span id="currentIteration">-</span>
+    </div>
+    <div class="status-item">
+      <span>Thermal State:</span>
+      <span id="thermalState">Unknown</span>
+    </div>
+    <div class="status-item">
+      <span>FPS Drop:</span>
+      <span id="fpsDrop">0%</span>
+    </div>
+    <div class="status-item">
+      <span>Avg Throughput:</span>
+      <span id="avgThroughput">-</span>
+    </div>
+
+    <div class="progress-bar">
+      <div class="progress-fill" id="progressBar" style="width: 0%"></div>
+    </div>
+  </div>
+
+  <div class="console-output" id="consoleOutput">
+    <div class="log-entry log-info">Thermal benchmark harness loaded. Ready to start.</div>
+  </div>
+
+  <div class="results-section" id="resultsSection" style="display: none;">
+    <h2>📊 Results Summary</h2>
+    <div id="resultsSummary"></div>
+    <h3>Iteration Details</h3>
+    <table class="results-table">
+      <thead>
+        <tr>
+          <th>Iteration</th>
+          <th>Duration (ms)</th>
+          <th>Throughput (MB/s)</th>
+          <th>K_max</th>
+          <th>Throttled Start</th>
+          <th>Throttled End</th>
+          <th>Remained Throttled</th>
+        </tr>
+      </thead>
+      <tbody id="resultsTableBody"></tbody>
+    </table>
+  </div>
+
+  <script type="module">
+    let benchmarkController = null;
+    let currentResults = null;
+
+    const consoleOutput = document.getElementById('consoleOutput');
+    const startBtn = document.getElementById('startBtn');
+    const stopBtn = document.getElementById('stopBtn');
+    const clearBtn = document.getElementById('clearBtn');
+    const exportBtn = document.getElementById('exportBtn');
+    const resultsSection = document.getElementById('resultsSection');
+    const resultsTableBody = document.getElementById('resultsTableBody');
+
+    // Override console.log to capture output
+    const originalConsole = {
+      log: console.log.bind(console),
+      warn: console.warn.bind(console),
+      error: console.error.bind(console),
+      info: console.info.bind(console),
+    };
+
+    function addConsoleEntry(message, type = 'info') {
+      const entry = document.createElement('div');
+      entry.className = `log-entry log-${type}`;
+
+      const timestamp = new Date().toLocaleTimeString();
+      entry.textContent = `[${timestamp}] ${message}`;
+
+      consoleOutput.appendChild(entry);
+      consoleOutput.scrollTop = consoleOutput.scrollHeight;
+    }
+
+    console.log = (...args) => {
+      originalConsole.log(...args);
+      addConsoleEntry(args.join(' '), 'info');
+    };
+
+    console.warn = (...args) => {
+      originalConsole.warn(...args);
+      addConsoleEntry(args.join(' '), 'warn');
+    };
+
+    console.error = (...args) => {
+      originalConsole.error(...args);
+      addConsoleEntry(args.join(' '), 'error');
+    };
+
+    console.info = (...args) => {
+      originalConsole.info(...args);
+      addConsoleEntry(args.join(' '), 'info');
+    };
+
+    // UI update functions
+    function updateStatus(status) {
+      document.getElementById('status').textContent = status;
+    }
+
+    function updateIteration(iteration) {
+      document.getElementById('currentIteration').textContent = iteration;
+    }
+
+    function updateThermalState(state) {
+      if (state) {
+        document.getElementById('thermalState').textContent =
+          state.isThrottled ? '🔥 THROTTLED' : '❄️ Normal';
+        document.getElementById('fpsDrop').textContent =
+          `${(state.fpsDrop * 100).toFixed(1)}%`;
+      }
+    }
+
+    function updateProgress(current, total) {
+      const percentage = (current / total) * 100;
+      document.getElementById('progressBar').style.width = `${percentage}%`;
+    }
+
+    function updateAvgThroughput(avg) {
+      document.getElementById('avgThroughput').textContent =
+        avg ? `${avg.toFixed(2)} MB/s` : '-';
+    }
+
+    function displayResults(results) {
+      currentResults = results;
+      resultsSection.style.display = 'block';
+
+      // Display summary
+      const summaryHtml = `
+        <p><strong>Total Duration:</strong> ${(results.totalDuration / 1000).toFixed(2)}s</p>
+        <p><strong>Iterations:</strong> ${results.summary.totalIterations}</p>
+        <p><strong>Successful Throttled Iterations:</strong> ${results.summary.successfulThrottledIterations}</p>
+        <p><strong>Re-induction Count:</strong> ${results.summary.reinductionCount}</p>
+        <p><strong>Thermal Consistency:</strong> ${(results.summary.thermalStateConsistency * 100).toFixed(1)}%</p>
+        <p><strong>Average Throughput:</strong> ${results.summary.avgThroughputMBs.toFixed(2)} MB/s</p>
+        <p><strong>Average K_max:</strong> ${results.summary.avgDerivedKMax.toFixed(0)}</p>
+      `;
+      document.getElementById('resultsSummary').innerHTML = summaryHtml;
+
+      // Display iteration table
+      resultsTableBody.innerHTML = '';
+      results.iterations.forEach(iter => {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+          <td>${iter.iteration + 1}</td>
+          <td>${iter.duration.toFixed(0)}</td>
+          <td>${iter.measuredThroughputMBs.toFixed(2)}</td>
+          <td>${iter.derivedKMax}</td>
+          <td>${iter.thermalStateStart.isThrottled ? '✅' : '❌'}</td>
+          <td>${iter.thermalStateEnd.isThrottled ? '✅' : '❌'}</td>
+          <td>${iter.remainedThrottled ? '✅' : '❌'}</td>
+        `;
+        resultsTableBody.appendChild(row);
+      });
+    }
+
+    // Button event handlers
+    startBtn.addEventListener('click', async () => {
+      startBtn.disabled = true;
+      stopBtn.disabled = false;
+
+      const config = {
+        iterations: parseInt(document.getElementById('iterations').value),
+        outputFormat: document.getElementById('outputFormat').value,
+        autoReinduce: document.getElementById('autoReinduce').checked,
+        stressTestDuration: parseInt(document.getElementById('stressTestDuration').value),
+      };
+
+      updateStatus('Starting...');
+      console.log('Starting thermal benchmark with config:', config);
+
+      try {
+        // Import the benchmark module dynamically
+        const { runThermalBenchmark } = await import('/scripts/run-thermal-benchmark.ts');
+
+        updateStatus('Running...');
+        const results = await runThermalBenchmark(config);
+
+        displayResults(results);
+        updateStatus('Complete ✅');
+        addConsoleEntry('Benchmark completed successfully!', 'success');
+
+      } catch (error) {
+        updateStatus('Failed ❌');
+        addConsoleEntry(`Benchmark failed: ${error.message}`, 'error');
+        console.error('Benchmark error:', error);
+      } finally {
+        startBtn.disabled = false;
+        stopBtn.disabled = true;
+      }
+    });
+
+    stopBtn.addEventListener('click', () => {
+      updateStatus('Stopping...');
+      addConsoleEntry('Stop requested - current iteration will complete before stopping', 'warn');
+      // Note: Full cancellation support would need AbortController implementation
+      stopBtn.disabled = true;
+    });
+
+    clearBtn.addEventListener('click', () => {
+      consoleOutput.innerHTML = '';
+      addConsoleEntry('Console cleared', 'info');
+    });
+
+    exportBtn.addEventListener('click', () => {
+      if (currentResults) {
+        const dataStr = JSON.stringify(currentResults, null, 2);
+        const blob = new Blob([dataStr], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `thermal-benchmark-results-${Date.now()}.json`;
+        a.click();
+
+        URL.revokeObjectURL(url);
+        addConsoleEntry('Results exported successfully', 'success');
+      } else {
+        addConsoleEntry('No results to export', 'warn');
+      }
+    });
+
+    // Load initial message
+    addConsoleEntry('Ready to start thermal monitoring benchmark. Configure options and click Start.', 'info');
+  </script>
+</body>
+</html>
