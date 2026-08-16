@@ -10,7 +10,7 @@
  * - Drop-don't-queue backpressure
  * - Metrics tracking (fps, decode latency, packets/sec)
  *
- * Reference: plan.md §6.4, §13.1, §16.3
+ * Reference: plan.md §6.4, §13.1, §6.5
  */
 
 import { createDecodePool, type QRDecodePool, type DecodePoolConfig } from '../workers/qr-decode-pool.js';
