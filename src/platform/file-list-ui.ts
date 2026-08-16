@@ -32,9 +32,9 @@ export interface FileListUIConfig {
 export class FileListUI {
   private container: HTMLElement;
   private config: FileListUIConfig;
-  private panel: HTMLElement;
-  private fileList: HTMLElement;
-  private refreshButton: HTMLButtonElement;
+  private panel!: HTMLElement; // Assigned in createUI(), called from constructor
+  private fileList!: HTMLElement; // Assigned in createUI(), called from constructor
+  private refreshButton!: HTMLButtonElement; // Assigned in createUI(), called from constructor
   private isVisible: boolean = false;
 
   constructor(config: FileListUIConfig) {

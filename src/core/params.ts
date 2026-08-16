@@ -44,24 +44,25 @@ export const K = 768;
  * Maximum K permitted for sender-side desktop receiver override.
  *
  * **Tied to I6a (1 MB block-layer working set constraint):**
- * Working set = matrix + block = K²/8 + K*L bytes (per I6a definition)
- * At K=2048 with L=256: exactly 1 MB (at the limit)
- * At K=2049 with L=256: exceeds 1 MB (would breach I6a)
+ * Working set = matrix + block = K²/8 + K*L bytes (per D26 definition)
  *
- * **Derivation:**
- * K²/8 + K*L ≤ 1,048,576 bytes (1 MB)
+ * **Derivation from D26's working set:**
+ * Per D26, the working set for I6a is:
+ * - Matrix: K²/8 bytes (coefficient storage for GE decoder)
+ * - Block: K×L bytes (payload storage)
+ * Total: K²/8 + K×L bytes
+ *
+ * Solving K²/8 + K×L ≤ 1,048,576 bytes (1 MB):
  * With L=256: K²/8 + 256K ≤ 1,048,576
- * Solving: K² + 2048K - 8,388,608 = 0
- * K = (-2048 + √37,748,736)/2 = 2048
+ * K² + 2048K - 8,388,608 = 0
+ * K = (-2048 + √(2048² + 4×8,388,608))/2 = 2048
  *
  * **Relationship to plan.md §3.1 K_max=1152:**
  * The plan's K_max=1152 is derived from CPU throughput constraints at Stage 3
- * (195.4 MB/s sustained need with 1.02× margin). K_MAX=2048 is derived from
- * I6a's memory constraint (1 MB working set). These are independent bounds:
+ * (195.4 MB/s sustained need with 1.02× margin). These are independent bounds:
  * - CPU-constrained devices (phones) are protected by receiver-side GE benchmark
  * - Memory-constrained scenarios are protected by this sender-side K_MAX check
  *
- * K_MAX=2048 allows higher K for desktop receivers while guaranteeing I6a compliance.
  * A sender-side desktop override MUST validate K ≤ K_MAX before session creation.
  *
  * @see validateK()
@@ -131,14 +132,14 @@ for (const r of RUNGS) {
  * **Purpose:** Enforces D26's upper bound for sender-side desktop receiver overrides.
  * Ensures that any K value (default or desktop-optimized) respects I6a's memory limit.
  *
- * **Working set calculation (I6a):**
+ * **Working set calculation (per D26):**
  * - Matrix: K²/8 bytes (coefficient storage for GE decoder)
  * - Block: K*L bytes (payload storage)
  * - Total: K²/8 + K*L ≤ 1,048,576 bytes (1 MB)
  *
- * Note: The output buffer (K*L bytes for recover()) is temporary and not part of
- * the steady-state working set. The plan.md figures (e.g., 264 KB at K=768) use
- * this definition (matrix + block only).
+ * Per D26, the working set is matrix + block only. At K=2048 with L=256, this equals
+ * exactly 1 MB. The recover() buffer is temporary allocation and not part of the
+ * steady-state working set measured by I6a.
  *
  * **Validation:**
  * - Must be called with L=256 (wire version 1 constant)
@@ -183,7 +184,7 @@ export function validateK(k: number, l: number = L): number {
       `  - Matrix: ${((k * k) / 8 / 1024).toFixed(1)} KB\n` +
       `  - Block: ${(k * l / 1024).toFixed(1)} KB\n` +
       `Maximum allowed K is ${K_MAX} (~${((K_MAX * K_MAX / 8 + K_MAX * l) / 1_048_576).toFixed(2)} MB)\n` +
-      `Use the default K=${K} for conservative operation, or reduce K to ≤${K_MAX}.`
+      `For desktop receivers: Use the default K=${K} for conservative operation, or reduce K to ≤${K_MAX}.`
     );
   }
 

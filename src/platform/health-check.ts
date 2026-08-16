@@ -153,7 +153,6 @@ export async function checkStorage(): Promise<StorageCheck> {
     // Fallback: assume storage is available but quota unknown
     return {
       available: true,
-      quota: undefined,
     };
   } catch (e) {
     return {
@@ -177,10 +176,6 @@ export async function checkCamera(
   if (config.skipSlow) {
     return {
       available: true, // Assume available for quick checks
-      measuredFps: undefined,
-      resolution: undefined,
-      actualWidth: undefined,
-      actualHeight: undefined,
     };
   }
 
@@ -208,7 +203,14 @@ export async function checkCamera(
       video: trackConstraints,
     });
 
-    const videoTrack = stream.getVideoTracks()[0];
+    const videoTracks = stream.getVideoTracks();
+    if (!videoTracks.length) {
+      return {
+        available: false,
+        error: 'No video tracks in stream',
+      };
+    }
+    const videoTrack = videoTracks[0];
     const settings = videoTrack.getSettings();
 
     // Capture actual resolution (may differ from requested due to device limits)
@@ -227,7 +229,6 @@ export async function checkCamera(
     if (settings) {
       return {
         available: true,
-        measuredFps: undefined, // FPS measurement requires frame capture timing
         resolution,
         actualWidth,
         actualHeight,

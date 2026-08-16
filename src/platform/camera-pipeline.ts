@@ -19,6 +19,7 @@ import { getConstraints, toMediaTrackConstraints, CaptureResolution } from './ca
 import type { SubmitResult } from '../workers/qr-decode-pool.js';
 import type { ROI } from '../workers/qr-decode.worker.js';
 import { StallDetector, type StallDiagnosis, type StallDetectorConfig } from './stall-detector.js';
+import { createMemoryMonitor, type MemoryMonitor, type MemorySnapshot } from './memory-monitor.js';
 
 /**
  * Pipeline configuration
@@ -38,6 +39,9 @@ export interface CameraPipelineConfig {
 
   /** Display at ≤ half measured camera fps (D9) */
   targetDisplayFps?: number;
+
+  /** Memory sample interval in frames (default: 100) */
+  memorySampleInterval?: number;
 }
 
 /**
@@ -112,9 +116,17 @@ export class CameraPipeline {
   private droppedCount: number = 0;
   private decodedCount: number = 0;
 
-  // Timing metrics
-  private frameTimestamps: number[] = [];
+  // Timing metrics - Fixed bug: Use Map instead of array for frameTimestamps
+  // to handle frameIndex that grows beyond the rolling array size
+  private frameTimestamps: Map<number, number> = new Map();
+
+  // Circular buffer for decode latencies (bf-2p07 fix)
+  // Prevents unbounded array growth that caused 4.7x degradation over long sessions
+  // Uses circular buffer pattern with max size to maintain O(1) push and bounded memory
   private decodeLatencies: number[] = [];
+  private decodeLatenciesIndex: number = 0;
+  private readonly MAX_DECODE_LATENCIES = 1000; // ~8KB, enough for statistically valid p50/p99
+
   private packetsPerFrame: number[] = [];
   private lastFpsUpdate: number = 0;
   private currentCaptureFps: number = 0;
@@ -136,18 +148,115 @@ export class CameraPipeline {
   // Stall detector (F2: Diagnostic stall detector)
   private stallDetector: StallDetector;
 
+  // Memory monitoring for bf-2p07 degradation investigation
+  private memoryMonitor: MemoryMonitor;
+  private memoryMonitoringEnabled: boolean = false;
+
   constructor(config: CameraPipelineConfig = {}) {
     this.config = {
       resolution: config.resolution ?? CaptureResolution.RES_1080P,
       frameRate: config.frameRate || 30,
       targetDisplayFps: config.targetDisplayFps || 15,
       decodePool: config.decodePool || {},
+      memorySampleInterval: config.memorySampleInterval || 100,
     };
 
     // Initialize stall detector with default config
     this.stallDetector = new StallDetector({
       enableCanaryDetection: true, // Enable canary tile detection by default
     });
+
+    // Initialize memory monitor for bf-2p07 investigation
+    // Sample every 100 frames (~3.3 seconds at 30fps) for long-running sessions
+    // Configurable via CameraPipelineConfig.memorySampleInterval
+    this.memoryMonitor = createMemoryMonitor({
+      sampleInterval: config.memorySampleInterval || 100, // Sample every 100 frames (~3.3 seconds at 30fps)
+      maxSnapshots: 2000, // Keep up to ~11 minutes of data (2000 samples * 3.3s)
+      trackArrays: true,
+      trackWorkers: true,
+      trackHandles: true, // Enable handle tracking if browser supports it
+      frameRate: this.config.frameRate || 30,
+    });
+  }
+
+  /**
+   * Enable memory monitoring for degradation investigation
+   *
+   * This tracks heap usage, array growth, and worker resources to identify
+   * memory leaks that cause performance degradation over long sessions.
+   */
+  enableMemoryMonitoring(): void {
+    this.memoryMonitoringEnabled = true;
+    this.memoryMonitor.startMonitoring(this.frameCount);
+    console.log('[Camera Pipeline] Memory monitoring enabled');
+  }
+
+  /**
+   * Disable memory monitoring and get analysis
+   */
+  disableMemoryMonitoring(): {
+    summary: string;
+    snapshots: MemorySnapshot[];
+    monotonicGrowth: ReturnType<MemoryMonitor['detectMonotonicGrowth']>;
+  } {
+    this.memoryMonitoringEnabled = false;
+    const snapshots = this.memoryMonitor.stopMonitoring();
+    const summary = this.memoryMonitor.getSummary();
+    const monotonicGrowth = this.memoryMonitor.detectMonotonicGrowth();
+    console.log('[Camera Pipeline] Memory monitoring disabled:\n', summary);
+    return { summary, snapshots, monotonicGrowth };
+  }
+
+  /**
+   * Get current memory monitoring analysis
+   */
+  getMemoryAnalysis(): ReturnType<MemoryMonitor['analyzeLeaks']> {
+    return this.memoryMonitor.analyzeLeaks();
+  }
+
+  /**
+   * Export memory metrics data as JSON
+   *
+   * Returns a JSON string containing all collected memory metrics
+   * that can be loaded into the visualizer for analysis.
+   */
+  exportMemoryMetrics(): string {
+    return this.memoryMonitor.exportMetrics();
+  }
+
+  /**
+   * Download memory metrics as a JSON file
+   *
+   * Triggers a browser download of the collected memory metrics
+   * for offline analysis.
+   */
+  downloadMemoryMetrics(): void {
+    const jsonData = this.exportMemoryMetrics();
+    const blob = new Blob([jsonData], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `screenferry-memory-metrics-${this.memoryMonitor.getSessionId()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    console.log('[Camera Pipeline] Memory metrics downloaded');
+  }
+
+  /**
+   * Get memory monitoring status
+   */
+  getMemoryMonitoringStatus(): {
+    enabled: boolean;
+    sessionId: string;
+    snapshotsCollected: number;
+    canExport: boolean;
+  } {
+    return {
+      enabled: this.memoryMonitoringEnabled,
+      sessionId: this.memoryMonitor.getSessionId(),
+      snapshotsCollected: this.memoryMonitor.getSnapshots().length,
+      canExport: this.memoryMonitor.getSnapshots().length > 0,
+    };
   }
 
   /**
@@ -354,9 +463,20 @@ export class CameraPipeline {
     // Submit to decode pool with current ROI
     const submitResult: SubmitResult = this.decodePool!.submitFrame(processedFrame);
 
-    // Track timing
-    this.frameTimestamps.push(timestamp);
+    // Track timing - Fixed bug: Use Map.set instead of array push
+    this.frameTimestamps.set(frameIndex, timestamp);
     this.cameraFrames++;
+
+    // Take memory snapshot for bf-2p07 investigation
+    if (this.memoryMonitoringEnabled) {
+      this.memoryMonitor.takeSnapshot(frameIndex, {
+        frameTimestampsCount: this.frameTimestamps.size,
+        decodeLatenciesCount: this.decodeLatencies.length,
+        packetsPerFrameCount: this.packetsPerFrame.length,
+        inFlightFrames: this.decodePool ? this.decodePool.getStats().inFlightCount : 0,
+        workerCount: this.decodePool ? this.decodePool.getStats().workerCount : 0,
+      });
+    }
 
     if (!submitResult.accepted && submitResult.dropped) {
       this.droppedCount++;
@@ -371,14 +491,28 @@ export class CameraPipeline {
    * Handle a decode result from the worker pool.
    */
   private handleDecodeResult(frameIndex: number, result: DecodedFrameResult, error?: string): void {
-    const frameTimestamp = this.frameTimestamps[frameIndex];
+    const frameTimestamp = this.frameTimestamps.get(frameIndex);
     if (frameTimestamp === undefined || frameTimestamp === null) {
       console.error('[Camera Pipeline] No timestamp for frame index:', frameIndex);
       return;
     }
+    // Clean up the timestamp entry to prevent Map growth (bf-2p07 fix)
+    this.frameTimestamps.delete(frameIndex);
+
     const decodeMs = performance.now() - frameTimestamp;
     this.decodedCount++;
-    this.decodeLatencies.push(decodeMs);
+
+    // Circular buffer: Store latency in bounded array (bf-2p07 fix)
+    // This prevents unbounded growth that caused 4.7x degradation over long sessions
+    if (this.decodeLatencies.length < this.MAX_DECODE_LATENCIES) {
+      // Fill phase: append until buffer is full
+      this.decodeLatencies.push(decodeMs);
+    } else {
+      // Wrap phase: overwrite old entries in circular pattern
+      this.decodeLatencies[this.decodeLatenciesIndex] = decodeMs;
+      this.decodeLatenciesIndex = (this.decodeLatenciesIndex + 1) % this.MAX_DECODE_LATENCIES;
+    }
+
     this.packetsPerFrame.push(result.packets.length);
 
     // Update ROI based on decoded positions (AP2's ratchet guard)
@@ -702,8 +836,9 @@ export class CameraPipeline {
     this.frameCount = 0;
     this.droppedCount = 0;
     this.decodedCount = 0;
-    this.frameTimestamps = [];
-    this.decodeLatencies = [];
+    this.frameTimestamps.clear();
+    this.decodeLatencies = []; // Clear circular buffer
+    this.decodeLatenciesIndex = 0; // Reset circular buffer index (bf-2p07)
     this.packetsPerFrame = [];
 
     console.log('[Camera Pipeline] Stopped');

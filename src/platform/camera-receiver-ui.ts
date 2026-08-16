@@ -61,6 +61,10 @@ export class CameraReceiverUI {
   private fileListUI!: FileListUI;
   private fileListToggleButton: HTMLButtonElement;
   private deleteLatestButton: HTMLButtonElement;
+  private memoryControlsPanel!: HTMLElement;
+  private memoryEnableButton!: HTMLButtonElement;
+  private memoryExportButton!: HTMLButtonElement;
+  private memoryStatusPanel!: HTMLElement;
 
   // State
   private running: boolean = false;
@@ -122,6 +126,17 @@ export class CameraReceiverUI {
 
     // Create delete latest file button
     this.deleteLatestButton = this.createDeleteLatestButton();
+
+    // Create memory monitoring controls
+    this.memoryControlsPanel = this.createMemoryControlsPanel();
+    this.memoryEnableButton = this.createMemoryEnableButton();
+    this.memoryExportButton = this.createMemoryExportButton();
+    this.memoryStatusPanel = this.createMemoryStatusPanel();
+
+    // Assemble memory controls panel
+    this.memoryControlsPanel.appendChild(this.memoryEnableButton);
+    this.memoryControlsPanel.appendChild(this.memoryExportButton);
+    this.memoryControlsPanel.appendChild(this.memoryStatusPanel);
 
     // Create video element
     this.video = document.createElement('video');
@@ -191,6 +206,7 @@ export class CameraReceiverUI {
     wrapper.appendChild(this.canvas);
     wrapper.appendChild(this.statsPanel);
     wrapper.appendChild(this.stallWarningPanel);
+    wrapper.appendChild(this.memoryControlsPanel);
     wrapper.appendChild(this.fileListToggleButton);
     wrapper.appendChild(this.deleteLatestButton);
     this.container.appendChild(wrapper);
@@ -413,6 +429,123 @@ export class CameraReceiverUI {
     });
 
     return button;
+  }
+
+  /**
+   * Create the memory monitoring controls panel
+   */
+  private createMemoryControlsPanel(): HTMLElement {
+    const panel = document.createElement('div');
+    panel.id = 'memory-controls-panel';
+    panel.style.cssText = `
+      position: absolute;
+      bottom: 60px;
+      right: 10px;
+      background: rgba(0, 0, 0, 0.8);
+      border: 1px solid #333;
+      border-radius: 4px;
+      padding: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      z-index: 50;
+    `;
+    return panel;
+  }
+
+  /**
+   * Create the memory enable button
+   */
+  private createMemoryEnableButton(): HTMLButtonElement {
+    const button = document.createElement('button');
+    button.className = 'memory-enable-button';
+    button.innerHTML = '📊 Enable Memory Monitoring';
+    button.title = 'Enable memory profiling for degradation investigation';
+    button.setAttribute('aria-label', 'Enable memory monitoring');
+    button.style.cssText = `
+      background: rgba(33, 150, 243, 0.8);
+      border: 1px solid #2196F3;
+      color: #fff;
+      padding: 6px 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 12px;
+      transition: all 0.2s;
+    `;
+
+    button.addEventListener('mouseover', () => {
+      button.style.background = 'rgba(33, 150, 243, 0.9)';
+    });
+
+    button.addEventListener('mouseout', () => {
+      button.style.background = 'rgba(33, 150, 243, 0.8)';
+    });
+
+    button.addEventListener('click', () => {
+      const pipeline = this.getPipeline();
+      pipeline.enableMemoryMonitoring();
+      button.disabled = true;
+      button.innerHTML = '✅ Memory Monitoring Active';
+      button.style.background = 'rgba(76, 175, 80, 0.8)';
+      button.style.borderColor = '#4CAF50';
+    });
+
+    return button;
+  }
+
+  /**
+   * Create the memory export button
+   */
+  private createMemoryExportButton(): HTMLButtonElement {
+    const button = document.createElement('button');
+    button.className = 'memory-export-button';
+    button.innerHTML = '💾 Export Memory Data';
+    button.title = 'Export collected memory metrics as JSON';
+    button.setAttribute('aria-label', 'Export memory metrics');
+    button.disabled = true; // Disabled until memory monitoring is enabled
+    button.style.cssText = `
+      background: rgba(156, 39, 176, 0.8);
+      border: 1px solid #9C27B0;
+      color: #fff;
+      padding: 6px 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 12px;
+      transition: all 0.2s;
+    `;
+
+    button.addEventListener('mouseover', () => {
+      if (!button.disabled) {
+        button.style.background = 'rgba(156, 39, 176, 0.9)';
+      }
+    });
+
+    button.addEventListener('mouseout', () => {
+      button.style.background = 'rgba(156, 39, 176, 0.8)';
+    });
+
+    button.addEventListener('click', () => {
+      const pipeline = this.getPipeline();
+      pipeline.downloadMemoryMetrics();
+    });
+
+    return button;
+  }
+
+  /**
+   * Create the memory status panel
+   */
+  private createMemoryStatusPanel(): HTMLElement {
+    const panel = document.createElement('div');
+    panel.id = 'memory-status-panel';
+    panel.innerHTML = '<span style="color: #999; font-size: 11px;">Memory monitoring inactive</span>';
+    panel.style.cssText = `
+      font-size: 11px;
+      color: #fff;
+      text-align: center;
+      padding: 2px 0;
+    `;
+    return panel;
   }
 
   /**

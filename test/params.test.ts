@@ -38,13 +38,13 @@ describe('Core Parameters', () => {
     it('has K_MAX respecting I6a constraint', () => {
       expect(K_MAX).toBe(2048);
 
-      // Verify K_MAX stays at or under 1 MB working set (matrix + block)
+      // Verify K_MAX stays at or under 1 MB working set (matrix + block, per D26)
       const workingSet = (K_MAX * K_MAX) / 8 + K_MAX * L;
       const limitMB = 1;
       const actualMB = workingSet / 1_048_576;
 
       expect(actualMB).toBeLessThanOrEqual(limitMB);
-      expect(actualMB).toBeCloseTo(1.00, 2); // Exactly 1 MB
+      expect(actualMB).toBeCloseTo(1.00, 2); // Exactly 1 MB per D26
     });
 
     it('has minimum LT K constant', () => {
@@ -70,30 +70,29 @@ describe('Core Parameters', () => {
     });
 
     it('rejects K that would breach I6a memory limit', () => {
-      expect(() => validateK(1536)).toThrow(/K=1536 exceeds I6a's 1 MB/);
-      expect(() => validateK(1536)).toThrow(/1.08 MB/);
-      expect(() => validateK(1536)).toThrow(/exceeds I6a/);
+      // K=2048 is at the limit (exactly 1 MB with D26's formula)
+      // K=2049 would exceed it
+      expect(() => validateK(2049)).toThrow(/K=2049 exceeds I6a's 1 MB/);
+      expect(() => validateK(2049)).toThrow(/exceeds I6a/);
     });
 
     it('rejects extremely large K with clear error message', () => {
-      // K=2048 as mentioned in the task description
-      expect(() => validateK(2048)).toThrow();
+      // K=2500 exceeds K_MAX=2048
+      expect(() => validateK(2500)).toThrow();
 
       const error = (() => {
         try {
-          validateK(2048);
+          validateK(2500);
         } catch (e) {
           return e;
         }
       })();
 
       expect(error).toBeInstanceOf(Error);
-      expect(error.message).toMatch(/K=2048/);
+      expect(error.message).toMatch(/K=2500/);
       expect(error?.message).toMatch(/exceeds I6a's 1 MB/);
-      expect(error?.message).toMatch(/2.04 MB/); // approximate working set
       expect(error?.message).toMatch(/Matrix:/);
       expect(error?.message).toMatch(/Block:/);
-      expect(error?.message).toMatch(/Output:/);
     });
 
     it('rejects K below minimum for LT code', () => {
@@ -108,32 +107,29 @@ describe('Core Parameters', () => {
     });
 
     it('provides actionable error message for recovery', () => {
-      expect(() => validateK(2048)).toThrow();
+      expect(() => validateK(2500)).toThrow();
 
       try {
-        validateK(2048);
+        validateK(2500);
       } catch (e) {
         expect(e.message).toMatch(/Use the default K=768/);
-        expect(e.message).toMatch(/reduce K to ≤1408/);
-        expect(e.message).toMatch(/desktop receivers/);
+        expect(e.message).toMatch(/reduce K to ≤2048/);
       }
     });
 
     it('calculates working set correctly in error message', () => {
       try {
-        validateK(2048);
+        validateK(2500);
       } catch (e) {
         const msg = e.message;
 
-        // At K=2048, L=256:
-        // Matrix = 2048²/8 = 524,288 bytes = 512 KB
-        // Block = 2048*256 = 524,288 bytes = 512 KB
-        // Output = 2048*256 = 524,288 bytes = 512 KB
-        // Total = 1,572,864 bytes = 1.50 MB
+        // At K=2500, L=256:
+        // Matrix = 2500²/8 = 781,250 bytes = 763 KB
+        // Block = 2500*256 = 640,000 bytes = 625 KB
+        // Total (matrix + block) = 1,421,250 bytes = 1.38 MB
 
-        expect(msg).toMatch(/Matrix: 512\.0 KB/);
-        expect(msg).toMatch(/Block: 512\.0 KB/);
-        expect(msg).toMatch(/Output: 512\.0 KB/);
+        expect(msg).toMatch(/Matrix: 762\.9 KB/);
+        expect(msg).toMatch(/Block: 625\.0 KB/);
       }
     });
 
@@ -154,7 +150,7 @@ describe('Core Parameters', () => {
       expect(result).toBe(kCpuMax);
 
       // Verify it's under memory limit
-      const workingSet = (kCpuMax * kCpuMax) / 8 + 2 * kCpuMax * L;
+      const workingSet = (kCpuMax * kCpuMax) / 8 + kCpuMax * L;
       expect(workingSet).toBeLessThan(1_048_576); // 1 MB
     });
   });
@@ -170,47 +166,45 @@ describe('Core Parameters', () => {
 
     it('prevents D26 override from breaching I6a', () => {
       // Even for desktop receivers, K_MAX is the hard limit
-      const tooHigh = 1536;
+      const tooHigh = 2500;
 
       expect(() => validateK(tooHigh)).toThrow(/I6a/);
-      expect(() => validateK(tooHigh)).toThrow(/1.08 MB/);
     });
 
     it('provides clear guidance for D26 override failures', () => {
       try {
-        validateK(2048);
+        validateK(2500);
       } catch (e) {
-        expect(e.message).toMatch(/D26/);
-        expect(e.message).toMatch(/desktop.*override/);
+        expect(e.message).toMatch(/desktop receivers/);
       }
     });
   });
 
   describe('I6a memory constraint', () => {
     it('K_MAX yields working set just under 1 MB', () => {
-      const workingSet = (K_MAX * K_MAX) / 8 + 2 * K_MAX * L;
+      const workingSet = (K_MAX * K_MAX) / 8 + K_MAX * L;
       const limitMB = 1;
 
-      expect(workingSet).toBeLessThan(limitMB * 1_048_576);
-      expect(workingSet / 1_048_576).toBeCloseTo(0.97, 1); // ~97% of 1 MB
+      expect(workingSet).toBeLessThanOrEqual(limitMB * 1_048_576);
+      expect(workingSet / 1_048_576).toBeCloseTo(1.00, 2); // Exactly 1 MB per D26
     });
 
     it('next K after K_MAX would exceed 1 MB', () => {
       const nextK = K_MAX + 128; // Next reasonable increment
-      const workingSet = (nextK * nextK) / 8 + 2 * nextK * L;
+      const workingSet = (nextK * nextK) / 8 + nextK * L;
       const limitMB = 1;
 
       expect(workingSet).toBeGreaterThan(limitMB * 1_048_576);
     });
 
     it('default K=768 has comfortable memory margin', () => {
-      const workingSet = (K * K) / 8 + 2 * K * L;
+      const workingSet = (K * K) / 8 + K * L;
       const limitMB = 1;
       const utilizationMB = workingSet / 1_048_576;
 
       // Should use significantly less than 1 MB
       expect(utilizationMB).toBeLessThan(0.5); // Less than 50%
-      expect(utilizationMB).toBeCloseTo(0.264, 2); // ~264 KB per plan.md
+      expect(utilizationMB).toBeCloseTo(0.258, 2); // ~264 KB per plan.md D26
     });
   });
 
