@@ -342,7 +342,11 @@ export function decodeMultiBlock(
 
   // Decode each block
   for (let blockIndex = 0; blockIndex < packetsPerBlock.length; blockIndex++) {
-    const result = decode(packetsPerBlock[blockIndex], {
+    const packets = packetsPerBlock[blockIndex];
+    if (!packets) {
+      throw new Error(`No packets found for block ${blockIndex}`);
+    }
+    const result = decode(packets, {
       ...options,
       blockIndex,
     });
@@ -425,7 +429,7 @@ export function roundtrip(
   // Decode the packets
   const decoded = decode(encoded.packets, {
     streamId: encodeOptions.streamId,
-    blockIndex: encodeOptions.blockIndex,
+    blockIndex: encodeOptions.blockIndex ?? 0,
     fileSize: inputData.length,
     geometry: encoded.geometry,
     ...decodeOptions,

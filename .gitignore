@@ -13,3 +13,6 @@ coverage/
 spike/node_modules/
 test-results/
 .certs/
+
+# transient benchmark/run logs
+logs/

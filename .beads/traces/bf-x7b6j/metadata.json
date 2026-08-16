@@ -1,0 +1,21 @@
+{
+  "bead_id": "bf-x7b6j",
+  "agent": "claude-code-glm-4.7",
+  "provider": "zai",
+  "model": "glm-4.7",
+  "exit_code": 124,
+  "outcome": "timeout",
+  "duration_ms": 602603,
+  "input_tokens": null,
+  "output_tokens": null,
+  "cost_usd": null,
+  "captured_at": "2026-08-16T07:34:39.564316293Z",
+  "trace_format": "claude_json",
+  "pruned": false,
+  "template_version": null,
+  "timeout_reason": {
+    "legacy": {
+      "timeout_secs": 600
+    }
+  }
+}

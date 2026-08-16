@@ -227,6 +227,7 @@ describe('Regression: Original failure chain (bf-2w1a)', () => {
             flags,
             blockHashLen: 4,
             wholeFileHash: new Uint8Array(32),
+            manifestHash: new Uint8Array(4),
             filename: 'test.mp4',
             mimeType: 'video/mp4',
           },

@@ -1,0 +1,170 @@
+{
+  "benchmark_metadata": {
+    "task_id": "bf-8v7nz",
+    "analysis_date": "2026-08-08",
+    "benchmark_run": "2026-08-08T01:19:34",
+    "host": "lab",
+    "system": "Linux 6.12.63",
+    "objective": "Analyze and document thermal state and benchmark results from throttled run"
+  },
+  "configuration": {
+    "target_k": [768, 512],
+    "fragment_length": 256,
+    "block_size": 192,
+    "phone_factors": [1, 2, 4],
+    "trials_per_test": [1, 2, 3],
+    "monitoring": {
+      "interval": 2,
+      "duration_seconds": 62,
+      "readings": 31
+    },
+    "iterations": 3
+  },
+  "performance_summary": {
+    "total_runs": 39,
+    "by_phone_factor": {
+      "phone_factor_4": {
+        "count": 33,
+        "avg_throughput_mbps": 389.64,
+        "median_throughput_mbps": 375.39,
+        "min_throughput_mbps": 269.89,
+        "max_throughput_mbps": 653.07,
+        "std_dev_mbps": 72.06,
+        "coefficient_of_variation": 0.185
+      },
+      "phone_factor_1": {
+        "count": 3,
+        "avg_throughput_mbps": 1588.91,
+        "median_throughput_mbps": 1624.28,
+        "min_throughput_mbps": 1473.73,
+        "max_throughput_mbps": 1668.72
+      },
+      "phone_factor_2": {
+        "count": 3,
+        "avg_throughput_mbps": 716.36,
+        "median_throughput_mbps": 696.73,
+        "min_throughput_mbps": 661.58,
+        "max_throughput_mbps": 790.76
+      }
+    }
+  },
+  "phone_factor_validation": {
+    "desktop_avg_mbps": 1588.91,
+    "expected_phone_mbps": 397.23,
+    "actual_phone_mbps": 389.64,
+    "actual_ratio": 4.08,
+    "expected_ratio": 4.0,
+    "deviation_percent": 2.0
+  },
+  "k_max_results": {
+    "values_observed": [1088, 1305],
+    "most_common": 1305,
+    "consistency_rate": 0.95
+  },
+  "thermal_monitoring": {
+    "status": "FAILED",
+    "readings": 31,
+    "duration_seconds": 62,
+    "metrics": {
+      "temperature_c": {
+        "status": "NULL",
+        "non_null_count": 0,
+        "issue": "Sensors inaccessible"
+      },
+      "cpu_freq_ghz": {
+        "status": "NULL",
+        "non_null_count": 0,
+        "issue": "Sys files not readable"
+      },
+      "max_freq_ghz": {
+        "status": "NULL",
+        "non_null_count": 0,
+        "issue": "Permission issue"
+      },
+      "throttling_status": {
+        "status": "OK",
+        "non_null_count": 31,
+        "values": ["normal"]
+      }
+    }
+  },
+  "stage_compliance": {
+    "stage_1": {
+      "required_mbps": 32,
+      "phone_measured_mbps": 389.64,
+      "phone_throttled_est_mbps": 214.3,
+      "baseline_margin": 12.18,
+      "throttled_margin": 6.70,
+      "status": "COMPLIANT"
+    },
+    "stage_2": {
+      "required_mbps": 65,
+      "phone_measured_mbps": 389.64,
+      "phone_throttled_est_mbps": 214.3,
+      "baseline_margin": 5.99,
+      "throttled_margin": 3.30,
+      "status": "COMPLIANT"
+    },
+    "stage_3": {
+      "required_mbps": 114.6,
+      "phone_measured_mbps": 389.64,
+      "phone_throttled_est_mbps": 214.3,
+      "baseline_margin": 3.40,
+      "throttled_margin": 1.87,
+      "status": "COMPLIANT"
+    }
+  },
+  "k_recommendations": {
+    "k_768_status": "SAFE",
+    "k_512_status": "CONSERVATIVE",
+    "k_max_supported": 1305,
+    "k_reduction_required": false,
+    "rationale": "Current measurements exceed Stage 3 requirements even with 45% throttling penalty"
+  },
+  "raw_data_files": [
+    "iteration-1-20260808-011934.log",
+    "iteration-2-20260808-011934.log",
+    "iteration-3-20260808-011934.log",
+    "thermal-monitor-20260808-011934.csv",
+    "report-20260808-011934.md",
+    "bf-8v7nz-throttled-benchmark-analysis.md",
+    "data-summary-20260808.json"
+  ],
+  "acceptance_criteria": {
+    "thermal_state_documented": "PARTIAL",
+    "throughput_comparison": "COMPLETE",
+    "results_accessible": "COMPLETE"
+  },
+  "key_findings": [
+    "PhoneFactor=4 performance: 389.64 MB/s (3.4× Stage 3 requirement)",
+    "Desktop baseline: 1588.91 MB/s (2× improvement over previous measurements)",
+    "Phone factor validation: 4.08× actual vs 4.0× expected (within 2%)",
+    "Thermal monitoring failed: All temp/freq sensors returned NULL",
+    "Throttling status: Consistently 'normal' throughout 62s monitoring",
+    "K=768 remains safe even under 45% throttling estimate",
+    "No K reduction required for thermal throttling scenarios",
+    "Stage compliance: All stages compliant with significant margin"
+  ],
+  "recommendations": {
+    "production": [
+      "Use K=768 as standard - measurements show sufficient margin",
+      "Monitor thermal state on actual deployment devices",
+      "Implement adaptive K if devices show different thermal characteristics"
+    ],
+    "infrastructure": [
+      "Fix thermal monitoring - investigate sensor access paths",
+      "Add platform detection for different thermal monitoring methods",
+      "Implement fallback when sensors fail"
+    ],
+    "future_testing": [
+      "Repeat on actual mobile device - current data from desktop scaling",
+      "Test under sustained load for throttled behavior verification",
+      "Compare across devices to establish performance profiles"
+    ]
+  },
+  "next_priority": "Fix thermal monitoring infrastructure for actual throttled-state measurements on target devices",
+  "generated_by": "bf-8v7nz Analysis",
+  "analysis_tools": ["Python 3", "awk", "manual log extraction"],
+  "data_sources": ["3 iteration logs", "thermal monitoring CSV"],
+  "total_samples": 39
+}

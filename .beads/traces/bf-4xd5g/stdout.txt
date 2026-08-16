@@ -1,0 +1,2 @@
+{"type":"system","subtype":"hook_started","hook_id":"da209619-a734-4a05-bb7a-8881ef0067c1","hook_name":"SessionStart:startup","hook_event":"SessionStart","uuid":"458f1599-5591-41d1-bdda-3f78ed85541e","session_id":"73ea19c1-b4db-49a3-8d3a-3b0ffd6677ae"}
+{"type":"system","subtype":"hook_started","hook_id":"4738124a-363a-44e4-bbc2-63ae9241d9f5","hook_name":"SessionStart:startup","hook_event":"SessionStart","uuid":"bd554adb-8e08-4b70-972b-5440a40c0fcf","session_id":"73ea19c1-b4db-49a3-8d3a-3b0ffd6677ae"}

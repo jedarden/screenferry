@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Memory Metrics Visualizer - ScreenFerry</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+    h1 {
+      color: #333;
+      border-bottom: 2px solid #007bff;
+      padding-bottom: 10px;
+    }
+    h2 {
+      color: #555;
+      margin-top: 30px;
+    }
+    .upload-section {
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .file-input {
+      margin: 10px 0;
+    }
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 15px;
+      margin: 20px 0;
+    }
+    .stat-card {
+      background: white;
+      padding: 15px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .stat-card h3 {
+      margin: 0 0 10px 0;
+      font-size: 14px;
+      color: #666;
+      text-transform: uppercase;
+    }
+    .stat-card .value {
+      font-size: 24px;
+      font-weight: bold;
+      color: #333;
+    }
+    .stat-card.good .value { color: #28a745; }
+    .stat-card.warning .value { color: #ffc107; }
+    .statCard.error .value { color: #dc3545; }
+    .chart-container {
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      height: 400px;
+    }
+    .chart-container.large {
+      height: 500px;
+    }
+    .analysis-section {
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .leak-status {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: bold;
+      margin-left: 10px;
+    }
+    .leak-status.ok {
+      background: #d4edda;
+      color: #155724;
+    }
+    .leak-status.leaking {
+      background: #f8d7da;
+      color: #721c24;
+    }
+    .summary-text {
+      white-space: pre-wrap;
+      background: #f8f9fa;
+      padding: 15px;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 13px;
+      line-height: 1.4;
+    }
+    .hidden {
+      display: none;
+    }
+    .btn {
+      background: #007bff;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      margin-right: 10px;
+    }
+    .btn:hover {
+      background: #0056b3;
+    }
+    .btn-secondary {
+      background: #6c757d;
+    }
+    .btn-secondary:hover {
+      background: #545b62;
+    }
+  </style>
+</head>
+<body>
+  <h1>📊 Memory Metrics Visualizer</h1>
+  <p>Upload memory metrics JSON from ScreenFerry to analyze heap usage and handle growth patterns.</p>
+
+  <div class="upload-section">
+    <h2>Upload Metrics</h2>
+    <input type="file" id="fileInput" accept=".json" class="file-input">
+    <button class="btn" onclick="loadDemoData()">Load Demo Data</button>
+    <button class="btn btn-secondary" onclick="downloadTemplate()">Download Template</button>
+    <div id="uploadStatus"></div>
+  </div>
+
+  <div id="dashboard" class="hidden">
+    <h2>Session Overview</h2>
+    <div class="stats-grid">
+      <div class="stat-card">
+        <h3>Session ID</h3>
+        <div class="value" id="sessionId">-</div>
+      </div>
+      <div class="stat-card">
+        <h3>Duration</h3>
+        <div class="value" id="duration">-</div>
+      </div>
+      <div class="stat-card">
+        <h3>Samples</h3>
+        <div class="value" id="sampleCount">-</div>
+      </div>
+      <div class="stat-card">
+        <h3>Heap Range</h3>
+        <div class="value" id="heapRange">-</div>
+      </div>
+    </div>
+
+    <h2>Leak Detection <span id="leakStatus" class="leak-status"></span></h2>
+    <div class="stats-grid">
+      <div class="stat-card" id="heapLeakCard">
+        <h3>Heap Leak</h3>
+        <div class="value" id="heapLeak">-</div>
+      </div>
+      <div class="stat-card" id="arrayLeakCard">
+        <h3>Array Leak</h3>
+        <div class="value" id="arrayLeak">-</div>
+      </div>
+      <div class="stat-card" id="workerLeakCard">
+        <h3>Worker Leak</h3>
+        <div class="value" id="workerLeak">-</div>
+      </div>
+      <div class="stat-card" id="monotonicCard">
+        <h3>Monotonic Growth</h3>
+        <div class="value" id="monotonicGrowth">-</div>
+      </div>
+    </div>
+
+    <div class="analysis-section">
+      <h3>Analysis Summary</h3>
+      <div class="summary-text" id="analysisSummary"></div>
+    </div>
+
+    <h2>Heap Usage Over Time</h2>
+    <div class="chart-container large">
+      <canvas id="heapChart"></canvas>
+    </div>
+
+    <h2>Array Growth Over Time</h2>
+    <div class="chart-container">
+      <canvas id="arrayChart"></canvas>
+    </div>
+
+    <h2>Heap Growth Rate</h2>
+    <div class="chart-container">
+      <canvas id="growthRateChart"></canvas>
+    </div>
+
+    <h2>Handle Count (if available)</h2>
+    <div class="chart-container">
+      <canvas id="handleChart"></canvas>
+    </div>
+
+    <div class="analysis-section">
+      <h3>Detailed Analysis</h3>
+      <div class="summary-text" id="detailedAnalysis"></div>
+    </div>
+  </div>
+
+  <script>
+    let metricsData = null;
+    let charts = {};
+
+    // File input handler
+    document.getElementById('fileInput').addEventListener('change', function(e) {
+      const file = e.target.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = function(event) {
+          try {
+            metricsData = JSON.parse(event.target.result);
+            visualizeData(metricsData);
+            document.getElementById('uploadStatus').innerHTML =
+              '<span style="color: green;">✓ Successfully loaded: ' + file.name + '</span>';
+          } catch (error) {
+            document.getElementById('uploadStatus').innerHTML =
+              '<span style="color: red;">✗ Error parsing JSON: ' + error.message + '</span>';
+          }
+        };
+        reader.readAsText(file);
+      }
+    });
+
+    // Load demo data for testing
+    function loadDemoData() {
+      const demoData = generateDemoData();
+      metricsData = demoData;
+      visualizeData(demoData);
+      document.getElementById('uploadStatus').innerHTML =
+        '<span style="color: green;">✓ Demo data loaded</span>';
+    }
+
+    // Generate realistic demo data
+    function generateDemoData() {
+      const snapshots = [];
+      const baseHeap = 50 * 1024 * 1024; // 50MB baseline
+      const leakRate = 50 * 1024; // 50KB leak per sample
+      const duration = 600; // 10 minutes at 1 sample/sec
+      const sampleInterval = 60; // Sample every 60 frames
+
+      for (let i = 0; i < duration; i++) {
+        const time = i * 1000; // milliseconds
+        const frameIndex = i * sampleInterval;
+
+        // Simulate leak with some noise
+        const leakAmount = i * leakRate;
+        const noise = (Math.random() - 0.5) * 10 * 1024 * 1024; // ±5MB noise
+        const heapUsed = baseHeap + leakAmount + noise;
+
+        snapshots.push({
+          timestamp: Date.now() + time,
+          frameIndex: frameIndex,
+          heapSize: 200 * 1024 * 1024,
+          heapUsed: Math.max(0, heapUsed),
+          heapLimit: 200 * 1024 * 1024,
+          frameTimestampsCount: 100 + Math.floor(i * 0.5), // Simulate array growth
+          decodeLatenciesCount: 1000,
+          packetsPerFrameCount: 50,
+          inFlightFrames: Math.floor(Math.random() * 4),
+          workerCount: 4,
+          heapGrowthRate: leakRate / sampleInterval,
+          avgGrowthRate: leakAmount / (i / 60), // per second average
+          sessionTime: i
+        });
+      }
+
+      return {
+        sessionId: 'demo-session-leak-example',
+        config: {
+          sampleInterval: sampleInterval,
+          maxSnapshots: 1000,
+          trackArrays: true,
+          trackWorkers: true,
+          trackHandles: true,
+          frameRate: 30
+        },
+        snapshots: snapshots,
+        analysis: {
+          leakDetection: {
+            hasHeapLeak: true,
+            hasArrayLeak: true,
+            hasWorkerLeak: false,
+            details: 'Heap: 50.00 MB → 347.32 MB (297.32 MB over 600.0s = 495.53 KB/s)\nArrays: timestamps 100 → 400 (+300), latencies 1000 → 1000 (+0), packets 50 → 50 (+0)\nWorkers: in-flight 0 → 3 (+3)'
+          },
+          monotonicGrowth: {
+            hasMonotonicHeapGrowth: true,
+            hasMonotonicHandleGrowth: false,
+            heapGrowthTrend: 'increasing',
+            handleGrowthTrend: 'stable',
+            slopePerSecond: 51200,
+            confidence: 'high',
+            details: '📈 Heap Trend: INCREASING (50.00 KB/s)\nConfidence: HIGH\nDuration: 600.0s\nSamples: 10'
+          }
+        },
+        exportTimestamp: Date.now()
+      };
+    }
+
+    // Download template JSON
+    function downloadTemplate() {
+      const template = {
+        sessionId: 'session-template',
+        config: {
+          sampleInterval: 100,
+          maxSnapshots: 1000,
+          trackArrays: true,
+          trackWorkers: true,
+          trackHandles: true,
+          frameRate: 30
+        },
+        snapshots: [],
+        analysis: {},
+        exportTimestamp: Date.now()
+      };
+
+      const blob = new Blob([JSON.stringify(template, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'memory-metrics-template.json';
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    // Main visualization function
+    function visualizeData(data) {
+      document.getElementById('dashboard').classList.remove('hidden');
+
+      // Session overview
+      document.getElementById('sessionId').textContent = data.sessionId || 'Unknown';
+      document.getElementById('sampleCount').textContent = data.snapshots.length;
+
+      if (data.snapshots.length > 0) {
+        const first = data.snapshots[0];
+        const last = data.snapshots[data.snapshots.length - 1];
+        const duration = ((last.timestamp - first.timestamp) / 1000).toFixed(1);
+        document.getElementById('duration').textContent = duration + 's';
+
+        const heapMin = Math.min(...data.snapshots.map(s => s.heapUsed)) / (1024 * 1024);
+        const heapMax = Math.max(...data.snapshots.map(s => s.heapUsed)) / (1024 * 1024);
+        document.getElementById('heapRange').textContent =
+          heapMin.toFixed(1) + ' - ' + heapMax.toFixed(1) + ' MB';
+      }
+
+      // Leak detection status
+      const analysis = data.analysis?.monotonicGrowth || data.analysis?.leakDetection || {};
+      const hasLeak = analysis.hasMonotonicHeapGrowth || analysis.hasHeapLeak;
+
+      const leakStatus = document.getElementById('leakStatus');
+      leakStatus.textContent = hasLeak ? 'LEAKING' : 'OK';
+      leakStatus.className = 'leak-status ' + (hasLeak ? 'leaking' : 'ok');
+
+      // Individual leak indicators
+      updateLeakCard('heapLeak', analysis.hasHeapLeak || analysis.hasMonotonicHeapGrowth);
+      updateLeakCard('arrayLeak', analysis.hasArrayLeak);
+      updateLeakCard('workerLeak', analysis.hasWorkerLeak);
+      updateLeakCard('monotonicGrowth', analysis.hasMonotonicHeapGrowth);
+
+      // Analysis summary
+      if (data.analysis?.monotonicGrowth?.details) {
+        document.getElementById('analysisSummary').textContent = data.analysis.monotonicGrowth.details;
+      } else if (data.analysis?.leakDetection?.details) {
+        document.getElementById('analysisSummary').textContent = data.analysis.leakDetection.details;
+      }
+
+      // Detailed analysis
+      let detailed = '';
+      detailed += 'Session Configuration:\n';
+      detailed += `- Sample Interval: ${data.config?.sampleInterval || 'N/A'} frames\n`;
+      detailed += `- Frame Rate: ${data.config?.frameRate || 'N/A'} fps\n`;
+      detailed += `- Arrays Tracked: ${data.config?.trackArrays ? 'Yes' : 'No'}\n`;
+      detailed += `- Workers Tracked: ${data.config?.trackWorkers ? 'Yes' : 'No'}\n`;
+      detailed += `- Handles Tracked: ${data.config?.trackHandles ? 'Yes' : 'No'}\n\n`;
+
+      if (data.snapshots.length > 0) {
+        const first = data.snapshots[0];
+        const last = data.snapshots[data.snapshots.length - 1];
+        const heapGrowth = (last.heapUsed - first.heapUsed) / (1024 * 1024);
+        const timeSpan = ((last.timestamp - first.timestamp) / 1000).toFixed(1);
+
+        detailed += 'Key Findings:\n';
+        detailed += `- Total Heap Growth: ${heapGrowth.toFixed(2)} MB over ${timeSpan}s\n`;
+        detailed += `- Average Growth Rate: ${(heapGrowth / parseFloat(timeSpan)).toFixed(2)} MB/s\n`;
+
+        if (analysis.hasMonotonicHeapGrowth) {
+          detailed += `- ⚠️ MONOTONIC GROWTH DETECTED\n`;
+          detailed += `- Growth Trend: ${analysis.heapGrowthTrend || 'Unknown'}\n`;
+          detailed += `- Confidence: ${analysis.confidence || 'Unknown'}\n`;
+          detailed += `- Slope: ${((analysis.slopePerSecond || 0) / 1024).toFixed(2)} KB/s\n`;
+        } else {
+          detailed += `- ✅ No monotonic growth detected\n`;
+        }
+
+        // Array growth analysis
+        const timestampsGrowth = last.frameTimestampsCount - first.frameTimestampsCount;
+        const latenciesGrowth = last.decodeLatenciesCount - first.decodeLatenciesCount;
+        detailed += `\nArray Growth:\n`;
+        detailed += `- Frame Timestamps: ${first.frameTimestampsCount} → ${last.frameTimestampsCount} (+${timestampsGrowth})\n`;
+        detailed += `- Decode Latencies: ${first.decodeLatenciesCount} → ${last.decodeLatenciesCount} (+${latenciesGrowth})\n`;
+      }
+
+      document.getElementById('detailedAnalysis').textContent = detailed;
+
+      // Create charts
+      createHeapChart(data.snapshots);
+      createArrayChart(data.snapshots);
+      createGrowthRateChart(data.snapshots);
+      createHandleChart(data.snapshots);
+    }
+
+    function updateLeakCard(id, hasLeak) {
+      const card = document.getElementById(id + 'Card');
+      const value = document.getElementById(id);
+
+      if (hasLeak === undefined) {
+        value.textContent = 'Unknown';
+        card.className = 'stat-card';
+      } else if (hasLeak) {
+        value.textContent = '❌ LEAKING';
+        card.className = 'stat-card error';
+      } else {
+        value.textContent = '✅ OK';
+        card.className = 'stat-card good';
+      }
+    }
+
+    function createHeapChart(snapshots) {
+      const ctx = document.getElementById('heapChart').getContext('2d');
+
+      if (charts.heap) charts.heap.destroy();
+
+      const times = snapshots.map(s => (s.sessionTime || 0).toFixed(0));
+      const heapData = snapshots.map(s => (s.heapUsed / (1024 * 1024)).toFixed(2));
+
+      charts.heap = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: times,
+          datasets: [{
+            label: 'Heap Usage (MB)',
+            data: heapData,
+            borderColor: 'rgb(75, 192, 192)',
+            backgroundColor: 'rgba(75, 192, 192, 0.1)',
+            tension: 0.1,
+            fill: true
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            tooltip: {
+              mode: 'index',
+              intersect: false
+            }
+          },
+          scales: {
+            x: {
+              title: {
+                display: true,
+                text: 'Session Time (s)'
+              }
+            },
+            y: {
+              title: {
+                display: true,
+                text: 'Heap Usage (MB)'
+              }
+            }
+          }
+        }
+      });
+    }
+
+    function createArrayChart(snapshots) {
+      const ctx = document.getElementById('arrayChart').getContext('2d');
+
+      if (charts.array) charts.array.destroy();
+
+      const times = snapshots.map(s => (s.sessionTime || 0).toFixed(0));
+      const timestampsData = snapshots.map(s => s.frameTimestampsCount);
+      const latenciesData = snapshots.map(s => s.decodeLatenciesCount);
+
+      charts.array = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: times,
+          datasets: [{
+            label: 'Frame Timestamps Count',
+            data: timestampsData,
+            borderColor: 'rgb(255, 99, 132)',
+            backgroundColor: 'rgba(255, 99, 132, 0.1)',
+            tension: 0.1
+          }, {
+            label: 'Decode Latencies Count',
+            data: latenciesData,
+            borderColor: 'rgb(54, 162, 235)',
+            backgroundColor: 'rgba(54, 162, 235, 0.1)',
+            tension: 0.1
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            tooltip: {
+              mode: 'index',
+              intersect: false
+            }
+          },
+          scales: {
+            x: {
+              title: {
+                display: true,
+                text: 'Session Time (s)'
+              }
+            },
+            y: {
+              title: {
+                display: true,
+                text: 'Array Size'
+              }
+            }
+          }
+        }
+      });
+    }
+
+    function createGrowthRateChart(snapshots) {
+      const ctx = document.getElementById('growthRateChart').getContext('2d');
+
+      if (charts.growthRate) charts.growthRate.destroy();
+
+      const times = snapshots.map(s => (s.sessionTime || 0).toFixed(0));
+      const growthRates = snapshots.map(s => (s.heapGrowthRate / 1024).toFixed(2)); // KB/frame
+
+      charts.growthRate = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: times,
+          datasets: [{
+            label: 'Heap Growth Rate (KB/frame)',
+            data: growthRates,
+            borderColor: 'rgb(255, 159, 64)',
+            backgroundColor: 'rgba(255, 159, 64, 0.1)',
+            tension: 0.1,
+            fill: true
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            tooltip: {
+              mode: 'index',
+              intersect: false
+            }
+          },
+          scales: {
+            x: {
+              title: {
+                display: true,
+                text: 'Session Time (s)'
+              }
+            },
+            y: {
+              title: {
+                display: true,
+                text: 'Growth Rate (KB/frame)'
+              }
+            }
+          }
+        }
+      });
+    }
+
+    function createHandleChart(snapshots) {
+      const ctx = document.getElementById('handleChart').getContext('2d');
+
+      if (charts.handle) charts.handle.destroy();
+
+      // Filter snapshots that have handle data
+      const withHandles = snapshots.filter(s => s.handleCount !== undefined);
+
+      if (withHandles.length === 0) {
+        document.getElementById('handleChart').parentElement.style.display = 'none';
+        return;
+      }
+
+      document.getElementById('handleChart').parentElement.style.display = 'block';
+
+      const times = withHandles.map(s => (s.sessionTime || 0).toFixed(0));
+      const handleData = withHandles.map(s => s.handleCount);
+
+      charts.handle = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: times,
+          datasets: [{
+            label: 'Handle Count',
+            data: handleData,
+            borderColor: 'rgb(153, 102, 255)',
+            backgroundColor: 'rgba(153, 102, 255, 0.1)',
+            tension: 0.1,
+            fill: true
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            tooltip: {
+              mode: 'index',
+              intersect: false
+            }
+          },
+          scales: {
+            x: {
+              title: {
+                display: true,
+                text: 'Session Time (s)'
+              }
+            },
+            y: {
+              title: {
+                display: true,
+                text: 'Handle Count'
+              }
+            }
+          }
+        }
+      });
+    }
+  </script>
+</body>
+</html>
